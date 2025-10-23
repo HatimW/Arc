@@ -6549,6 +6549,7 @@ body.map-toolbox-dragging {
 }
 
 .exam-card {
+  --exam-card-menu-gap: 0px;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -6560,6 +6561,7 @@ body.map-toolbox-dragging {
   box-shadow: 0 26px 52px rgba(2, 6, 23, 0.5);
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
   overflow: visible;
+  margin-bottom: calc(var(--pad) + var(--exam-card-menu-gap));
 }
 
 .exam-card--row {
@@ -6576,6 +6578,10 @@ body.map-toolbox-dragging {
 .exam-card--expanded {
   border-color: rgba(56, 189, 248, 0.45);
   box-shadow: 0 32px 64px rgba(2, 6, 23, 0.62);
+}
+
+.exam-card--menu-open {
+  z-index: 5;
 }
 
 .exam-card-header {

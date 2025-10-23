@@ -1232,6 +1232,24 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
   menuPanel.setAttribute('role', 'menu');
   menuWrap.appendChild(menuPanel);
 
+  let menuGapRaf = null;
+  const updateMenuGap = () => {
+    if (!menuOpen) return;
+    const panelRect = menuPanel.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const overflow = Math.max(0, Math.ceil(panelRect.bottom - cardRect.bottom));
+    const gap = overflow + 16;
+    card.style.setProperty('--exam-card-menu-gap', `${gap}px`);
+  };
+
+  const clearMenuGap = () => {
+    if (menuGapRaf != null) {
+      cancelAnimationFrame(menuGapRaf);
+      menuGapRaf = null;
+    }
+    card.style.removeProperty('--exam-card-menu-gap');
+  };
+
   let menuOpen = false;
   const handleOutside = event => {
     if (!menuOpen) return;
@@ -1257,23 +1275,33 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
   function openMenu() {
     if (menuOpen) return;
     menuOpen = true;
+    card.classList.add('exam-card--menu-open');
     menuWrap.classList.add('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'true');
     menuPanel.setAttribute('aria-hidden', 'false');
+    updateMenuGap();
+    menuGapRaf = requestAnimationFrame(() => {
+      menuGapRaf = null;
+      updateMenuGap();
+    });
     document.addEventListener('click', handleOutside, true);
     document.addEventListener('keydown', handleKeydown, true);
     document.addEventListener('focusin', handleFocus, true);
+    window.addEventListener('resize', updateMenuGap);
   }
 
   function closeMenu() {
     if (!menuOpen) return;
     menuOpen = false;
+    card.classList.remove('exam-card--menu-open');
     menuWrap.classList.remove('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuPanel.setAttribute('aria-hidden', 'true');
     document.removeEventListener('click', handleOutside, true);
     document.removeEventListener('keydown', handleKeydown, true);
     document.removeEventListener('focusin', handleFocus, true);
+    window.removeEventListener('resize', updateMenuGap);
+    clearMenuGap();
   }
 
   menuToggle.addEventListener('click', event => {
