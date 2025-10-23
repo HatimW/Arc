@@ -1,9 +1,9 @@
 import { normalizeLectureRecord } from './lecture-schema.js';
 import { deepClone } from '../utils.js';
 
-const DB_NAME = 'sevenn-db';
+const DB_NAME = 'arc-db';
 const DB_VERSION = 5;
-const MEMORY_STORAGE_KEY = 'sevenn-memory-db';
+const MEMORY_STORAGE_KEY = 'arc-memory-db';
 
 const STORE_KEY_PATHS = {
   items: 'id',
