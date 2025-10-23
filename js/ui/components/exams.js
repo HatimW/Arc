@@ -1258,6 +1258,7 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     if (menuOpen) return;
     menuOpen = true;
     menuWrap.classList.add('exam-card-menu--open');
+    card.classList.add('exam-card--menu-open');
     menuToggle.setAttribute('aria-expanded', 'true');
     menuPanel.setAttribute('aria-hidden', 'false');
     document.addEventListener('click', handleOutside, true);
@@ -1269,6 +1270,7 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     if (!menuOpen) return;
     menuOpen = false;
     menuWrap.classList.remove('exam-card-menu--open');
+    card.classList.remove('exam-card--menu-open');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuPanel.setAttribute('aria-hidden', 'true');
     document.removeEventListener('click', handleOutside, true);
@@ -1584,7 +1586,17 @@ function renderQuestionMap(sidebar, sess, render) {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'question-map__item';
-    item.textContent = String(idx + 1);
+    const number = document.createElement('span');
+    number.className = 'question-map__number';
+    number.textContent = String(idx + 1);
+    item.appendChild(number);
+
+    const flagIcon = document.createElement('span');
+    flagIcon.className = 'question-map__flag';
+    flagIcon.setAttribute('aria-hidden', 'true');
+    flagIcon.textContent = '🚩';
+    item.appendChild(flagIcon);
+
     const isCurrent = sess.idx === idx;
     item.classList.toggle('is-current', isCurrent);
     item.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
@@ -1597,6 +1609,7 @@ function renderQuestionMap(sidebar, sess, render) {
     const answer = answers[idx];
     const answered = answer != null && question.options.some(opt => opt.id === answer);
     const tooltipParts = [];
+    const ariaParts = [`Question ${idx + 1}`];
     let status = 'unanswered';
     const wasChecked = !isReview && Boolean(sess.checked?.[idx]);
 
@@ -1604,10 +1617,13 @@ function renderQuestionMap(sidebar, sess, render) {
       if (answered) {
         const isCorrect = answer === question.answer;
         status = isCorrect ? 'correct' : 'incorrect';
-        tooltipParts.push(isCorrect ? 'Answered correctly' : 'Answered incorrectly');
+        const label = isCorrect ? 'Answered correctly' : 'Answered incorrectly';
+        tooltipParts.push(label);
+        ariaParts.push(label);
       } else {
         status = 'review-unanswered';
         tooltipParts.push('Not answered');
+        ariaParts.push('Not answered');
       }
 
       const stat = statsList[idx];
@@ -1617,27 +1633,35 @@ function renderQuestionMap(sidebar, sess, render) {
         if (changeDetails.direction === 'right-to-wrong') {
           item.dataset.changeDirection = 'right-to-wrong';
           tooltipParts.push('Changed from correct to incorrect');
+          ariaParts.push('Changed from correct to incorrect');
         } else if (changeDetails.direction === 'wrong-to-right') {
           item.dataset.changeDirection = 'wrong-to-right';
           tooltipParts.push('Changed from incorrect to correct');
+          ariaParts.push('Changed from incorrect to correct');
         } else {
           item.dataset.changeDirection = 'changed';
           tooltipParts.push('Changed answer');
+          ariaParts.push('Changed answer');
         }
       } else if (changeDetails.switched) {
         item.dataset.changeDirection = 'returned';
         tooltipParts.push('Changed answers but returned to start');
+        ariaParts.push('Changed answers but returned to start');
       }
     } else {
       if (wasChecked && answered) {
         const isCorrect = answer === question.answer;
         status = isCorrect ? 'correct' : 'incorrect';
         tooltipParts.push(isCorrect ? 'Checked correct' : 'Checked incorrect');
+        ariaParts.push(isCorrect ? 'Checked correct' : 'Checked incorrect');
       } else if (answered) {
         status = 'answered';
         tooltipParts.push('Answered');
+        ariaParts.push('Answered');
       } else {
-        tooltipParts.push(wasChecked ? 'Checked without answer' : 'Not answered');
+        const label = wasChecked ? 'Checked without answer' : 'Not answered';
+        tooltipParts.push(label);
+        ariaParts.push(label);
       }
     }
 
@@ -1653,15 +1677,26 @@ function renderQuestionMap(sidebar, sess, render) {
       item.classList.add('is-review-unanswered');
     }
 
-    if (flaggedSet.has(idx)) {
-      item.dataset.flagged = 'true';
-    } else {
-      item.dataset.flagged = 'false';
+    const flagged = flaggedSet.has(idx);
+    item.dataset.flagged = flagged ? 'true' : 'false';
+    if (flagged) {
+      tooltipParts.push('Flagged');
+      ariaParts.push('Flagged');
+    }
+
+    if (isCurrent) {
+      const label = 'Current question';
+      tooltipParts.push(label);
+      ariaParts.push(label);
     }
 
     if (tooltipParts.length) {
       item.title = tooltipParts.join(' · ');
+    } else {
+      item.removeAttribute('title');
     }
+
+    item.setAttribute('aria-label', ariaParts.join('. '));
 
     item.addEventListener('click', () => {
       navigateToQuestion(sess, idx, render);
