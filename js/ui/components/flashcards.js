@@ -4,7 +4,7 @@ import { renderRichText } from './rich-text.js';
 import { sectionsForItem } from './section-utils.js';
 import { openEditor } from './editor.js';
 import { REVIEW_RATINGS, DEFAULT_REVIEW_STEPS } from '../../review/constants.js';
-import { getReviewDurations, rateSection, getSectionStateSnapshot } from '../../review/scheduler.js';
+import { getReviewDurations, rateSection, getSectionStateSnapshot, projectSectionRating } from '../../review/scheduler.js';
 import { upsertItem } from '../../storage/storage.js';
 import { persistStudySession, removeStudySession } from '../../study/study-sessions.js';
 
@@ -29,6 +29,20 @@ const RATING_CLASS = {
   good: '',
   easy: ''
 };
+
+
+function formatReviewInterval(minutes) {
+  if (!Number.isFinite(minutes) || minutes <= 0) return 'Now';
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'}`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months} mo`;
+  const years = Math.round(months / 12);
+  return `${years} yr`;
+}
 
 
 function getFlashcardAccent(item) {
@@ -243,6 +257,37 @@ export function renderFlashcards(root, redraw) {
 
     };
 
+    const ratingPreviews = new Map();
+
+    const updatePreviews = (durations) => {
+      if (!durations) return;
+      const nowTs = Date.now();
+      REVIEW_RATINGS.forEach(ratingValue => {
+        const target = ratingPreviews.get(ratingValue);
+        if (!target) return;
+        try {
+          const projection = projectSectionRating(item, key, ratingValue, durations, nowTs);
+          if (!projection || !Number.isFinite(projection.due)) {
+            target.textContent = '';
+            return;
+          }
+          const minutes = Math.max(0, Math.round((projection.due - nowTs) / (60 * 1000)));
+          target.textContent = formatReviewInterval(minutes);
+        } catch (err) {
+          target.textContent = '';
+        }
+      });
+    };
+
+    const renderPreviews = async () => {
+      try {
+        const durations = await durationsPromise;
+        updatePreviews(durations);
+      } catch (err) {
+        // ignore preview failures
+      }
+    };
+
     const handleRating = async (value) => {
       if (ratingLocked) return;
 
@@ -257,6 +302,7 @@ export function renderFlashcards(root, redraw) {
         selectRating(value);
         status.textContent = 'Saved';
         status.classList.remove('is-error');
+        updatePreviews(durations);
       } catch (err) {
         console.error('Failed to record rating', err);
         status.textContent = 'Save failed';
@@ -274,8 +320,15 @@ export function renderFlashcards(root, redraw) {
       btn.className = 'flash-rating-btn';
       const variant = RATING_CLASS[value];
       if (variant) btn.classList.add(variant);
-      btn.textContent = RATING_LABELS[value];
       btn.setAttribute('aria-pressed', 'false');
+      const label = document.createElement('span');
+      label.className = 'flash-rating-label';
+      label.textContent = RATING_LABELS[value];
+      const preview = document.createElement('span');
+      preview.className = 'flash-rating-preview';
+      btn.appendChild(label);
+      btn.appendChild(preview);
+      ratingPreviews.set(value, preview);
       btn.addEventListener('click', (event) => {
         event.stopPropagation();
         handleRating(value);
@@ -289,6 +342,8 @@ export function renderFlashcards(root, redraw) {
       });
       ratingButtons.appendChild(btn);
     });
+
+    renderPreviews();
 
     const unlockRating = () => {
       if (!ratingLocked) return;

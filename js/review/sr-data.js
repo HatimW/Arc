@@ -1,4 +1,4 @@
-import { REVIEW_RATINGS, RETIRE_RATING } from './constants.js';
+import { REVIEW_RATINGS, RETIRE_RATING, DEFAULT_REVIEW_STEPS } from './constants.js';
 
 export const SR_VERSION = 2;
 
@@ -15,8 +15,15 @@ export function defaultSectionState() {
     last: 0,
     due: 0,
     retired: false,
+    suspended: false,
     contentDigest: null,
-    lectureScope: []
+    lectureScope: [],
+    interval: 0,
+    ease: DEFAULT_REVIEW_STEPS.startingEase,
+    lapses: 0,
+    learningStepIndex: 0,
+    phase: 'new',
+    pendingInterval: 0
   };
 }
 
@@ -35,6 +42,9 @@ export function normalizeSectionRecord(record) {
   base.last = sanitizeNumber(record.last, 0);
   base.due = sanitizeNumber(record.due, 0);
   base.retired = Boolean(record.retired);
+  if (typeof record.suspended === 'boolean') {
+    base.suspended = record.suspended;
+  }
   if (typeof record.contentDigest === 'string' && record.contentDigest) {
     base.contentDigest = record.contentDigest;
   }
@@ -43,6 +53,28 @@ export function normalizeSectionRecord(record) {
       .map(entry => (typeof entry === 'string' ? entry.trim() : ''))
       .filter(Boolean);
     base.lectureScope = Array.from(new Set(normalizedScope)).sort();
+  }
+  if (typeof record.interval === 'number' && Number.isFinite(record.interval) && record.interval >= 0) {
+    base.interval = Math.max(0, record.interval);
+  }
+  if (typeof record.ease === 'number' && Number.isFinite(record.ease) && record.ease > 0) {
+    base.ease = record.ease;
+  }
+  if (typeof record.lapses === 'number' && Number.isFinite(record.lapses) && record.lapses >= 0) {
+    base.lapses = Math.max(0, Math.round(record.lapses));
+  }
+  if (typeof record.learningStepIndex === 'number' && Number.isFinite(record.learningStepIndex) && record.learningStepIndex >= 0) {
+    base.learningStepIndex = Math.max(0, Math.round(record.learningStepIndex));
+  }
+  if (typeof record.phase === 'string') {
+    const phase = record.phase.trim();
+    const allowed = ['new', 'learning', 'review', 'relearning', 'suspended'];
+    if (allowed.includes(phase)) {
+      base.phase = phase;
+    }
+  }
+  if (typeof record.pendingInterval === 'number' && Number.isFinite(record.pendingInterval) && record.pendingInterval >= 0) {
+    base.pendingInterval = Math.max(0, record.pendingInterval);
   }
   return base;
 }

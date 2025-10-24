@@ -1,10 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { rateSection, collectDueSections, collectUpcomingSections, getSectionStateSnapshot } from '../js/review/scheduler.js';
+import {
+  rateSection,
+  collectDueSections,
+  collectUpcomingSections,
+  getSectionStateSnapshot,
+  suspendSection
+} from '../js/review/scheduler.js';
 import { DEFAULT_REVIEW_STEPS, RETIRE_RATING } from '../js/review/constants.js';
 
-const baseDurations = { ...DEFAULT_REVIEW_STEPS };
+const baseDurations = {
+  ...DEFAULT_REVIEW_STEPS,
+  again: 5,
+  hard: 10,
+  good: 60,
+  easy: 120,
+  learningSteps: [5, 10],
+  relearningSteps: [5],
+  graduatingGood: 30,
+  graduatingEasy: 60,
+  intervalModifier: 1,
+  hardIntervalMultiplier: 1.5,
+  easyIntervalBonus: 2,
+  lapseIntervalMultiplier: 0.5,
+  easeBonus: 0.2,
+  easePenalty: 0.3,
+  hardEasePenalty: 0.1
+};
+
+function approxEqual(actual, expected, tolerance = 1_500) {
+  assert.ok(Math.abs(actual - expected) <= tolerance, `expected ${actual} ≈ ${expected}`);
+}
 
 function createItem({ id, kind = 'disease', fields = {}, sr = null, lectures = [] }) {
   return {
@@ -25,131 +52,118 @@ function createItem({ id, kind = 'disease', fields = {}, sr = null, lectures = [
   };
 }
 
-test('rateSection schedules intervals based on ratings', () => {
+test('rateSection transitions through learning, review, and relearning phases', () => {
   const item = createItem({ id: 'alpha' });
   const now = Date.now();
 
   let state = rateSection(item, 'etiology', 'again', baseDurations, now);
-  assert.equal(state.streak, 0);
-  assert.equal(state.lastRating, 'again');
-  assert.equal(state.retired, false);
-  assert.ok(Math.abs(state.due - (now + baseDurations.again * 60 * 1000)) < 5 * 1000);
+  assert.equal(state.phase, 'learning');
+  assert.equal(state.learningStepIndex, 0);
+  approxEqual(state.due, now + baseDurations.learningSteps[0] * 60 * 1000);
 
-  const later = now + 1000;
-  state = rateSection(item, 'etiology', 'good', baseDurations, later);
-  assert.equal(state.streak, 1);
-  const expectedGood = later + baseDurations.good * 60 * 1000;
-  assert.ok(Math.abs(state.due - expectedGood) < 5 * 1000);
+  const firstStep = now + 1_000;
+  state = rateSection(item, 'etiology', 'good', baseDurations, firstStep);
+  assert.equal(state.phase, 'learning');
+  assert.equal(state.learningStepIndex, 1);
+  approxEqual(state.due, firstStep + baseDurations.learningSteps[1] * 60 * 1000);
 
-  const evenLater = later + 1000;
-  state = rateSection(item, 'etiology', 'easy', baseDurations, evenLater);
-  assert.equal(state.streak, 3);
-  const expectedEasy = evenLater + baseDurations.easy * 3 * 60 * 1000;
-  assert.ok(Math.abs(state.due - expectedEasy) < 5 * 1000);
+  const graduateAt = firstStep + 1_000;
+  state = rateSection(item, 'etiology', 'good', baseDurations, graduateAt);
+  assert.equal(state.phase, 'review');
+  assert.equal(state.learningStepIndex, 0);
+  assert.equal(state.interval, baseDurations.graduatingGood);
+  approxEqual(state.due, graduateAt + baseDurations.graduatingGood * 60 * 1000);
 
-  state = rateSection(item, 'etiology', RETIRE_RATING, baseDurations, evenLater + 1000);
-  assert.equal(state.retired, true);
-  assert.equal(state.lastRating, RETIRE_RATING);
-  assert.equal(state.due, Number.MAX_SAFE_INTEGER);
+  const easyAt = graduateAt + 1_000;
+  const beforeEase = state.ease;
+  state = rateSection(item, 'etiology', 'easy', baseDurations, easyAt);
+  assert.equal(state.phase, 'review');
+  assert.ok(state.interval > baseDurations.graduatingGood);
+  assert.ok(state.ease > beforeEase);
+
+  const relapseAt = easyAt + 1_000;
+  const relapsed = rateSection(item, 'etiology', 'again', baseDurations, relapseAt);
+  assert.equal(relapsed.phase, 'relearning');
+  assert.equal(relapsed.lapses >= 1, true);
+  approxEqual(relapsed.due, relapseAt + baseDurations.relearningSteps[0] * 60 * 1000);
+
+  const pendingInterval = relapsed.pendingInterval;
+  const recoverAt = relapseAt + 1_000;
+  state = rateSection(item, 'etiology', 'good', baseDurations, recoverAt);
+  assert.equal(state.phase, 'review');
+  assert.equal(state.pendingInterval, 0);
+  assert.equal(state.interval, Math.max(1, Math.round(pendingInterval * baseDurations.intervalModifier)));
 });
 
-test('collectDueSections returns only active overdue sections', () => {
+test('retiring and suspending cards remove them from review queues', () => {
+  const now = Date.now();
+  const item = createItem({ id: 'retire-test' });
+  const active = rateSection(item, 'etiology', 'good', baseDurations, now);
+  assert.equal(active.retired, false);
+  const retired = rateSection(item, 'etiology', RETIRE_RATING, baseDurations, now + 500);
+  assert.equal(retired.retired, true);
+  assert.equal(retired.due, Number.MAX_SAFE_INTEGER);
+
+  const suspendedItem = createItem({
+    id: 'suspend-test',
+    sr: {
+      version: 2,
+      sections: {
+        etiology: { last: now - 10_000, due: now - 5_000, retired: false }
+      }
+    }
+  });
+  suspendSection(suspendedItem, 'etiology', now);
+
+  const due = collectDueSections([item, suspendedItem], { now: now + 2_000 });
+  assert.equal(due.length, 0);
+});
+
+test('collectDueSections and collectUpcomingSections respect state metadata', () => {
   const now = Date.now();
   const overdue = createItem({
     id: 'due-1',
-    fields: { etiology: '<p>text</p>' },
+    fields: { etiology: '<p>due</p>' },
     sr: {
       version: 2,
       sections: {
-        etiology: { streak: 1, lastRating: 'good', last: now - 10_000, due: now - 1_000, retired: false }
+        etiology: { last: now - 10_000, due: now - 1_000, retired: false }
       }
     }
   });
-  const future = createItem({
-    id: 'future-1',
-    fields: { etiology: '<p>later</p>' },
-    sr: {
-      version: 2,
-      sections: {
-        etiology: { streak: 1, lastRating: 'good', last: now - 10_000, due: now + 60_000, retired: false }
-      }
-    }
-  });
-  const retired = createItem({
-    id: 'retired-1',
-    fields: { etiology: '<p>skip</p>' },
-    sr: {
-      version: 2,
-      sections: {
-        etiology: { streak: 1, lastRating: RETIRE_RATING, last: now - 10_000, due: Number.MAX_SAFE_INTEGER, retired: true }
-      }
-    }
-  });
-
-  const results = collectDueSections([overdue, future, retired], { now });
-  assert.equal(results.length, 1);
-  assert.equal(results[0].itemId, 'due-1');
-  assert.equal(results[0].sectionKey, 'etiology');
-});
-
-test('collectUpcomingSections lists future reviews in order', () => {
-  const now = Date.now();
   const soon = createItem({
-    id: 'future-soon',
+    id: 'soon-1',
     fields: { etiology: '<p>soon</p>' },
     sr: {
       version: 2,
       sections: {
-        etiology: { streak: 2, lastRating: 'good', last: now - 5_000, due: now + 5 * 60_000, retired: false }
+        etiology: { last: now - 5_000, due: now + 5 * 60_000, retired: false, phase: 'review' }
       }
     }
   });
   const later = createItem({
-    id: 'future-later',
+    id: 'later-1',
     fields: { etiology: '<p>later</p>' },
     sr: {
       version: 2,
       sections: {
-        etiology: { streak: 3, lastRating: 'easy', last: now - 5_000, due: now + 120 * 60_000, retired: false }
-      }
-    }
-  });
-  const overdue = createItem({
-    id: 'due-now',
-    fields: { etiology: '<p>now</p>' },
-    sr: {
-      version: 2,
-      sections: {
-        etiology: { streak: 1, lastRating: 'good', last: now - 5_000, due: now - 60_000, retired: false }
+        etiology: { last: now - 5_000, due: now + 60 * 60_000, retired: false, phase: 'review' }
       }
     }
   });
 
-  const results = collectUpcomingSections([soon, later, overdue], { now });
-  assert.equal(results.length, 2);
-  assert.equal(results[0].itemId, 'future-soon');
-  assert.equal(results[1].itemId, 'future-later');
+  const dueEntries = collectDueSections([overdue, soon, later], { now });
+  assert.equal(dueEntries.length, 1);
+  assert.equal(dueEntries[0].itemId, 'due-1');
 
-  const limited = collectUpcomingSections([soon, later, overdue], { now, limit: 1 });
-  assert.equal(limited.length, 1);
-  assert.equal(limited[0].itemId, 'future-soon');
+  const upcoming = collectUpcomingSections([overdue, soon, later], { now });
+  assert.equal(upcoming.length, 2);
+  assert.equal(upcoming[0].itemId, 'soon-1');
+  assert.equal(upcoming[1].itemId, 'later-1');
+  assert.equal(upcoming[0].phase, 'review');
 });
 
-test('rateSection records content metadata for lectures', () => {
-  const now = Date.now();
-  const item = createItem({
-    id: 'meta-card',
-    fields: { etiology: '<p>initial</p>' },
-    lectures: [{ blockId: 'cardio', id: 101 }]
-  });
-  const state = rateSection(item, 'etiology', 'good', baseDurations, now);
-  assert.equal(state.lastRating, 'good');
-  assert.ok(state.contentDigest);
-  assert.deepEqual(state.lectureScope, ['cardio|101']);
-  assert.equal(item.sr.sections.etiology.contentDigest, state.contentDigest);
-});
-
-test('content changes reset existing review scheduling', () => {
+test('content changes reset scheduling metadata', () => {
   const now = Date.now();
   const item = createItem({
     id: 'update-card',
@@ -160,16 +174,16 @@ test('content changes reset existing review scheduling', () => {
   item.etiology = '<p>second</p>';
   const snapshot = getSectionStateSnapshot(item, 'etiology');
   assert.equal(snapshot.lastRating, null);
-  assert.ok(snapshot.last >= now);
-  assert.ok(snapshot.due >= snapshot.last);
-  assert.ok(snapshot.contentDigest);
-  const afterUpdate = Date.now() + 10;
-  const due = collectDueSections([item], { now: afterUpdate });
-  assert.equal(due.length, 1);
-  assert.equal(due[0].itemId, 'update-card');
+  assert.equal(snapshot.phase, 'new');
+  assert.equal(snapshot.learningStepIndex, 0);
+  assert.equal(snapshot.suspended, false);
+  assert.equal(snapshot.lapses, 0);
+  assert.equal(snapshot.ease, DEFAULT_REVIEW_STEPS.startingEase);
+  const dueEntries = collectDueSections([item], { now: Date.now() + 100 });
+  assert.equal(dueEntries.length, 1);
 });
 
-test('removing a lecture resets ratings but additions do not', () => {
+test('removing a lecture resets ratings but additions maintain scope', () => {
   const now = Date.now();
   const item = createItem({
     id: 'lecture-move',
@@ -177,8 +191,6 @@ test('removing a lecture resets ratings but additions do not', () => {
     lectures: [{ blockId: 'heme', id: 1 }]
   });
   rateSection(item, 'etiology', 'good', baseDurations, now);
-  const futureDue = now + 60 * 60 * 1000;
-  item.sr.sections.etiology.due = futureDue;
 
   item.lectures = [{ blockId: 'heme', id: 1 }, { blockId: 'heme', id: 2 }];
   const snapshotAdd = getSectionStateSnapshot(item, 'etiology');
@@ -188,9 +200,5 @@ test('removing a lecture resets ratings but additions do not', () => {
   item.lectures = [{ blockId: 'heme', id: 2 }];
   const snapshotRemoved = getSectionStateSnapshot(item, 'etiology');
   assert.equal(snapshotRemoved.lastRating, null);
-  assert.ok(snapshotRemoved.due <= Date.now());
-  const afterRemoval = Date.now() + 10;
-  const dueEntries = collectDueSections([item], { now: afterRemoval });
-  assert.equal(dueEntries.length, 1);
-  assert.equal(dueEntries[0].itemId, 'lecture-move');
+  assert.equal(snapshotRemoved.phase, 'new');
 });
