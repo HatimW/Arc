@@ -1,6 +1,6 @@
 import { listExams, upsertExam, deleteExam, listExamSessions, loadExamSession, saveExamSessionProgress, deleteExamSessionProgress } from '../../storage/storage.js';
 import { state, setExamSession, setExamAttemptExpanded, setExamLayout } from '../../state.js';
-import { uid, setToggleState, deepClone, canUseWindowScroll } from '../../utils.js';
+import { uid, setToggleState, deepClone } from '../../utils.js';
 import { confirmModal } from './confirm.js';
 import { createRichTextEditor, sanitizeHtml, htmlToPlainText, isEmptyHtml } from './rich-text.js';
 import { createFloatingWindow } from './window-manager.js';
@@ -239,7 +239,7 @@ function applyScrollPosition(scroller, value) {
   if (!scroller) return;
   const top = Number.isFinite(value) ? value : 0;
   if (isWindowScroller(scroller)) {
-    if (canUseWindowScroll()) {
+    if (typeof window.scrollTo === 'function') {
       window.scrollTo({ left: 0, top, behavior: 'auto' });
     }
     return;
