@@ -660,6 +660,59 @@ export async function renderSettings(root) {
     grid.appendChild(row);
   }
 
+  const advancedHeading = document.createElement('h3');
+  advancedHeading.className = 'settings-subheading';
+  advancedHeading.textContent = 'Advanced spacing controls';
+  reviewForm.appendChild(advancedHeading);
+
+  const advancedGrid = document.createElement('div');
+  advancedGrid.className = 'settings-review-grid';
+  reviewForm.appendChild(advancedGrid);
+
+  const advancedInputs = new Map();
+  const advancedFields = [
+    { key: 'learningSteps', label: 'Learning steps (minutes, comma separated)', type: 'text', placeholder: '10, 60' },
+    { key: 'relearningSteps', label: 'Relearning steps (minutes)', type: 'text', placeholder: '10' },
+    { key: 'graduatingGood', label: 'Graduating interval – Good (minutes)', type: 'number', min: 1 },
+    { key: 'graduatingEasy', label: 'Graduating interval – Easy (minutes)', type: 'number', min: 1 },
+    { key: 'startingEase', label: 'Starting ease factor', type: 'number', min: 0.5, step: 0.01 },
+    { key: 'minimumEase', label: 'Minimum ease factor', type: 'number', min: 0.5, step: 0.01 },
+    { key: 'easeBonus', label: 'Easy bonus', type: 'number', min: 0, step: 0.01 },
+    { key: 'easePenalty', label: 'Again penalty', type: 'number', min: 0, step: 0.01 },
+    { key: 'hardEasePenalty', label: 'Hard penalty', type: 'number', min: 0, step: 0.01 },
+    { key: 'hardIntervalMultiplier', label: 'Hard interval multiplier', type: 'number', min: 0.1, step: 0.01 },
+    { key: 'easyIntervalBonus', label: 'Easy interval bonus', type: 'number', min: 0.1, step: 0.01 },
+    { key: 'intervalModifier', label: 'Interval modifier', type: 'number', min: 0.1, step: 0.01 },
+    { key: 'lapseIntervalMultiplier', label: 'Lapse interval multiplier', type: 'number', min: 0.1, step: 0.01 }
+  ];
+
+  advancedFields.forEach(field => {
+    const row = document.createElement('label');
+    row.className = 'settings-review-row';
+    const label = document.createElement('span');
+    label.textContent = field.label;
+    row.appendChild(label);
+    const input = document.createElement('input');
+    input.className = 'input settings-review-input';
+    if (field.type === 'number') {
+      input.type = 'number';
+      if (field.min != null) input.min = String(field.min);
+      if (field.step != null) input.step = String(field.step);
+    } else {
+      input.type = 'text';
+    }
+    if (field.placeholder) input.placeholder = field.placeholder;
+    const currentValue = reviewSteps[field.key];
+    if (Array.isArray(currentValue)) {
+      input.value = currentValue.join(', ');
+    } else if (currentValue != null) {
+      input.value = String(currentValue);
+    }
+    row.appendChild(input);
+    advancedInputs.set(field.key, input);
+    advancedGrid.appendChild(row);
+  });
+
   const saveReviewBtn = document.createElement('button');
   saveReviewBtn.type = 'submit';
   saveReviewBtn.className = 'btn';
@@ -691,6 +744,67 @@ export async function renderSettings(root) {
       nextSteps[rating] = rounded;
     }
 
+    const advancedPatch = {};
+
+    const failField = (message, input) => {
+      reviewStatus.textContent = message;
+      reviewStatus.classList.add('is-error');
+      reviewStatus.hidden = false;
+      if (input) input.focus();
+      return false;
+    };
+
+    const parseListField = (key, label) => {
+      const input = advancedInputs.get(key);
+      if (!input) return true;
+      const raw = (input.value || '').trim();
+      if (!raw) return true;
+      const values = raw
+        .split(/[,\s]+/)
+        .map(entry => Math.round(Number(entry)))
+        .filter(entry => Number.isFinite(entry) && entry > 0);
+      if (!values.length) {
+        return failField(`Enter positive minutes for ${label}.`, input);
+      }
+      advancedPatch[key] = values;
+      return true;
+    };
+
+    const parseNumberField = (key, label, { min = 0, allowZero = false } = {}) => {
+      const input = advancedInputs.get(key);
+      if (!input) return true;
+      const raw = input.value;
+      if (raw == null || raw === '') return true;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) {
+        return failField(`Enter a numeric value for ${label}.`, input);
+      }
+      if (value < min) {
+        return failField(`Value for ${label} must be at least ${min}.`, input);
+      }
+      if (!allowZero && value === 0) {
+        return failField(`Value for ${label} must be greater than zero.`, input);
+      }
+      advancedPatch[key] = value;
+      return true;
+    };
+
+    if (!parseListField('learningSteps', 'learning steps')) return;
+    if (!parseListField('relearningSteps', 'relearning steps')) return;
+    if (!parseNumberField('graduatingGood', 'graduating good interval', { min: 0 })) return;
+    if (!parseNumberField('graduatingEasy', 'graduating easy interval', { min: 0 })) return;
+    if (!parseNumberField('startingEase', 'starting ease', { min: 0.5, allowZero: false })) return;
+    if (!parseNumberField('minimumEase', 'minimum ease', { min: 0.5, allowZero: false })) return;
+    if (!parseNumberField('easeBonus', 'easy bonus', { min: 0, allowZero: true })) return;
+    if (!parseNumberField('easePenalty', 'again penalty', { min: 0, allowZero: true })) return;
+    if (!parseNumberField('hardEasePenalty', 'hard penalty', { min: 0, allowZero: true })) return;
+    if (!parseNumberField('hardIntervalMultiplier', 'hard interval multiplier', { min: 0.1, allowZero: false })) return;
+    if (!parseNumberField('easyIntervalBonus', 'easy interval bonus', { min: 0.1, allowZero: false })) return;
+    if (!parseNumberField('intervalModifier', 'interval modifier', { min: 0.01, allowZero: false })) return;
+    if (!parseNumberField('lapseIntervalMultiplier', 'lapse interval multiplier', { min: 0.01, allowZero: false })) return;
+
+    Object.assign(nextSteps, advancedPatch);
+
     const originalText = saveReviewBtn.textContent;
     saveReviewBtn.disabled = true;
     saveReviewBtn.textContent = 'Saving…';
@@ -706,6 +820,17 @@ export async function renderSettings(root) {
         const value = normalized[rating];
         if (Number.isFinite(value) && value > 0) {
           input.value = String(value);
+        }
+      }
+      for (const [key, input] of advancedInputs) {
+        if (!input) continue;
+        const value = normalized[key];
+        if (Array.isArray(value)) {
+          input.value = value.join(', ');
+        } else if (value != null) {
+          input.value = String(value);
+        } else {
+          input.value = '';
         }
       }
       reviewStatus.textContent = 'Review settings saved.';
