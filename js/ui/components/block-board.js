@@ -1354,7 +1354,9 @@ function restoreBoardScrollState(container, snapshot) {
       const ua = nav && typeof nav.userAgent === 'string'
         ? nav.userAgent.toLowerCase()
         : '';
-      const shouldRestoreWindow = !ua.includes('jsdom') && typeof window.scrollTo === 'function';
+      const hasNativeScrollTo = typeof window.scrollTo === 'function'
+        && !String(window.scrollTo).includes('notImplemented');
+      const shouldRestoreWindow = !ua.includes('jsdom') && hasNativeScrollTo;
       if (shouldRestoreWindow) {
         try {
           window.scrollTo(snapshot.windowX, snapshot.windowY);
