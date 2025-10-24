@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'sevenn-ui-preferences';
+const STORAGE_KEY = 'arc-ui-preferences';
 let cache = null;
 
 function canUseStorage() {

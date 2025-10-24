@@ -9,7 +9,7 @@ import {
   DEFAULT_LECTURE_STATUS
 } from '../js/storage/lectures.js';
 
-const DB_NAME = 'sevenn-db';
+const DB_NAME = 'arc-db';
 
 function requestToPromise(req) {
   return new Promise((resolve, reject) => {

@@ -5,7 +5,7 @@ import 'fake-indexeddb/auto';
 import { importJSON } from '../js/storage/export.js';
 import { openDB } from '../js/storage/idb.js';
 
-const DB_NAME = 'sevenn-db';
+const DB_NAME = 'arc-db';
 
 function requestToPromise(req) {
   return new Promise((resolve, reject) => {

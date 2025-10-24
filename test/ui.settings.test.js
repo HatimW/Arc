@@ -45,7 +45,7 @@ describe('settings UI', () => {
     global.requestAnimationFrame = cb => cb();
     global.localStorage = dom.window.localStorage;
     localStorage.clear();
-    globalThis.__SEVENN_TEST__ = true;
+    globalThis.__ARC_TEST__ = true;
 
     await initDB();
     await clearStore('items');

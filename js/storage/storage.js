@@ -30,8 +30,8 @@ let dbPromise;
 const DEFAULT_KINDS = ['disease', 'drug', 'concept'];
 const RESULT_BATCH_SIZE = 50;
 const MAP_CONFIG_KEY = 'map-config';
-const MAP_CONFIG_BACKUP_KEY = 'sevenn-map-config-backup';
-const DATA_BACKUP_KEY = 'sevenn-backup-snapshot';
+const MAP_CONFIG_BACKUP_KEY = 'arc-map-config-backup';
+const DATA_BACKUP_KEY = 'arc-backup-snapshot';
 const DATA_BACKUP_STORES = ['items', 'blocks', 'exams', 'settings', 'exam_sessions', 'study_sessions', 'lectures'];
 
 const DEFAULT_APP_SETTINGS = {
