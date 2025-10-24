@@ -1,11 +1,15 @@
 # Sevenn
 
-Sevenn is an offline-first study app for organizing diseases, drugs, and concepts.
-This repository hosts the SPA implementation using vanilla JavaScript, bundled for direct use from the filesystem.
+Sevenn is an offline-first curriculum planner and study companion built for
+block-based medical programs. It unifies lecture scheduling, flashcards, exams,
+and review queues in a single browser workspace that runs entirely offline.
+This repository hosts the SPA implementation using vanilla JavaScript, bundled
+for direct use from the filesystem.
 
 ## Features
 
 - Runs completely offline; open `index.html` to get started.
+- Block board dashboards highlight upcoming lectures and review commitments.
 - Token-based global search filters items in browse views.
 - Study builder and sessions for flashcards, quizzes, and review.
 - Export and import data, including Anki CSV.

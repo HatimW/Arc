@@ -8,7 +8,7 @@ import {
   importLectureTransfer
 } from '../../storage/transfers.js';
 import { confirmModal } from './confirm.js';
-import { debounce, findActiveBlockId } from '../../utils.js';
+import { debounce, findActiveBlockId, canUseWindowScroll } from '../../utils.js';
 import {
   DEFAULT_PASS_PLAN,
   clonePassPlan,
@@ -2809,7 +2809,7 @@ export async function renderLectures(root, redraw) {
         scroller.scrollTo({ top: target, left: 0, behavior: 'auto' });
       } else if (scroller && 'scrollTop' in scroller) {
         scroller.scrollTop = target;
-      } else {
+      } else if (canUseWindowScroll()) {
         window.scrollTo({ top: target, left: 0, behavior: 'auto' });
       }
     }

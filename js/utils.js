@@ -15,6 +15,38 @@ export function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+export function canUseWindowScroll() {
+  if (typeof window === 'undefined' || typeof window.scrollTo !== 'function') {
+    return false;
+  }
+  if (typeof globalThis !== 'undefined' && globalThis.__SEVENN_TEST__) {
+    return false;
+  }
+  try {
+    const nav = typeof navigator !== 'undefined'
+      ? navigator
+      : typeof window.navigator !== 'undefined'
+        ? window.navigator
+        : null;
+    const ua = nav && typeof nav.userAgent === 'string' ? nav.userAgent.toLowerCase() : '';
+    if (ua.includes('jsdom')) return false;
+  } catch (err) {
+    // Ignore user agent probing errors and continue with other heuristics.
+  }
+  try {
+    const scrollToSource = Function.prototype.toString.call(window.scrollTo);
+    if (scrollToSource.includes('notImplemented')) {
+      return false;
+    }
+  } catch (err) {
+    return false;
+  }
+  if (window._virtualConsole && typeof window._virtualConsole.emit === 'function') {
+    return false;
+  }
+  return true;
+}
+
 const structuredCloneFn = typeof globalThis.structuredClone === 'function'
   ? globalThis.structuredClone.bind(globalThis)
   : null;
