@@ -206,7 +206,6 @@ export async function exportAnkiCSV(profile, cohort){
       const title = item.name || item.concept || '';
       for (const [key, val] of Object.entries(item)) {
         if (typeof val !== 'string') continue;
-        regex.lastIndex = 0;
         let m;
         while ((m = regex.exec(val))) {
           const answer = m[1];

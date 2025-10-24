@@ -7,7 +7,6 @@ import {
   deriveLectureStatus,
   calculateNextDue
 } from '../../lectures/scheduler.js';
-import { canUseWindowScroll } from '../../utils.js';
 import { passColorForOrder, setPassColorPalette } from './pass-colors.js';
 
 let loadCatalog = loadBlockCatalog;
@@ -1346,16 +1345,22 @@ function restoreBoardScrollState(container, snapshot) {
       container.scrollLeft = snapshot.containerLeft ?? 0;
       container.scrollTop = snapshot.containerTop ?? 0;
     }
-    if (
-      snapshot.windowX != null &&
-      snapshot.windowY != null &&
-      typeof window !== 'undefined' &&
-      canUseWindowScroll()
-    ) {
-      try {
-        window.scrollTo(snapshot.windowX, snapshot.windowY);
-      } catch (err) {
-        /* ignore unsupported scroll restoration */
+    if (snapshot.windowX != null && snapshot.windowY != null && typeof window !== 'undefined') {
+      const nav = typeof navigator !== 'undefined'
+        ? navigator
+        : typeof window.navigator !== 'undefined'
+          ? window.navigator
+          : null;
+      const ua = nav && typeof nav.userAgent === 'string'
+        ? nav.userAgent.toLowerCase()
+        : '';
+      const shouldRestoreWindow = !ua.includes('jsdom') && typeof window.scrollTo === 'function';
+      if (shouldRestoreWindow) {
+        try {
+          window.scrollTo(snapshot.windowX, snapshot.windowY);
+        } catch (err) {
+          /* ignore unsupported scroll restoration */
+        }
       }
     }
     const dayEntries = Array.isArray(snapshot.dayScroll) ? snapshot.dayScroll : [];

@@ -6,7 +6,6 @@ import { REVIEW_RATINGS, DEFAULT_REVIEW_STEPS } from '../../review/constants.js'
 import { getReviewDurations, rateSection } from '../../review/scheduler.js';
 import { upsertItem } from '../../storage/storage.js';
 import { openEditor } from './editor.js';
-import { canUseWindowScroll } from '../../utils.js';
 
 
 const RATING_LABELS = {
@@ -579,7 +578,7 @@ export function renderQuiz(root, redraw) {
   const canRestore = hasWindow || docScroller;
   if (canRestore) {
     const applyScroll = () => {
-      if (hasWindow && canUseWindowScroll()) {
+      if (hasWindow && typeof window.scrollTo === 'function') {
         window.scrollTo({ left: 0, top: targetY, behavior: 'auto' });
       } else if (docScroller) {
         docScroller.scrollTop = targetY;
