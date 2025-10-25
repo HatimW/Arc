@@ -22,6 +22,35 @@ const CSV_EXPLANATION_INDEX = CSV_HEADERS.indexOf('explanation');
 const CSV_TAGS_INDEX = CSV_HEADERS.indexOf('tags');
 const CSV_MEDIA_INDEX = CSV_HEADERS.indexOf('media');
 
+function normalizeOptionId(value) {
+  if (value == null) return null;
+  return String(value);
+}
+
+function optionIdsEqual(a, b) {
+  const normA = normalizeOptionId(a);
+  const normB = normalizeOptionId(b);
+  if (normA == null || normB == null) return normA === normB;
+  return normA === normB;
+}
+
+function findOptionById(question, answerId) {
+  if (!question?.options?.length) return null;
+  const normalized = normalizeOptionId(answerId);
+  if (normalized == null) return null;
+  return question.options.find(opt => normalizeOptionId(opt.id) === normalized) || null;
+}
+
+function optionMatches(question, answerId) {
+  if (!question) return false;
+  return Boolean(findOptionById(question, answerId));
+}
+
+function isCorrectAnswer(question, answerId) {
+  if (!question) return false;
+  return optionIdsEqual(question.answer, answerId);
+}
+
 function csvOptionIndex(optionNumber) {
   return 5 + (optionNumber - 1) * 2;
 }
@@ -293,21 +322,23 @@ function recordAnswerChange(sess, idx, question, nextAnswer) {
   const stat = sess.questionStats?.[idx];
   if (!stat) return;
   const prev = sess.answers?.[idx];
-  if (prev === nextAnswer) return;
-  if (prev == null) {
-    if (nextAnswer != null && stat.initialAnswer == null) {
-      stat.initialAnswer = nextAnswer;
+  if (optionIdsEqual(prev, nextAnswer)) return;
+  const normalizedPrev = prev != null ? normalizeOptionId(prev) : null;
+  const normalizedNext = nextAnswer != null ? normalizeOptionId(nextAnswer) : null;
+  if (normalizedPrev == null) {
+    if (normalizedNext != null && stat.initialAnswer == null) {
+      stat.initialAnswer = normalizedNext;
       stat.initialAnswerAt = Date.now();
     }
     return;
   }
   const change = {
     at: Date.now(),
-    from: prev ?? null,
-    to: nextAnswer ?? null
+    from: normalizedPrev,
+    to: normalizedNext
   };
-  if (prev != null) change.fromCorrect = prev === question.answer;
-  if (nextAnswer != null) change.toCorrect = nextAnswer === question.answer;
+  if (normalizedPrev != null) change.fromCorrect = isCorrectAnswer(question, normalizedPrev);
+  if (normalizedNext != null) change.toCorrect = isCorrectAnswer(question, normalizedNext);
   if (!Array.isArray(stat.changes)) stat.changes = [];
   stat.changes.push(change);
 }
@@ -316,8 +347,14 @@ function snapshotQuestionStats(sess) {
   ensureQuestionStats(sess);
   return (sess.questionStats || []).map(stat => ({
     timeMs: Number.isFinite(stat?.timeMs) ? stat.timeMs : 0,
-    changes: Array.isArray(stat?.changes) ? stat.changes.map(change => ({ ...change })) : [],
-    initialAnswer: stat?.initialAnswer ?? null,
+    changes: Array.isArray(stat?.changes)
+      ? stat.changes.map(change => ({
+        ...change,
+        from: change?.from != null ? normalizeOptionId(change.from) : null,
+        to: change?.to != null ? normalizeOptionId(change.to) : null
+      }))
+      : [],
+    initialAnswer: stat?.initialAnswer != null ? normalizeOptionId(stat.initialAnswer) : null,
     initialAnswerAt: stat?.initialAnswerAt ?? null
   }));
 }
@@ -325,9 +362,10 @@ function snapshotQuestionStats(sess) {
 function extractAnswerSequence(stat, finalAnswer) {
   const sequence = [];
   const push = value => {
-    if (value == null) return;
-    if (sequence[sequence.length - 1] === value) return;
-    sequence.push(value);
+    const normalized = normalizeOptionId(value);
+    if (normalized == null) return;
+    if (sequence[sequence.length - 1] === normalized) return;
+    sequence.push(normalized);
   };
 
   if (stat && stat.initialAnswer != null) {
@@ -361,13 +399,15 @@ function analyzeAnswerChange(stat, question, finalAnswer) {
     };
   }
 
-  const answerId = question.answer;
+  const answerId = normalizeOptionId(question.answer);
   const sequence = extractAnswerSequence(stat, finalAnswer);
-  const initialAnswer = sequence.length ? sequence[0] : (stat?.initialAnswer ?? null);
-  const resolvedFinalAnswer = sequence.length ? sequence[sequence.length - 1] : (finalAnswer ?? null);
+  const fallbackInitial = stat?.initialAnswer != null ? normalizeOptionId(stat.initialAnswer) : null;
+  const fallbackFinal = finalAnswer != null ? normalizeOptionId(finalAnswer) : null;
+  const initialAnswer = sequence.length ? sequence[0] : fallbackInitial;
+  const resolvedFinalAnswer = sequence.length ? sequence[sequence.length - 1] : fallbackFinal;
 
-  const initialCorrect = initialAnswer != null ? initialAnswer === answerId : null;
-  const finalCorrect = resolvedFinalAnswer != null ? resolvedFinalAnswer === answerId : null;
+  const initialCorrect = initialAnswer != null && answerId != null ? initialAnswer === answerId : null;
+  const finalCorrect = resolvedFinalAnswer != null && answerId != null ? resolvedFinalAnswer === answerId : null;
 
   const switched = sequence.length > 1;
   const changed = switched && initialAnswer != null && resolvedFinalAnswer != null && initialAnswer !== resolvedFinalAnswer;
@@ -400,8 +440,8 @@ function countMeaningfulAnswerChanges(stat) {
   let count = 0;
   stat.changes.forEach(change => {
     if (!change) return;
-    const from = change.from ?? null;
-    const to = change.to ?? null;
+    const from = change.from != null ? normalizeOptionId(change.from) : null;
+    const to = change.to != null ? normalizeOptionId(change.to) : null;
     if (from == null) return;
     if (from === to) return;
     count += 1;
@@ -594,7 +634,7 @@ function examToCsv(exam) {
       const optionCol = csvOptionIndex(idx + 1);
       const correctCol = csvOptionCorrectIndex(idx + 1);
       row[optionCol] = opt.text || '';
-      row[correctCol] = opt.id === question.answer ? 'TRUE' : '';
+      row[correctCol] = isCorrectAnswer(question, opt.id) ? 'TRUE' : '';
     });
     if (CSV_EXPLANATION_INDEX >= 0) row[CSV_EXPLANATION_INDEX] = question.explanation || '';
     if (CSV_TAGS_INDEX >= 0) row[CSV_TAGS_INDEX] = Array.isArray(question.tags) ? question.tags.join(' | ') : '';
@@ -745,8 +785,8 @@ function examFromCsv(text) {
     if (question.options.length < 2) {
       return;
     }
-    if (!question.answer) {
-      question.answer = question.options[0].id;
+    if (!optionMatches(question, question.answer)) {
+      question.answer = question.options[0]?.id || '';
     }
     base.questions.push(question);
   });
@@ -795,7 +835,7 @@ function ensureExamShape(exam) {
       if (originalText !== option.text) changed = true;
       return option;
     });
-    if (!question.answer || !question.options.some(opt => opt.id === question.answer)) {
+    if (!optionMatches(question, question.answer)) {
       question.answer = question.options[0]?.id || '';
       changed = true;
     }
@@ -1260,6 +1300,8 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     menuWrap.classList.add('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'true');
     menuPanel.setAttribute('aria-hidden', 'false');
+    const panelHeight = menuPanel.scrollHeight || 0;
+    card.style.setProperty('--card-menu-extra-space', `${Math.max(0, panelHeight + 32)}px`);
     document.addEventListener('click', handleOutside, true);
     document.addEventListener('keydown', handleKeydown, true);
     document.addEventListener('focusin', handleFocus, true);
@@ -1271,6 +1313,7 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     menuWrap.classList.remove('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuPanel.setAttribute('aria-hidden', 'true');
+    card.style.removeProperty('--card-menu-extra-space');
     document.removeEventListener('click', handleOutside, true);
     document.removeEventListener('keydown', handleKeydown, true);
     document.removeEventListener('focusin', handleFocus, true);
@@ -1502,7 +1545,8 @@ function formatDuration(ms) {
 }
 
 function optionText(question, id) {
-  const html = question.options.find(opt => opt.id === id)?.text || '';
+  const option = findOptionById(question, id);
+  const html = option?.text || '';
   return htmlToPlainText(html).trim();
 }
 
@@ -1531,12 +1575,15 @@ function mediaElement(source) {
 }
 
 function answerClass(question, selectedId, optionId) {
-  const isCorrect = optionId === question.answer;
-  if (selectedId == null) return isCorrect ? 'correct-answer' : '';
-  if (selectedId === optionId) {
-    return selectedId === question.answer ? 'correct-answer' : 'incorrect-answer';
+  const optionValue = normalizeOptionId(optionId);
+  const correctValue = normalizeOptionId(question.answer);
+  const selectedValue = selectedId != null ? normalizeOptionId(selectedId) : null;
+  const optionIsCorrect = optionValue != null && correctValue != null && optionValue === correctValue;
+  if (selectedValue == null) return optionIsCorrect ? 'correct-answer' : '';
+  if (optionValue != null && selectedValue === optionValue) {
+    return optionIsCorrect ? 'correct-answer' : 'incorrect-answer';
   }
-  return isCorrect ? 'correct-answer' : '';
+  return optionIsCorrect ? 'correct-answer' : '';
 }
 
 function renderQuestionMap(sidebar, sess, render) {
@@ -1555,8 +1602,7 @@ function renderQuestionMap(sidebar, sess, render) {
   const answeredCount = sess.exam.questions.reduce((count, question, idx) => {
     const answer = answers[idx];
     if (answer == null) return count;
-    const matched = question.options.some(opt => opt.id === answer);
-    return matched ? count + 1 : count;
+    return optionMatches(question, answer) ? count + 1 : count;
   }, 0);
   const countBadge = document.createElement('span');
   countBadge.className = 'question-map__count';
@@ -1576,15 +1622,28 @@ function renderQuestionMap(sidebar, sess, render) {
     sess.result.changeSummary = summary;
   }
 
-  const flaggedSet = new Set(sess.mode === 'review'
-    ? (sess.result.flagged || [])
-    : Object.entries(sess.flagged || {}).filter(([_, v]) => v).map(([idx]) => Number(idx)));
+  const flaggedValues = sess.mode === 'review'
+    ? (Array.isArray(sess.result?.flagged) ? sess.result.flagged : [])
+    : Object.entries(sess.flagged || {})
+      .filter(([_, v]) => Boolean(v))
+      .map(([idx]) => idx);
+  const flaggedSet = new Set(flaggedValues
+    .map(value => Number(value))
+    .filter(Number.isFinite));
 
   sess.exam.questions.forEach((question, idx) => {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'question-map__item';
-    item.textContent = String(idx + 1);
+    const label = document.createElement('span');
+    label.className = 'question-map__label';
+    label.textContent = String(idx + 1);
+    item.appendChild(label);
+    const flagIndicator = document.createElement('span');
+    flagIndicator.className = 'question-map__flag';
+    flagIndicator.setAttribute('aria-hidden', 'true');
+    flagIndicator.textContent = '🚩';
+    item.appendChild(flagIndicator);
     const isCurrent = sess.idx === idx;
     item.classList.toggle('is-current', isCurrent);
     item.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
@@ -1595,14 +1654,14 @@ function renderQuestionMap(sidebar, sess, render) {
     }
 
     const answer = answers[idx];
-    const answered = answer != null && question.options.some(opt => opt.id === answer);
+    const answered = answer != null && optionMatches(question, answer);
     const tooltipParts = [];
     let status = 'unanswered';
     const wasChecked = !isReview && Boolean(sess.checked?.[idx]);
 
     if (isReview) {
       if (answered) {
-        const isCorrect = answer === question.answer;
+        const isCorrect = isCorrectAnswer(question, answer);
         status = isCorrect ? 'correct' : 'incorrect';
         tooltipParts.push(isCorrect ? 'Answered correctly' : 'Answered incorrectly');
       } else {
@@ -1630,7 +1689,7 @@ function renderQuestionMap(sidebar, sess, render) {
       }
     } else {
       if (wasChecked && answered) {
-        const isCorrect = answer === question.answer;
+        const isCorrect = isCorrectAnswer(question, answer);
         status = isCorrect ? 'correct' : 'incorrect';
         tooltipParts.push(isCorrect ? 'Checked correct' : 'Checked incorrect');
       } else if (answered) {
@@ -1653,10 +1712,11 @@ function renderQuestionMap(sidebar, sess, render) {
       item.classList.add('is-review-unanswered');
     }
 
-    if (flaggedSet.has(idx)) {
-      item.dataset.flagged = 'true';
-    } else {
-      item.dataset.flagged = 'false';
+    const isFlagged = flaggedSet.has(idx);
+    item.dataset.flagged = isFlagged ? 'true' : 'false';
+    flagIndicator.hidden = !isFlagged;
+    if (isFlagged) {
+      tooltipParts.push('Flagged');
     }
 
     if (tooltipParts.length) {
@@ -1859,7 +1919,7 @@ export function renderExamRunner(root, render) {
     label.className = 'option-text';
     label.innerHTML = opt.text || '<span class="exam-option-empty">(Empty option)</span>';
     choice.appendChild(label);
-    const isSelected = selected === opt.id;
+    const isSelected = optionIdsEqual(selected, opt.id);
     if (sess.mode === 'taking') {
       setToggleState(choice, isSelected, 'selected');
       choice.addEventListener('click', () => {
@@ -1890,14 +1950,17 @@ export function renderExamRunner(root, render) {
     verdict.className = 'exam-verdict';
     let verdictText = 'Not answered';
     let verdictClass = 'neutral';
-    if (selected != null) {
-      if (selected === question.answer) {
+    if (selected != null && optionMatches(question, selected)) {
+      if (isCorrectAnswer(question, selected)) {
         verdictText = 'Correct';
         verdictClass = 'correct';
       } else {
         verdictText = 'Incorrect';
         verdictClass = 'incorrect';
       }
+    } else if (selected != null) {
+      verdictText = 'Incorrect';
+      verdictClass = 'incorrect';
     }
     verdict.classList.add(verdictClass);
     verdict.textContent = sess.mode === 'review' ? verdictText : `Checked: ${verdictText}`;
@@ -2204,11 +2267,11 @@ async function finalizeExam(sess, render, options = {}) {
   let answeredCount = 0;
   sess.exam.questions.forEach((question, idx) => {
     const ans = sess.answers[idx];
-    if (ans != null) {
-      answers[idx] = ans;
-      answeredCount += 1;
-      if (ans === question.answer) correct += 1;
-    }
+    if (ans == null) return;
+    if (!optionMatches(question, ans)) return;
+    answers[idx] = ans;
+    answeredCount += 1;
+    if (isCorrectAnswer(question, ans)) correct += 1;
   });
 
   const flagged = Object.entries(sess.flagged || {})
@@ -2583,7 +2646,7 @@ function openExamEditor(existing, render) {
           const radio = document.createElement('input');
           radio.type = 'radio';
           radio.name = `correct-${question.id}`;
-          radio.checked = question.answer === opt.id;
+          radio.checked = optionIdsEqual(question.answer, opt.id);
           radio.addEventListener('change', () => {
             question.answer = opt.id;
             markDirty();
@@ -2608,7 +2671,7 @@ function openExamEditor(existing, render) {
           removeBtn.disabled = question.options.length <= 2;
           removeBtn.addEventListener('click', () => {
             question.options.splice(optIdx, 1);
-            if (question.answer === opt.id) {
+            if (optionIdsEqual(question.answer, opt.id)) {
               question.answer = question.options[0]?.id || '';
             }
             markDirty();
@@ -2709,7 +2772,7 @@ function openExamEditor(existing, render) {
         error.textContent = `Question ${i + 1} needs at least two answer options.`;
         return false;
       }
-      if (!question.answer || !question.options.some(opt => opt.id === question.answer)) {
+      if (!optionMatches(question, question.answer)) {
         question.answer = question.options[0].id;
       }
     }
