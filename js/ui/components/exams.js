@@ -1254,12 +1254,29 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     closeMenu();
   };
 
+  const adjustMenuSpace = () => {
+    const panelHeight = menuPanel.getBoundingClientRect().height;
+    if (!panelHeight) return;
+    const gap = Math.ceil(panelHeight + 24);
+    menuWrap.style.setProperty('--menu-open-gap', `${gap}px`);
+  };
+
+  const handleResize = () => {
+    if (!menuOpen) return;
+    adjustMenuSpace();
+  };
+
   function openMenu() {
     if (menuOpen) return;
     menuOpen = true;
     menuWrap.classList.add('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'true');
     menuPanel.setAttribute('aria-hidden', 'false');
+    adjustMenuSpace();
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame?.(adjustMenuSpace);
+      window.addEventListener('resize', handleResize);
+    }
     document.addEventListener('click', handleOutside, true);
     document.addEventListener('keydown', handleKeydown, true);
     document.addEventListener('focusin', handleFocus, true);
@@ -1271,6 +1288,10 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     menuWrap.classList.remove('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuPanel.setAttribute('aria-hidden', 'true');
+    menuWrap.style.removeProperty('--menu-open-gap');
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('resize', handleResize);
+    }
     document.removeEventListener('click', handleOutside, true);
     document.removeEventListener('keydown', handleKeydown, true);
     document.removeEventListener('focusin', handleFocus, true);
@@ -1584,7 +1605,16 @@ function renderQuestionMap(sidebar, sess, render) {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'question-map__item';
-    item.textContent = String(idx + 1);
+    const number = document.createElement('span');
+    number.className = 'question-map__number';
+    number.textContent = String(idx + 1);
+    item.appendChild(number);
+    const flagIcon = document.createElement('span');
+    flagIcon.className = 'question-map__flag';
+    flagIcon.setAttribute('aria-hidden', 'true');
+    flagIcon.textContent = '🚩';
+    flagIcon.hidden = true;
+    item.appendChild(flagIcon);
     const isCurrent = sess.idx === idx;
     item.classList.toggle('is-current', isCurrent);
     item.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
@@ -1655,8 +1685,11 @@ function renderQuestionMap(sidebar, sess, render) {
 
     if (flaggedSet.has(idx)) {
       item.dataset.flagged = 'true';
+      flagIcon.hidden = false;
+      tooltipParts.push('Flagged');
     } else {
       item.dataset.flagged = 'false';
+      flagIcon.hidden = true;
     }
 
     if (tooltipParts.length) {
