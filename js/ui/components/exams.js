@@ -1260,6 +1260,13 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     menuWrap.classList.add('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'true');
     menuPanel.setAttribute('aria-hidden', 'false');
+    const panelHeight = menuPanel.offsetHeight;
+    const calculatedSpace = Number.isFinite(panelHeight) ? panelHeight + 32 : 0;
+    if (calculatedSpace > 0) {
+      menuWrap.style.setProperty('--menu-panel-measured-space', `${calculatedSpace}px`);
+    } else {
+      menuWrap.style.removeProperty('--menu-panel-measured-space');
+    }
     document.addEventListener('click', handleOutside, true);
     document.addEventListener('keydown', handleKeydown, true);
     document.addEventListener('focusin', handleFocus, true);
@@ -1271,6 +1278,7 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     menuWrap.classList.remove('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuPanel.setAttribute('aria-hidden', 'true');
+    menuWrap.style.removeProperty('--menu-panel-measured-space');
     document.removeEventListener('click', handleOutside, true);
     document.removeEventListener('keydown', handleKeydown, true);
     document.removeEventListener('focusin', handleFocus, true);
@@ -1584,7 +1592,17 @@ function renderQuestionMap(sidebar, sess, render) {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'question-map__item';
-    item.textContent = String(idx + 1);
+
+    const label = document.createElement('span');
+    label.className = 'question-map__label';
+    label.textContent = String(idx + 1);
+    item.appendChild(label);
+
+    const flagIndicator = document.createElement('span');
+    flagIndicator.className = 'question-map__flag';
+    flagIndicator.setAttribute('aria-hidden', 'true');
+    flagIndicator.textContent = '🚩';
+    item.appendChild(flagIndicator);
     const isCurrent = sess.idx === idx;
     item.classList.toggle('is-current', isCurrent);
     item.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
@@ -1653,15 +1671,19 @@ function renderQuestionMap(sidebar, sess, render) {
       item.classList.add('is-review-unanswered');
     }
 
-    if (flaggedSet.has(idx)) {
-      item.dataset.flagged = 'true';
-    } else {
-      item.dataset.flagged = 'false';
+    const isFlagged = flaggedSet.has(idx);
+    if (isFlagged) {
+      tooltipParts.push('Flagged');
     }
+    item.dataset.flagged = isFlagged ? 'true' : 'false';
+    flagIndicator.classList.toggle('is-visible', isFlagged);
 
     if (tooltipParts.length) {
       item.title = tooltipParts.join(' · ');
     }
+
+    const ariaDescription = tooltipParts.length ? tooltipParts.join(', ') : 'Not answered';
+    item.setAttribute('aria-label', `Question ${idx + 1}${ariaDescription ? ` – ${ariaDescription}` : ''}`);
 
     item.addEventListener('click', () => {
       navigateToQuestion(sess, idx, render);

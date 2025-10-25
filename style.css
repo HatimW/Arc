@@ -123,7 +123,7 @@ button:focus-visible {
   outline-offset: 3px;
 }
 
-button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(.list-subtab) {
+button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(.list-subtab):not(.question-map__item) {
   background: rgba(148, 163, 184, 0.14);
   color: var(--text);
   border: 1px solid var(--border);
@@ -132,7 +132,7 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
   box-shadow: none;
 }
 
-button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(.list-subtab):hover {
+button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(.list-subtab):not(.question-map__item):hover {
   background: rgba(148, 163, 184, 0.22);
 }
 
@@ -6761,6 +6761,13 @@ body.map-toolbox-dragging {
   position: relative;
   display: flex;
   justify-content: flex-end;
+  --menu-panel-space: 0px;
+  padding-bottom: var(--menu-panel-space);
+  margin-bottom: var(--menu-panel-space);
+}
+
+.exam-card-menu--open {
+  --menu-panel-space: max(var(--menu-panel-measured-space, 0px), 48px);
 }
 
 .exam-card-menu-toggle {
@@ -7714,6 +7721,28 @@ body.map-toolbox-dragging {
   isolation: isolate;
 }
 
+.question-map__label {
+  position: relative;
+  z-index: 1;
+}
+
+.question-map__flag {
+  position: absolute;
+  top: -6px;
+  right: -4px;
+  font-size: 0.72rem;
+  filter: drop-shadow(0 2px 6px rgba(5, 8, 16, 0.65));
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.question-map__flag.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .question-map__item::before,
 .question-map__item::after {
   content: '';
@@ -7801,18 +7830,6 @@ body.map-toolbox-dragging {
     box-shadow: none;
     filter: none;
   }
-}
-
-.question-map__item[data-flagged="true"] {
-  position: relative;
-}
-
-.question-map__item[data-flagged="true"]::after {
-  content: '🚩';
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  font-size: 0.72rem;
 }
 
 .question-map__item[data-change-direction="right-to-wrong"] {
