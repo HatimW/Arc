@@ -1,11 +1,31 @@
 {
-  "name": "sevenn",
-  "version": "0.1.0",
+  "name": "arc",
+  "version": "1.0.0",
   "type": "module",
+  "main": "electron-main.js",
   "scripts": {
+    "bundle": "esbuild js/main.js --bundle --format=iife --global-name=Arc --outfile=bundle.js",
+    "start": "npm run bundle && electron .",
+    "package": "npm run bundle && electron-builder",
     "test": "node --test"
   },
+  "build": {
+    "appId": "com.arc.desktop",
+    "productName": "Arc",
+    "files": [
+      "index.html",
+      "bundle.js",
+      "bundle.js.map",
+      "style.css",
+      "js/**/*",
+      "docs/**/*",
+      "electron-main.js",
+      "package.json"
+    ]
+  },
   "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3",
     "esbuild": "^0.25.9",
     "fake-indexeddb": "^5.0.2",
     "jsdom": "^24.1.3"
