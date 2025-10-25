@@ -1,4 +1,3 @@
 * text=auto
-
-bundle.js text eol=lf
-bundle.js.map text eol=lf
+bundle.js text eol=lf -diff
+bundle.js.map text eol=lf -diff
