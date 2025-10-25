@@ -197,9 +197,33 @@ export const state = {
   studySessionsLoaded: false
 };
 
-export function setTab(t){ state.tab = t; }
-export function setSubtab(tab, sub){ state.subtab[tab] = sub; }
-export function setQuery(q){ state.query = q; }
+export function setTab(value) {
+  if (value == null) return false;
+  const next = String(value);
+  if (state.tab === next) return false;
+  state.tab = next;
+  return true;
+}
+
+export function setSubtab(tab, sub) {
+  if (!state.subtab || typeof state.subtab !== 'object') {
+    state.subtab = {};
+  }
+  if (tab == null) return false;
+  const tabKey = String(tab);
+  if (!tabKey) return false;
+  const next = sub == null ? '' : String(sub);
+  if (state.subtab[tabKey] === next) return false;
+  state.subtab[tabKey] = next;
+  return true;
+}
+
+export function setQuery(value) {
+  const next = value == null ? '' : String(value);
+  if (state.query === next) return false;
+  state.query = next;
+  return true;
+}
 export function setFilters(patch) {
   if (!patch) return;
   const next = { ...state.filters };
