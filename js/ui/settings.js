@@ -1225,7 +1225,7 @@ export async function renderSettings(root) {
   dataCard.appendChild(dHeading);
 
   async function triggerExportDownload(options = {}) {
-    const { prefix = 'sevenn-export', withTimestamp = false } = options;
+    const { prefix = 'arc-export', withTimestamp = false } = options;
     const dump = await exportJSON();
     const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1264,7 +1264,7 @@ export async function renderSettings(root) {
       );
       if (confirmBackup) {
         try {
-          await triggerExportDownload({ prefix: 'sevenn-backup', withTimestamp: true });
+          await triggerExportDownload({ prefix: 'arc-backup', withTimestamp: true });
         } catch (err) {
           console.error('Failed to create backup prior to import', err);
           alert('Backup failed. Import cancelled.');
@@ -1303,7 +1303,7 @@ export async function renderSettings(root) {
     const blob = await exportAnkiCSV('qa', dump.items || []);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'sevenn-anki.csv';
+    a.download = 'arc-anki.csv';
     a.click();
     URL.revokeObjectURL(a.href);
   });

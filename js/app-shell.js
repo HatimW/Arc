@@ -49,7 +49,7 @@ export function createAppShell({
     left.className = 'header-left';
     const brand = document.createElement('div');
     brand.className = 'brand';
-    brand.textContent = '✨ Sevenn';
+    brand.textContent = '✨ Arc';
     left.appendChild(brand);
 
     const nav = document.createElement('nav');

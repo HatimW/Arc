@@ -54,7 +54,7 @@ async function bootstrap() {
   }
 }
 
-if (typeof window !== 'undefined' && !globalThis.__SEVENN_TEST__) {
+if (typeof window !== 'undefined' && !globalThis.__ARC_TEST__) {
   bootstrap();
 }
 
