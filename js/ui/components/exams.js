@@ -1232,6 +1232,8 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
   menuPanel.setAttribute('role', 'menu');
   menuWrap.appendChild(menuPanel);
 
+  let menuOffsetApplied = false;
+
   let menuOpen = false;
   const handleOutside = event => {
     if (!menuOpen) return;
@@ -1260,6 +1262,10 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     menuWrap.classList.add('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'true');
     menuPanel.setAttribute('aria-hidden', 'false');
+    const offset = Math.max(menuPanel.scrollHeight + 24, 64);
+    card.classList.add('exam-card--menu-open');
+    card.style.marginBottom = `${offset}px`;
+    menuOffsetApplied = true;
     document.addEventListener('click', handleOutside, true);
     document.addEventListener('keydown', handleKeydown, true);
     document.addEventListener('focusin', handleFocus, true);
@@ -1271,6 +1277,11 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     menuWrap.classList.remove('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuPanel.setAttribute('aria-hidden', 'true');
+    if (menuOffsetApplied) {
+      card.classList.remove('exam-card--menu-open');
+      card.style.marginBottom = '';
+      menuOffsetApplied = false;
+    }
     document.removeEventListener('click', handleOutside, true);
     document.removeEventListener('keydown', handleKeydown, true);
     document.removeEventListener('focusin', handleFocus, true);
@@ -1584,7 +1595,16 @@ function renderQuestionMap(sidebar, sess, render) {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'question-map__item';
-    item.textContent = String(idx + 1);
+    const label = document.createElement('span');
+    label.className = 'question-map__item-label';
+    label.textContent = String(idx + 1);
+    item.appendChild(label);
+
+    const flagIcon = document.createElement('span');
+    flagIcon.className = 'question-map__item-flag';
+    flagIcon.setAttribute('aria-hidden', 'true');
+    flagIcon.textContent = '🚩';
+    item.appendChild(flagIcon);
     const isCurrent = sess.idx === idx;
     item.classList.toggle('is-current', isCurrent);
     item.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
@@ -1653,11 +1673,10 @@ function renderQuestionMap(sidebar, sess, render) {
       item.classList.add('is-review-unanswered');
     }
 
-    if (flaggedSet.has(idx)) {
-      item.dataset.flagged = 'true';
-    } else {
-      item.dataset.flagged = 'false';
-    }
+    const isFlagged = flaggedSet.has(idx);
+    item.dataset.flagged = isFlagged ? 'true' : 'false';
+    item.classList.toggle('is-flagged', isFlagged);
+    flagIcon.hidden = !isFlagged;
 
     if (tooltipParts.length) {
       item.title = tooltipParts.join(' · ');
