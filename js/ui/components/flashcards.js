@@ -9,7 +9,7 @@ import { upsertItem } from '../../storage/storage.js';
 import { persistStudySession, removeStudySession } from '../../study/study-sessions.js';
 import { loadReviewSourceItems } from '../../review/pool.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
-import { ensureBlockTitleMap, buildReviewHierarchy, openEntryManager } from './review.js';
+import { ensureBlockTitleMap, ensureBlockAccentMap, buildReviewHierarchy, openEntryManager } from './review.js';
 
 
 const KIND_ACCENTS = {
@@ -187,7 +187,8 @@ export function renderFlashcards(root, redraw) {
       const dueEntries = collectDueSections(cohortItems, { now: nowTs });
       const { blocks } = await loadBlockCatalog();
       const blockTitles = ensureBlockTitleMap(blocks);
-      const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles);
+      const blockAccents = ensureBlockAccentMap(blocks);
+      const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles, blockAccents);
       const highlightKey = focusEntry ? sessionEntryKey(focusEntry) : null;
       openEntryManager(hierarchy, {
         title: 'Manage review queue',
@@ -302,7 +303,7 @@ export function renderFlashcards(root, redraw) {
 
   sectionBlocks.forEach(({ key, label, content, extra }) => {
     const ratingId = ratingKey(item, key);
-    const previousRating = active.ratings[ratingId] || null;
+    let currentRating = active.ratings[ratingId] || null;
     const snapshot = getSectionStateSnapshot(item, key);
     const lockedByQueue = !isReview && Boolean(snapshot && snapshot.last && !snapshot.retired);
     const alreadyQueued = !isReview && Boolean(snapshot && snapshot.last && !snapshot.retired);
@@ -332,8 +333,75 @@ export function renderFlashcards(root, redraw) {
     status.className = 'flash-rating-status';
 
     let ratingLocked = lockedByQueue;
+    let adjustBtn = null;
+
+    const clearStatusInteraction = () => {
+      status.classList.remove('flash-rating-status-action');
+      status.removeAttribute('role');
+      status.removeAttribute('tabindex');
+      status.removeAttribute('aria-label');
+    };
+
+    const makeStatusInteractive = (ariaLabel = '') => {
+      status.classList.add('flash-rating-status-action');
+      status.setAttribute('role', 'button');
+      status.setAttribute('tabindex', '0');
+      if (ariaLabel) {
+        status.setAttribute('aria-label', ariaLabel);
+      }
+    };
+
+    const setLockState = reason => {
+      ratingLocked = true;
+      ratingRow.classList.add('is-locked');
+      if (reason) {
+        ratingRow.dataset.lock = reason;
+      } else {
+        delete ratingRow.dataset.lock;
+      }
+      if (adjustBtn) adjustBtn.hidden = false;
+    };
+
+    const releaseLock = () => {
+      ratingLocked = false;
+      ratingRow.classList.remove('is-locked');
+      delete ratingRow.dataset.lock;
+      delete ratingRow.dataset.state;
+      clearStatusInteraction();
+      if (adjustBtn) adjustBtn.hidden = true;
+      ratingButtons.hidden = false;
+    };
+
+    const unlockRating = () => {
+      if (!ratingLocked) return;
+      releaseLock();
+      ratingButtons.hidden = false;
+      Array.from(ratingButtons.querySelectorAll('button')).forEach(btn => {
+        btn.disabled = false;
+        btn.classList.remove('is-locked-choice');
+      });
+      status.classList.remove('is-error');
+      status.textContent = currentRating ? 'Update rating (updates queue)' : 'Select a rating to queue for review';
+    };
+
+    const activateStatus = event => {
+      if (!ratingLocked) return;
+      event.preventDefault();
+      event.stopPropagation();
+      unlockRating();
+    };
+
+    status.addEventListener('click', activateStatus);
+    status.addEventListener('keydown', event => {
+      if (!ratingLocked) return;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        activateStatus(event);
+      }
+    });
 
     const selectRating = (value) => {
+      currentRating = value;
       active.ratings[ratingId] = value;
       Array.from(ratingButtons.querySelectorAll('button')).forEach(btn => {
         const btnValue = btn.dataset.value;
@@ -384,6 +452,29 @@ export function renderFlashcards(root, redraw) {
       }
     };
 
+    const applyQueueLock = () => {
+      const label = queueStatusLabel(snapshot);
+      setLockState('queue');
+      ratingButtons.hidden = true;
+      ratingRow.dataset.state = 'queued';
+      status.textContent = `${label} — click to adjust`;
+      makeStatusInteractive('Update review rating');
+    };
+
+    const applySessionLock = () => {
+      setLockState('session');
+      ratingButtons.hidden = false;
+      Array.from(ratingButtons.querySelectorAll('button')).forEach(btn => {
+        const isSelected = btn.dataset.value === currentRating;
+        btn.disabled = !isSelected;
+        btn.classList.toggle('is-locked-choice', !isSelected);
+      });
+      status.classList.remove('is-error');
+      ratingRow.dataset.state = 'queued';
+      status.textContent = 'Queued for review — click to adjust';
+      makeStatusInteractive('Adjust saved rating');
+    };
+
     const handleRating = async (value) => {
       if (ratingLocked) return;
 
@@ -396,8 +487,7 @@ export function renderFlashcards(root, redraw) {
         rateSection(item, key, value, durations, Date.now());
         await upsertItem(item);
         selectRating(value);
-        status.textContent = 'Saved';
-        status.classList.remove('is-error');
+        applySessionLock();
         updatePreviews(durations);
       } catch (err) {
         console.error('Failed to record rating', err);
@@ -441,50 +531,37 @@ export function renderFlashcards(root, redraw) {
 
     renderPreviews();
 
-    const unlockRating = () => {
-      if (!ratingLocked) return;
-      ratingLocked = false;
-      ratingRow.classList.remove('is-locked');
-      ratingButtons.hidden = false;
-      status.classList.remove('flash-rating-status-action');
-      status.removeAttribute('role');
-      status.removeAttribute('tabindex');
-      status.textContent = previousRating ? 'Update rating' : 'Select a rating (optional)';
-    };
-
-    if (lockedByQueue) {
-      ratingLocked = true;
-      ratingRow.classList.add('is-locked');
-      ratingButtons.hidden = true;
-      const label = queueStatusLabel(snapshot);
-      status.textContent = `${label} — click to adjust`;
-      status.classList.add('flash-rating-status-action');
-      status.setAttribute('role', 'button');
-      status.setAttribute('tabindex', '0');
-      status.setAttribute('aria-label', 'Update review rating');
-      status.addEventListener('click', (event) => {
+    adjustBtn = document.createElement('button');
+    adjustBtn.type = 'button';
+    adjustBtn.className = 'flash-rating-adjust';
+    adjustBtn.textContent = 'Adjust';
+    adjustBtn.setAttribute('aria-label', 'Adjust rating');
+    adjustBtn.hidden = true;
+    adjustBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      unlockRating();
+    });
+    adjustBtn.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
         event.stopPropagation();
         unlockRating();
-      });
-      status.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          unlockRating();
-        }
-      });
-    } else if (previousRating) {
-      status.textContent = 'Saved';
+      }
+    });
+
+    if (lockedByQueue) {
+      applyQueueLock();
+    } else if (currentRating) {
+      selectRating(currentRating);
+      applySessionLock();
     } else {
-      status.textContent = 'Select a rating (optional)';
-    }
-
-    if (previousRating) {
-      selectRating(previousRating);
-
+      releaseLock();
+      status.textContent = 'Select a rating to queue for review';
     }
 
     ratingRow.appendChild(ratingButtons);
     ratingRow.appendChild(status);
+    ratingRow.appendChild(adjustBtn);
 
     setToggleState(sec, false, 'revealed');
     const toggleReveal = () => {

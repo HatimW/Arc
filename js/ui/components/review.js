@@ -30,6 +30,31 @@ export function ensureBlockTitleMap(blocks) {
   return map;
 }
 
+const DEFAULT_BLOCK_ACCENTS = [
+  '#38bdf8',
+  '#a855f7',
+  '#f97316',
+  '#22d3ee',
+  '#f59e0b',
+  '#34d399',
+  '#f472b6'
+];
+
+export function ensureBlockAccentMap(blocks = []) {
+  const map = new Map();
+  let fallbackIndex = 0;
+  blocks.forEach(block => {
+    if (!block || !block.blockId) return;
+    const raw = typeof block.color === 'string' && block.color.trim()
+      ? block.color.trim()
+      : DEFAULT_BLOCK_ACCENTS[fallbackIndex % DEFAULT_BLOCK_ACCENTS.length];
+    fallbackIndex += 1;
+    map.set(block.blockId, raw);
+  });
+  map.set('__unassigned', map.get('__unassigned') || '#64748b');
+  return map;
+}
+
 function titleOf(item) {
   return item?.name || item?.concept || 'Untitled';
 }
@@ -131,7 +156,7 @@ function createBlockOrder(blocks = []) {
   return order;
 }
 
-function resolveEntryRefs(entry, blockTitles) {
+function resolveEntryRefs(entry, blockTitles, blockAccents) {
   const item = entry?.item || {};
   const lectures = Array.isArray(item.lectures) ? item.lectures.filter(Boolean) : [];
   const blocks = Array.isArray(item.blocks) && item.blocks.length
@@ -150,6 +175,7 @@ function resolveEntryRefs(entry, blockTitles) {
       const weekNumber = Number.isFinite(Number(rawWeek)) ? Number(rawWeek) : null;
       const weekId = weekNumber != null ? String(weekNumber) : UNASSIGNED_WEEK;
       const blockTitle = blockTitles.get(blockId) || (blockId === UNASSIGNED_BLOCK ? 'Unassigned block' : blockId || 'Unassigned block');
+      const accent = blockAccents?.get(blockId) || blockAccents?.get(UNASSIGNED_BLOCK) || null;
       const lectureLabel = lec.name ? lec.name : (lectureId !== UNASSIGNED_LECTURE ? `Lecture ${lectureId}` : 'Unassigned lecture');
       const weekLabel = weekNumber != null ? `Week ${weekNumber}` : 'Unassigned week';
       const lectureKey = `${blockId || UNASSIGNED_BLOCK}::${lectureId}`;
@@ -159,6 +185,7 @@ function resolveEntryRefs(entry, blockTitles) {
       results.push({
         blockId: blockId || UNASSIGNED_BLOCK,
         blockTitle,
+        accent,
         weekId,
         weekNumber,
         weekLabel,
@@ -174,6 +201,7 @@ function resolveEntryRefs(entry, blockTitles) {
     blockIds.forEach(blockRaw => {
       const blockId = blockRaw || UNASSIGNED_BLOCK;
       const blockTitle = blockTitles.get(blockId) || (blockId === UNASSIGNED_BLOCK ? 'Unassigned block' : blockId || 'Unassigned block');
+      const accent = blockAccents?.get(blockId) || blockAccents?.get(UNASSIGNED_BLOCK) || null;
       weekValues.forEach(weekValue => {
         const weekNumber = Number.isFinite(Number(weekValue)) ? Number(weekValue) : null;
         const weekId = weekNumber != null ? String(weekNumber) : UNASSIGNED_WEEK;
@@ -184,6 +212,7 @@ function resolveEntryRefs(entry, blockTitles) {
         results.push({
           blockId,
           blockTitle,
+          accent,
           weekId,
           weekNumber,
           weekLabel,
@@ -197,6 +226,7 @@ function resolveEntryRefs(entry, blockTitles) {
       results.push({
         blockId: UNASSIGNED_BLOCK,
         blockTitle: 'Unassigned block',
+        accent: blockAccents?.get(UNASSIGNED_BLOCK) || null,
         weekId: UNASSIGNED_WEEK,
         weekNumber: null,
         weekLabel: 'Unassigned week',
@@ -210,7 +240,7 @@ function resolveEntryRefs(entry, blockTitles) {
   return results;
 }
 
-export function buildReviewHierarchy(entries, blocks, blockTitles) {
+export function buildReviewHierarchy(entries, blocks, blockTitles, blockAccents = ensureBlockAccentMap(blocks)) {
   const order = createBlockOrder(blocks);
   const root = {
     id: 'all',
@@ -240,7 +270,7 @@ export function buildReviewHierarchy(entries, blocks, blockTitles) {
   };
   entries.forEach(entry => {
     registerEntry(root, entry);
-    const refs = resolveEntryRefs(entry, blockTitles);
+    const refs = resolveEntryRefs(entry, blockTitles, blockAccents);
     refs.forEach(ref => {
       const blockId = ref.blockId || UNASSIGNED_BLOCK;
       let blockNode = blockMap.get(blockId);
@@ -250,7 +280,8 @@ export function buildReviewHierarchy(entries, blocks, blockTitles) {
           title: ref.blockTitle,
           order: order.has(blockId) ? order.get(blockId) : Number.MAX_SAFE_INTEGER,
           weeks: new Map(),
-          entryMap: new Map()
+          entryMap: new Map(),
+          accent: blockAccents?.get(blockId) || blockAccents?.get(UNASSIGNED_BLOCK) || null
         };
         blockMap.set(blockId, blockNode);
       }
@@ -265,7 +296,8 @@ export function buildReviewHierarchy(entries, blocks, blockTitles) {
           label: ref.weekLabel,
           weekNumber: ref.weekNumber,
           lectures: new Map(),
-          entryMap: new Map()
+          entryMap: new Map(),
+          accent: blockNode.accent
         };
         blockNode.weeks.set(weekKey, weekNode);
       }
@@ -281,7 +313,8 @@ export function buildReviewHierarchy(entries, blocks, blockTitles) {
           weekNumber: ref.weekNumber,
           title: ref.lectureLabel,
           lectureId: ref.lectureId,
-          entryMap: new Map()
+          entryMap: new Map(),
+          accent: weekNode.accent
         };
         weekNode.lectures.set(lectureKey, lectureNode);
       }
@@ -293,7 +326,8 @@ export function buildReviewHierarchy(entries, blocks, blockTitles) {
         weekId: weekKey,
         weekLabel: weekNode.label,
         lectureKey,
-        lectureTitle: lectureNode.title
+        lectureTitle: lectureNode.title,
+        accent: lectureNode.accent
       });
     });
   });
@@ -334,7 +368,8 @@ export function buildReviewHierarchy(entries, blocks, blockTitles) {
   return {
     root,
     blocks: blocksList,
-    contexts
+    contexts,
+    accents: blockAccents
   };
 }
 
@@ -388,24 +423,40 @@ function createCollapsibleNode({
   reviewLabel,
   onReview,
   onMenu,
-  defaultOpen = false
+  defaultOpen = false,
+  accent = null
 }) {
   const details = document.createElement('details');
   details.className = `review-node review-node-level-${level}`;
   if (defaultOpen) details.open = true;
+  if (accent) {
+    details.classList.add('has-accent');
+    details.style.setProperty('--review-accent', accent);
+  }
 
   const summary = document.createElement('summary');
   summary.className = 'review-node-summary';
 
   const header = document.createElement('div');
   header.className = 'review-node-header';
+  const titleWrap = document.createElement('div');
+  titleWrap.className = 'review-node-title-wrap';
+  const accentDot = document.createElement('span');
+  accentDot.className = 'review-node-accent-dot';
+  if (accent) {
+    accentDot.style.setProperty('--review-accent', accent);
+  } else {
+    accentDot.hidden = true;
+  }
   const titleEl = document.createElement('div');
   titleEl.className = 'review-node-title';
   titleEl.textContent = title;
+  titleWrap.appendChild(accentDot);
+  titleWrap.appendChild(titleEl);
   const countEl = document.createElement('span');
   countEl.className = 'review-node-count';
   countEl.textContent = `${count} card${count === 1 ? '' : 's'}`;
-  header.appendChild(titleEl);
+  header.appendChild(titleWrap);
   header.appendChild(countEl);
   summary.appendChild(header);
 
@@ -527,9 +578,17 @@ export function openEntryManager(hierarchy, {
   highlightEntryKey = null,
   onChange
 } = {}) {
-  const win = createFloatingWindow({ title, width: 920 });
-  const body = win.querySelector('.floating-body');
+  const floating = createFloatingWindow({ title, width: 920 });
+  const body = floating.body;
+  const element = floating.element;
+  if (element) element.classList.add('review-entry-window');
+  if (!body) {
+    console.error('Entry manager window missing body element');
+    return floating;
+  }
   body.classList.add('review-popup');
+  body.classList.add('review-entry-body');
+  body.innerHTML = '';
 
   const contextsMap = hierarchy?.contexts instanceof Map ? hierarchy.contexts : new Map();
   const allEntries = Array.isArray(hierarchy?.root?.entries) ? hierarchy.root.entries.slice() : [];
@@ -574,7 +633,7 @@ export function openEntryManager(hierarchy, {
   nav.appendChild(navHeader);
 
   const navList = document.createElement('div');
-  navList.className = 'review-entry-nav-list';
+  navList.className = 'review-entry-nav-tree';
   nav.appendChild(navList);
 
   const content = document.createElement('div');
@@ -620,7 +679,10 @@ export function openEntryManager(hierarchy, {
 
   const bodyRows = document.createElement('tbody');
   table.appendChild(bodyRows);
-  content.appendChild(table);
+  const tableWrap = document.createElement('div');
+  tableWrap.className = 'review-entry-table-wrap';
+  tableWrap.appendChild(table);
+  content.appendChild(tableWrap);
   content.appendChild(emptyState);
   content.appendChild(status);
 
@@ -653,11 +715,32 @@ export function openEntryManager(hierarchy, {
   const nodeCounts = new Map();
   const navCountElements = new Map();
   const navMetadata = new Map();
+  const navGroupStates = new Map();
 
   const rootNodeKey = 'root';
   const blockNodeKey = blockId => `block:${blockId}`;
   const weekNodeKey = (blockId, weekId) => `week:${blockId}::${weekId}`;
   const lectureNodeKey = lectureKey => `lecture:${lectureKey}`;
+
+  const setGroupExpanded = (nodeKey, expanded = true) => {
+    const state = navGroupStates.get(nodeKey);
+    if (!state) return;
+    state.setExpanded(expanded);
+  };
+
+  const openGroup = nodeKey => setGroupExpanded(nodeKey, true);
+
+  const clearGroupHighlights = () => {
+    navGroupStates.forEach(state => {
+      state.group.classList.remove('has-active');
+    });
+  };
+
+  const markGroupActive = nodeKey => {
+    const state = navGroupStates.get(nodeKey);
+    if (!state) return;
+    state.group.classList.add('has-active');
+  };
 
   const adjustCount = (nodeKey, delta) => {
     const current = nodeCounts.get(nodeKey) || 0;
@@ -796,6 +879,23 @@ export function openEntryManager(hierarchy, {
     if (prev) prev.classList.remove('is-active');
     const next = navList.querySelector(`.review-entry-nav-btn[data-node-key="${nodeKey}"]`);
     if (next) next.classList.add('is-active');
+
+    clearGroupHighlights();
+    const meta = navMetadata.get(nodeKey);
+    if (meta && meta.blockId) {
+      const blockKey = blockNodeKey(meta.blockId);
+      openGroup(blockKey);
+      markGroupActive(blockKey);
+      if (meta.weekId) {
+        const weekKey = weekNodeKey(meta.blockId, meta.weekId);
+        openGroup(weekKey);
+        markGroupActive(weekKey);
+      }
+    }
+    if (next) {
+      const parentGroup = next.closest('.review-entry-nav-group');
+      if (parentGroup) parentGroup.classList.add('has-active');
+    }
   };
 
   const updateFilterLabel = () => {
@@ -866,11 +966,13 @@ export function openEntryManager(hierarchy, {
 
     if (!filtered.length) {
       table.hidden = true;
+      tableWrap.hidden = true;
       emptyState.hidden = false;
       return;
     }
 
     table.hidden = false;
+    tableWrap.hidden = false;
     emptyState.hidden = true;
 
     filtered.forEach(entry => {
@@ -884,6 +986,11 @@ export function openEntryManager(hierarchy, {
       const blockNames = Array.from(new Set(contexts.map(ctx => ctx.blockTitle))).join(', ');
       const weekNames = Array.from(new Set(contexts.map(ctx => ctx.weekLabel))).join(', ');
       const lectureNames = Array.from(new Set(contexts.map(ctx => ctx.lectureTitle))).join(', ');
+      const accent = contexts.length ? (contexts[0]?.accent || null) : null;
+      if (accent) {
+        row.classList.add('has-accent');
+        row.style.setProperty('--entry-accent', accent);
+      }
 
       const selectCell = document.createElement('td');
       selectCell.className = 'review-entry-cell select';
@@ -1101,21 +1208,42 @@ export function openEntryManager(hierarchy, {
     updateSelectionBar();
   };
 
+  const openPathForFilter = filter => {
+    if (!filter) return;
+    if (filter.scope === 'block') {
+      const blockId = filter.blockId ?? UNASSIGNED_BLOCK;
+      openGroup(blockNodeKey(blockId));
+    } else if (filter.scope === 'week' || filter.scope === 'lecture') {
+      const blockId = filter.blockId ?? UNASSIGNED_BLOCK;
+      const weekId = filter.weekId ?? UNASSIGNED_WEEK;
+      openGroup(blockNodeKey(blockId));
+      openGroup(weekNodeKey(blockId, weekId));
+    }
+  };
+
   const setFilter = (filter, nodeKey) => {
     currentFilter = filter;
     activeNodeKey = nodeKey;
     currentMetadata = navMetadata.get(nodeKey) || metadata || { scope: 'all', label: 'All due cards' };
+    openPathForFilter(filter);
     setActiveNav(nodeKey);
     updateFilterLabel();
     renderTable();
     updateReviewButton();
   };
 
-  const createNavButton = ({ label, nodeKey, depth, filter, count, meta }) => {
+  const createNavButton = ({ label, nodeKey, depth, filter, count, meta, accent, variant = 'leaf' }) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `review-entry-nav-btn depth-${depth}`;
     button.dataset.nodeKey = nodeKey;
+    if (variant === 'group') {
+      button.classList.add('is-group');
+    }
+    if (accent) {
+      button.dataset.accent = accent;
+      button.style.setProperty('--nav-accent', accent);
+    }
     const text = document.createElement('span');
     text.className = 'review-entry-nav-label';
     text.textContent = label;
@@ -1126,8 +1254,73 @@ export function openEntryManager(hierarchy, {
     navMetadata.set(nodeKey, meta);
     button.appendChild(text);
     button.appendChild(badge);
-    button.addEventListener('click', () => setFilter(filter, nodeKey));
+    button.addEventListener('click', () => {
+      if (variant === 'group') {
+        openGroup(nodeKey);
+      }
+      setFilter(filter, nodeKey);
+    });
     return button;
+  };
+
+  const createNavGroup = ({ label, nodeKey, depth, filter, count, meta, accent, defaultOpen = false }) => {
+    const group = document.createElement('div');
+    group.className = `review-entry-nav-group depth-${depth}`;
+    if (accent) {
+      group.style.setProperty('--nav-accent', accent);
+    }
+
+    const header = document.createElement('div');
+    header.className = 'review-entry-nav-group-header';
+    group.appendChild(header);
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'review-entry-nav-toggle';
+    toggle.setAttribute('aria-label', `Toggle ${label}`);
+    header.appendChild(toggle);
+
+    const button = createNavButton({
+      label,
+      nodeKey,
+      depth,
+      filter,
+      count,
+      meta,
+      accent,
+      variant: 'group'
+    });
+    header.appendChild(button);
+
+    const children = document.createElement('div');
+    children.className = 'review-entry-nav-children';
+    group.appendChild(children);
+
+    const setExpanded = expanded => {
+      if (expanded) {
+        group.classList.add('is-open');
+        children.hidden = false;
+        toggle.setAttribute('aria-expanded', 'true');
+        toggle.innerHTML = '<span aria-hidden="true">▾</span>';
+      } else {
+        group.classList.remove('is-open');
+        children.hidden = true;
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.innerHTML = '<span aria-hidden="true">▸</span>';
+      }
+    };
+
+    setExpanded(defaultOpen);
+
+    toggle.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      setExpanded(!group.classList.contains('is-open'));
+    });
+
+    navGroupStates.set(nodeKey, { group, children, toggle, setExpanded });
+
+    return { group, children, button };
   };
 
   navList.appendChild(createNavButton({
@@ -1139,17 +1332,25 @@ export function openEntryManager(hierarchy, {
     meta: navMetadata.get(rootNodeKey)
   }));
 
-  hierarchy.blocks.forEach(blockNode => {
+  hierarchy.blocks.forEach((blockNode, blockIndex) => {
     const blockKey = blockNodeKey(blockNode.id);
     const blockMeta = { scope: 'block', label: `Block – ${blockNode.title}`, blockId: blockNode.id };
-    navList.appendChild(createNavButton({
+    const shouldOpenBlock = (() => {
+      if (!initialFilter || initialFilter.scope === 'all') return blockIndex === 0;
+      if (!['block', 'week', 'lecture'].includes(initialFilter.scope)) return blockIndex === 0;
+      return (initialFilter.blockId ?? UNASSIGNED_BLOCK) === blockNode.id;
+    })();
+    const blockGroup = createNavGroup({
       label: blockNode.title,
       nodeKey: blockKey,
       depth: 1,
       filter: { scope: 'block', blockId: blockNode.id },
       count: nodeCounts.get(blockKey) || 0,
-      meta: blockMeta
-    }));
+      meta: blockMeta,
+      accent: blockNode.accent,
+      defaultOpen: shouldOpenBlock
+    });
+    navList.appendChild(blockGroup.group);
 
     blockNode.weeks.forEach(weekNode => {
       const weekKey = weekNodeKey(blockNode.id, weekNode.id);
@@ -1160,14 +1361,28 @@ export function openEntryManager(hierarchy, {
         blockId: blockNode.id,
         weekId: weekNode.id
       };
-      navList.appendChild(createNavButton({
-        label: `↳ ${weekLabel}`,
+      const shouldOpenWeek = (() => {
+        if (!initialFilter) return false;
+        if (!['week', 'lecture'].includes(initialFilter.scope)) return false;
+        const blockMatch = (initialFilter.blockId ?? UNASSIGNED_BLOCK) === blockNode.id;
+        const weekMatch = (initialFilter.weekId ?? UNASSIGNED_WEEK) === weekNode.id;
+        return blockMatch && weekMatch;
+      })();
+      const weekGroup = createNavGroup({
+        label: weekLabel,
         nodeKey: weekKey,
         depth: 2,
         filter: { scope: 'week', blockId: blockNode.id, weekId: weekNode.id },
         count: nodeCounts.get(weekKey) || 0,
-        meta: weekMeta
-      }));
+        meta: weekMeta,
+        accent: weekNode.accent,
+        defaultOpen: shouldOpenWeek
+      });
+      blockGroup.children.appendChild(weekGroup.group);
+
+      const lectureList = document.createElement('div');
+      lectureList.className = 'review-entry-nav-leaves';
+      weekGroup.children.appendChild(lectureList);
 
       weekNode.lectures.forEach(lectureNode => {
         const lectureKey = lectureNodeKey(lectureNode.id);
@@ -1178,13 +1393,14 @@ export function openEntryManager(hierarchy, {
           blockId: blockNode.id,
           weekId: weekNode.id
         };
-        navList.appendChild(createNavButton({
-          label: `   • ${lectureNode.title}`,
+        lectureList.appendChild(createNavButton({
+          label: lectureNode.title,
           nodeKey: lectureKey,
           depth: 3,
           filter: { scope: 'lecture', lectureKey: lectureNode.id, blockId: blockNode.id, weekId: weekNode.id },
           count: nodeCounts.get(lectureKey) || 0,
-          meta: lectureMeta
+          meta: lectureMeta,
+          accent: lectureNode.accent
         }));
       });
     });
@@ -1282,7 +1498,7 @@ export function openEntryManager(hierarchy, {
     bulkRetire(Array.from(selectedKeys));
   });
 
-  return win;
+  return floating;
 }
 
 
@@ -1343,7 +1559,8 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
         metadata: blockMeta,
         focus: { scope: 'block', blockId: blockNode.id },
         onChange: refresh
-      })
+      }),
+      accent: blockNode.accent
     });
     blockList.appendChild(block.element);
 
@@ -1373,7 +1590,8 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
           metadata: weekMeta,
           focus: { scope: 'week', blockId: blockNode.id, weekId: weekNode.id },
           onChange: refresh
-        })
+        }),
+        accent: weekNode.accent
       });
       weekList.appendChild(week.element);
 
@@ -1384,6 +1602,10 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
       weekNode.lectures.forEach(lectureNode => {
         const lectureRow = document.createElement('div');
         lectureRow.className = 'review-lecture-row';
+        if (lectureNode.accent) {
+          lectureRow.classList.add('has-accent');
+          lectureRow.style.setProperty('--review-accent', lectureNode.accent);
+        }
         const info = document.createElement('div');
         info.className = 'review-lecture-info';
         const titleEl = document.createElement('div');
@@ -1445,6 +1667,7 @@ export async function renderReview(root, redraw) {
   const upcomingEntries = collectUpcomingSections(cohort, { now, limit: 50 });
   const { blocks } = await loadBlockCatalog();
   const blockTitles = ensureBlockTitleMap(blocks);
+  const blockAccents = ensureBlockAccentMap(blocks);
 
   const savedEntry = getStudySessionEntry('review');
 
@@ -1513,7 +1736,7 @@ export async function renderReview(root, redraw) {
   };
 
   if (dueEntries.length) {
-    const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles);
+    const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles, blockAccents);
     renderHierarchy(body, hierarchy, { startSession, now, redraw });
   } else {
     renderEmptyState(body);
