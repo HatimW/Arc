@@ -1258,6 +1258,8 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     if (menuOpen) return;
     menuOpen = true;
     menuWrap.classList.add('exam-card-menu--open');
+    const panelHeight = menuPanel.scrollHeight || menuPanel.offsetHeight || 0;
+    menuWrap.style.setProperty('--menu-panel-gap', `${Math.round(panelHeight + 24)}px`);
     menuToggle.setAttribute('aria-expanded', 'true');
     menuPanel.setAttribute('aria-hidden', 'false');
     document.addEventListener('click', handleOutside, true);
@@ -1269,6 +1271,7 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     if (!menuOpen) return;
     menuOpen = false;
     menuWrap.classList.remove('exam-card-menu--open');
+    menuWrap.style.setProperty('--menu-panel-gap', '0px');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuPanel.setAttribute('aria-hidden', 'true');
     document.removeEventListener('click', handleOutside, true);
@@ -1584,7 +1587,15 @@ function renderQuestionMap(sidebar, sess, render) {
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'question-map__item';
-    item.textContent = String(idx + 1);
+    const number = document.createElement('span');
+    number.className = 'question-map__item-label';
+    number.textContent = String(idx + 1);
+    item.appendChild(number);
+    const flagIndicator = document.createElement('span');
+    flagIndicator.className = 'question-map__item-flag';
+    flagIndicator.setAttribute('aria-hidden', 'true');
+    flagIndicator.textContent = '🚩';
+    item.appendChild(flagIndicator);
     const isCurrent = sess.idx === idx;
     item.classList.toggle('is-current', isCurrent);
     item.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
@@ -1597,6 +1608,7 @@ function renderQuestionMap(sidebar, sess, render) {
     const answer = answers[idx];
     const answered = answer != null && question.options.some(opt => opt.id === answer);
     const tooltipParts = [];
+    const labelParts = [`Question ${idx + 1}`];
     let status = 'unanswered';
     const wasChecked = !isReview && Boolean(sess.checked?.[idx]);
 
@@ -1653,15 +1665,29 @@ function renderQuestionMap(sidebar, sess, render) {
       item.classList.add('is-review-unanswered');
     }
 
-    if (flaggedSet.has(idx)) {
+    if (tooltipParts.length) {
+      labelParts.push(...tooltipParts);
+    }
+
+    const flagged = flaggedSet.has(idx);
+    if (flagged) {
       item.dataset.flagged = 'true';
+      flagIndicator.hidden = false;
+      labelParts.push('Flagged');
     } else {
-      item.dataset.flagged = 'false';
+      delete item.dataset.flagged;
+      flagIndicator.hidden = true;
+    }
+
+    if (isCurrent) {
+      labelParts.push('Current question');
     }
 
     if (tooltipParts.length) {
       item.title = tooltipParts.join(' · ');
     }
+
+    item.setAttribute('aria-label', labelParts.join(', '));
 
     item.addEventListener('click', () => {
       navigateToQuestion(sess, idx, render);
