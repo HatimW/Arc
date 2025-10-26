@@ -1,12 +1,21 @@
 import { state, setFlashSession, setSubtab, setStudySelectedMode } from '../../state.js';
 import { setToggleState } from '../../utils.js';
 import { renderRichText } from './rich-text.js';
-import { sectionsForItem } from './section-utils.js';
+import { sectionsForItem, getSectionLabel } from './section-utils.js';
 import { openEditor } from './editor.js';
 import { REVIEW_RATINGS, DEFAULT_REVIEW_STEPS } from '../../review/constants.js';
-import { getReviewDurations, rateSection, getSectionStateSnapshot, projectSectionRating } from '../../review/scheduler.js';
+import {
+  getReviewDurations,
+  rateSection,
+  getSectionStateSnapshot,
+  projectSectionRating,
+  collectDueSections
+} from '../../review/scheduler.js';
 import { upsertItem } from '../../storage/storage.js';
 import { persistStudySession, removeStudySession } from '../../study/study-sessions.js';
+import { loadBlockCatalog } from '../../storage/block-catalog.js';
+import { ensureBlockTitleMap, summarizeEntry, buildReviewHierarchy } from '../../review/view-model.js';
+import { openReviewEntryMenu } from './review-menu.js';
 
 
 const KIND_ACCENTS = {
@@ -131,7 +140,44 @@ export function renderFlashcards(root, redraw) {
     setFlashSession(next);
   };
 
+  const keyForSessionEntry = entryObj => {
+    if (!entryObj) return null;
+    const item = entryObj.item || entryObj;
+    const sectionKey = Array.isArray(entryObj.sections) && entryObj.sections.length
+      ? entryObj.sections[0]
+      : null;
+    if (!sectionKey) return null;
+    const itemId = item?.id || item?.name || 'item';
+    return `${itemId}::${sectionKey}`;
+  };
+
+  const removeEntriesFromSession = removedKeys => {
+    if (!Array.isArray(removedKeys) || !removedKeys.length) return false;
+    const pool = resolvePool();
+    const filtered = pool.filter(entryObj => !removedKeys.includes(keyForSessionEntry(entryObj)));
+    if (filtered.length === pool.length) return false;
+    active.pool = filtered;
+    const nextIdx = Math.min(filtered.length - 1, Math.max(0, active.idx));
+    commitSession({ pool: filtered, idx: nextIdx });
+    return true;
+  };
+
+  const startMenuSession = (pool, metadata = {}) => {
+    removeStudySession('review').catch(err => console.warn('Failed to clear saved review entry', err));
+    setFlashSession({ idx: 0, pool, ratings: {}, mode: 'review', metadata });
+    redraw();
+  };
+
+  const handleMenuChange = ({ removedKeys } = {}) => {
+    if (!Array.isArray(removedKeys) || !removedKeys.length) return;
+    const changed = removeEntriesFromSession(removedKeys);
+    if (changed) {
+      redraw();
+    }
+  };
+
   const isReview = active.mode === 'review';
+  const nowTs = Date.now();
 
   root.innerHTML = '';
 
@@ -166,10 +212,63 @@ export function renderFlashcards(root, redraw) {
 
   const allowedSections = entry && entry.sections ? entry.sections : null;
   const sections = sectionsForItem(item, allowedSections);
+  const activeSectionKey = Array.isArray(allowedSections) && allowedSections.length ? allowedSections[0] : null;
+  let reviewDueEntry = null;
+  let reviewSummary = null;
+  if (isReview && activeSectionKey) {
+    const snapshot = getSectionStateSnapshot(item, activeSectionKey);
+    if (snapshot) {
+      reviewDueEntry = {
+        item,
+        itemId: item.id,
+        sectionKey: activeSectionKey,
+        sectionLabel: getSectionLabel(item, activeSectionKey),
+        due: snapshot.due,
+        phase: snapshot.phase,
+        state: snapshot
+      };
+      reviewSummary = summarizeEntry(reviewDueEntry, undefined, nowTs);
+    }
+  }
+
+  const openMenuForCurrentCard = async () => {
+    if (!reviewDueEntry) return;
+    try {
+      const timestamp = Date.now();
+      const { blocks } = await loadBlockCatalog();
+      const blockTitleMap = ensureBlockTitleMap(blocks);
+      const cohort = Array.isArray(state.cohort) ? state.cohort : [];
+      const dueEntries = collectDueSections(cohort, { now: timestamp });
+      const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitleMap);
+      const summary = summarizeEntry(reviewDueEntry, blockTitleMap, timestamp);
+      const primary = summary.primary || {};
+      const focus = primary && primary.blockId
+        ? {
+            type: 'lecture',
+            blockId: primary.blockId,
+            weekId: primary.weekId,
+            lectureId: primary.lectureKey
+          }
+        : { type: 'all' };
+      openReviewEntryMenu({
+        hierarchy,
+        blockTitleMap,
+        now: timestamp,
+        startSession: startMenuSession,
+        onChange: handleMenuChange,
+        focus,
+        title: `${summary.title} cards`
+      });
+    } catch (err) {
+      console.error('Failed to open review card menu', err);
+    }
+  };
 
   const card = document.createElement('section');
   card.className = 'card flashcard';
   card.tabIndex = 0;
+
+  if (isReview) card.classList.add('is-review');
 
   const header = document.createElement('div');
   header.className = 'flashcard-header';
@@ -178,6 +277,22 @@ export function renderFlashcards(root, redraw) {
   title.className = 'flashcard-title';
   title.textContent = item.name || item.concept || '';
   header.appendChild(title);
+
+  const headerActions = document.createElement('div');
+  headerActions.className = 'flashcard-header-actions';
+  header.appendChild(headerActions);
+
+  if (isReview && reviewDueEntry) {
+    const menuBtn = document.createElement('button');
+    menuBtn.type = 'button';
+    menuBtn.className = 'btn tertiary flashcard-menu-btn';
+    menuBtn.textContent = 'Card menu';
+    menuBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      openMenuForCurrentCard();
+    });
+    headerActions.appendChild(menuBtn);
+  }
 
   const editBtn = document.createElement('button');
   editBtn.type = 'button';
@@ -190,9 +305,69 @@ export function renderFlashcards(root, redraw) {
     const onSave = typeof redraw === 'function' ? () => redraw() : undefined;
     openEditor(item.kind, onSave, item);
   });
-  header.appendChild(editBtn);
+  headerActions.appendChild(editBtn);
 
   card.appendChild(header);
+
+  let reviewMetaBar = null;
+  let metaChips = null;
+  let metaStats = null;
+
+  const ensureMetaBar = () => {
+    if (reviewMetaBar) return;
+    reviewMetaBar = document.createElement('div');
+    reviewMetaBar.className = 'flashcard-meta';
+    metaChips = document.createElement('div');
+    metaChips.className = 'flashcard-meta-chips';
+    metaStats = document.createElement('dl');
+    metaStats.className = 'flashcard-meta-stats';
+    reviewMetaBar.appendChild(metaChips);
+    reviewMetaBar.appendChild(metaStats);
+    card.appendChild(reviewMetaBar);
+  };
+
+  const renderMeta = summary => {
+    if (!summary) {
+      if (reviewMetaBar) reviewMetaBar.hidden = true;
+      return;
+    }
+    ensureMetaBar();
+    reviewMetaBar.hidden = false;
+    metaChips.innerHTML = '';
+    const addChip = (text, variant = '') => {
+      if (!text) return;
+      const chip = document.createElement('span');
+      chip.className = `flashcard-meta-chip ${variant}`.trim();
+      chip.textContent = text;
+      metaChips.appendChild(chip);
+    };
+    const primary = summary.primary || {};
+    addChip(primary.blockTitle, 'strong');
+    if (primary.weekLabel && primary.weekLabel !== primary.blockTitle) addChip(primary.weekLabel, 'subtle');
+    if (primary.lectureLabel) addChip(primary.lectureLabel, 'subtle');
+
+    metaStats.innerHTML = '';
+    const addStat = (label, value) => {
+      const stat = document.createElement('div');
+      stat.className = 'flashcard-meta-stat';
+      stat.innerHTML = `<dt>${label}</dt><dd>${value || '—'}</dd>`;
+      metaStats.appendChild(stat);
+    };
+    addStat('Stage', summary.stage);
+    addStat('Due', summary.dueText);
+    addStat('Interval', summary.intervalText || '—');
+    addStat('Last', summary.lastReviewed);
+  };
+
+  if (reviewSummary) {
+    renderMeta(reviewSummary);
+    loadBlockCatalog()
+      .then(({ blocks }) => {
+        const map = ensureBlockTitleMap(blocks);
+        renderMeta(summarizeEntry(reviewDueEntry, map, Date.now()));
+      })
+      .catch(err => console.warn('Failed to load block titles for review meta', err));
+  }
 
   const durationsPromise = getReviewDurations().catch(() => ({ ...DEFAULT_REVIEW_STEPS }));
   const sectionBlocks = sections.length ? sections : [];

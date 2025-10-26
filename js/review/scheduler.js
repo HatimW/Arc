@@ -153,19 +153,6 @@ function scheduleDue(section, minutes, now) {
 }
 
 function applyRatingState(section, rating, config, now) {
-  if (rating === RETIRE_RATING) {
-    section.streak = 0;
-    section.lastRating = RETIRE_RATING;
-    section.last = now;
-    section.interval = Number.MAX_SAFE_INTEGER;
-    section.pendingInterval = 0;
-    section.phase = 'review';
-    section.due = Number.MAX_SAFE_INTEGER;
-    section.retired = true;
-    section.suspended = false;
-    return section;
-  }
-
   const normalizedRating = REVIEW_RATINGS.includes(rating) ? rating : 'good';
   const baseAgain = asMinutes(config.again ?? DEFAULT_REVIEW_STEPS.again, DEFAULT_REVIEW_STEPS.again);
   const baseHard = asMinutes(config.hard ?? DEFAULT_REVIEW_STEPS.hard, baseAgain);
@@ -312,6 +299,9 @@ function applyRatingState(section, rating, config, now) {
 
 export function rateSection(item, key, rating, durations, now = Date.now()) {
   if (!item || !key) return null;
+  if (rating === RETIRE_RATING) {
+    return retireSection(item, key, now);
+  }
   const config = normalizeReviewSteps(durations);
   const section = ensureSectionState(item, key);
   section.contentDigest = computeSectionDigest(item, key);
@@ -352,6 +342,22 @@ export function resumeSection(item, key, now = Date.now()) {
     section.due = now;
   }
   return section;
+}
+
+export function retireSection(item, key, now = Date.now()) {
+  if (!item || !key) return null;
+  const sr = ensureItemSr(item);
+  const digest = computeSectionDigest(item, key);
+  const scope = computeLectureScope(item);
+  const next = defaultSectionState();
+  next.retired = true;
+  next.lastRating = RETIRE_RATING;
+  next.last = now;
+  next.due = Number.MAX_SAFE_INTEGER;
+  next.contentDigest = digest;
+  next.lectureScope = scope;
+  sr.sections[key] = next;
+  return next;
 }
 
 export function hasContentForSection(item, key) {

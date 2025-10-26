@@ -6,9 +6,10 @@ import {
   collectDueSections,
   collectUpcomingSections,
   getSectionStateSnapshot,
-  suspendSection
+  suspendSection,
+  retireSection
 } from '../js/review/scheduler.js';
-import { DEFAULT_REVIEW_STEPS, RETIRE_RATING } from '../js/review/constants.js';
+import { DEFAULT_REVIEW_STEPS } from '../js/review/constants.js';
 
 const baseDurations = {
   ...DEFAULT_REVIEW_STEPS,
@@ -100,9 +101,15 @@ test('retiring and suspending cards remove them from review queues', () => {
   const item = createItem({ id: 'retire-test' });
   const active = rateSection(item, 'etiology', 'good', baseDurations, now);
   assert.equal(active.retired, false);
-  const retired = rateSection(item, 'etiology', RETIRE_RATING, baseDurations, now + 500);
+  const retired = retireSection(item, 'etiology', now + 500);
   assert.equal(retired.retired, true);
   assert.equal(retired.due, Number.MAX_SAFE_INTEGER);
+  assert.equal(retired.interval, 0);
+  assert.equal(retired.phase, 'new');
+
+  const restarted = rateSection(item, 'etiology', 'good', baseDurations, now + 1_000);
+  assert.equal(restarted.retired, false);
+  assert.equal(restarted.phase, 'learning');
 
   const suspendedItem = createItem({
     id: 'suspend-test',

@@ -1,313 +1,28 @@
 
 import { setFlashSession, setSubtab, setCohort } from '../../state.js';
-import {
-  collectDueSections,
-  collectUpcomingSections,
-  getReviewDurations,
-  rateSection,
-  suspendSection
-} from '../../review/scheduler.js';
+import { collectDueSections, collectUpcomingSections } from '../../review/scheduler.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
 import { getSectionLabel } from './section-utils.js';
 import { hydrateStudySessions, getStudySessionEntry, removeStudySession } from '../../study/study-sessions.js';
 import { loadReviewSourceItems } from '../../review/pool.js';
-import { RETIRE_RATING } from '../../review/constants.js';
-import { upsertItem } from '../../storage/storage.js';
-import { createFloatingWindow } from './window-manager.js';
-
-
-let blockTitleCache = null;
-
-function ensureBlockTitleMap(blocks) {
-  if (blockTitleCache) return blockTitleCache;
-  const map = new Map();
-  blocks.forEach(block => {
-    if (!block || !block.blockId) return;
-    map.set(block.blockId, block.title || block.blockId);
-
-  });
-  blockTitleCache = map;
-  return map;
-}
-
-function titleOf(item) {
-  return item?.name || item?.concept || 'Untitled';
-}
-
-function formatOverdue(due, now) {
-  const diffMs = Math.max(0, now - due);
-  if (diffMs < 60 * 1000) return 'due now';
-  const minutes = Math.round(diffMs / (60 * 1000));
-  if (minutes < 60) return `${minutes} min overdue`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} hr overdue`;
-  const days = Math.round(hours / 24);
-  return `${days} day${days === 1 ? '' : 's'} overdue`;
-}
-
-function formatTimeUntil(due, now) {
-  const diffMs = Math.max(0, due - now);
-  if (diffMs < 60 * 1000) return 'due in under a minute';
-  const minutes = Math.round(diffMs / (60 * 1000));
-  if (minutes < 60) return `due in ${minutes} min`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `due in ${hours} hr`;
-  const days = Math.round(hours / 24);
-  return `due in ${days} day${days === 1 ? '' : 's'}`;
-}
-
-function formatIntervalMinutes(minutes) {
-  if (!Number.isFinite(minutes) || minutes <= 0) return '—';
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} hr`;
-  const days = Math.round(hours / 24);
-  if (days < 30) return `${days} day${days === 1 ? '' : 's'}`;
-  const months = Math.round(days / 30);
-  if (months < 12) return `${months} mo`;
-  const years = Math.round(months / 12);
-  return `${years} yr`;
-}
-
-function entryKey(entry) {
-  if (!entry) return null;
-  const itemId = entry.itemId || entry.item?.id || entry.item?.slug || entry.item?.name || 'item';
-  return `${itemId}::${entry.sectionKey}`;
-}
-
-function describePhase(phase) {
-  switch (phase) {
-    case 'learning':
-      return 'Learning';
-    case 'relearning':
-      return 'Relearning';
-    case 'review':
-      return 'Review';
-    case 'new':
-      return 'New';
-    default:
-      return '';
-  }
-}
-
-function buildSessionPayload(entries) {
-  return entries.map(entry => ({ item: entry.item, sections: [entry.sectionKey] }));
-}
+import {
+  ensureBlockTitleMap,
+  titleOf,
+  formatOverdue,
+  formatTimeUntil,
+  formatIntervalMinutes,
+  entryKey,
+  describePhase,
+  buildSessionPayload,
+  buildReviewHierarchy
+} from '../../review/view-model.js';
+import { openReviewEntryMenu } from './review-menu.js';
 
 function renderEmptyState(container) {
   const empty = document.createElement('div');
   empty.className = 'review-empty';
   empty.textContent = 'No cards are due right now. Nice work!';
   container.appendChild(empty);
-}
-
-
-const UNASSIGNED_BLOCK = '__unassigned';
-const UNASSIGNED_WEEK = '__unassigned';
-const UNASSIGNED_LECTURE = '__unassigned';
-
-function registerEntry(bucket, entry) {
-  if (!bucket || !entry) return;
-  if (!bucket.entryMap) bucket.entryMap = new Map();
-  const key = entryKey(entry);
-  if (!key || bucket.entryMap.has(key)) return;
-  bucket.entryMap.set(key, entry);
-}
-
-function finalizeEntries(bucket) {
-  if (!bucket) return;
-  const entries = bucket.entryMap ? Array.from(bucket.entryMap.values()) : [];
-  bucket.entries = entries;
-  delete bucket.entryMap;
-}
-
-function createBlockOrder(blocks = []) {
-  const order = new Map();
-  if (!Array.isArray(blocks)) return order;
-  blocks.forEach((block, index) => {
-    if (!block || !block.blockId) return;
-    order.set(block.blockId, index);
-  });
-  return order;
-}
-
-function resolveEntryRefs(entry, blockTitles) {
-  const item = entry?.item || {};
-  const lectures = Array.isArray(item.lectures) ? item.lectures.filter(Boolean) : [];
-  const blocks = Array.isArray(item.blocks) && item.blocks.length
-    ? item.blocks
-    : [];
-  const weeks = Array.isArray(item.weeks) ? item.weeks : [];
-  const results = [];
-
-  if (lectures.length) {
-    const seen = new Set();
-    lectures.forEach(lec => {
-      if (!lec) return;
-      const blockId = lec.blockId || blocks[0] || UNASSIGNED_BLOCK;
-      const lectureId = lec.id != null ? lec.id : UNASSIGNED_LECTURE;
-      const rawWeek = lec.week;
-      const weekNumber = Number.isFinite(Number(rawWeek)) ? Number(rawWeek) : null;
-      const weekId = weekNumber != null ? String(weekNumber) : UNASSIGNED_WEEK;
-      const blockTitle = blockTitles.get(blockId) || (blockId === UNASSIGNED_BLOCK ? 'Unassigned block' : blockId || 'Unassigned block');
-      const lectureLabel = lec.name ? lec.name : (lectureId !== UNASSIGNED_LECTURE ? `Lecture ${lectureId}` : 'Unassigned lecture');
-      const weekLabel = weekNumber != null ? `Week ${weekNumber}` : 'Unassigned week';
-      const lectureKey = `${blockId || UNASSIGNED_BLOCK}::${lectureId}`;
-      const dedupKey = `${blockId || UNASSIGNED_BLOCK}::${weekId}::${lectureKey}`;
-      if (seen.has(dedupKey)) return;
-      seen.add(dedupKey);
-      results.push({
-        blockId: blockId || UNASSIGNED_BLOCK,
-        blockTitle,
-        weekId,
-        weekNumber,
-        weekLabel,
-        lectureKey,
-        lectureId,
-        lectureLabel
-      });
-    });
-  } else {
-    const blockIds = blocks.length ? blocks : [UNASSIGNED_BLOCK];
-    const weekValues = weeks.length ? weeks : [null];
-    const seen = new Set();
-    blockIds.forEach(blockRaw => {
-      const blockId = blockRaw || UNASSIGNED_BLOCK;
-      const blockTitle = blockTitles.get(blockId) || (blockId === UNASSIGNED_BLOCK ? 'Unassigned block' : blockId || 'Unassigned block');
-      weekValues.forEach(weekValue => {
-        const weekNumber = Number.isFinite(Number(weekValue)) ? Number(weekValue) : null;
-        const weekId = weekNumber != null ? String(weekNumber) : UNASSIGNED_WEEK;
-        const weekLabel = weekNumber != null ? `Week ${weekNumber}` : 'Unassigned week';
-        const dedupKey = `${blockId}::${weekId}`;
-        if (seen.has(dedupKey)) return;
-        seen.add(dedupKey);
-        results.push({
-          blockId,
-          blockTitle,
-          weekId,
-          weekNumber,
-          weekLabel,
-          lectureKey: `${blockId}::${UNASSIGNED_LECTURE}`,
-          lectureId: UNASSIGNED_LECTURE,
-          lectureLabel: 'Unassigned lecture'
-        });
-      });
-    });
-    if (!results.length) {
-      results.push({
-        blockId: UNASSIGNED_BLOCK,
-        blockTitle: 'Unassigned block',
-        weekId: UNASSIGNED_WEEK,
-        weekNumber: null,
-        weekLabel: 'Unassigned week',
-        lectureKey: `${UNASSIGNED_BLOCK}::${UNASSIGNED_LECTURE}`,
-        lectureId: UNASSIGNED_LECTURE,
-        lectureLabel: 'Unassigned lecture'
-      });
-    }
-  }
-
-  return results;
-}
-
-function buildReviewHierarchy(entries, blocks, blockTitles) {
-  const order = createBlockOrder(blocks);
-  const root = {
-    id: 'all',
-    title: 'All cards',
-    blocks: new Map(),
-    entryMap: new Map()
-  };
-
-  const blockMap = root.blocks;
-  entries.forEach(entry => {
-    registerEntry(root, entry);
-    const refs = resolveEntryRefs(entry, blockTitles);
-    refs.forEach(ref => {
-      const blockId = ref.blockId || UNASSIGNED_BLOCK;
-      let blockNode = blockMap.get(blockId);
-      if (!blockNode) {
-        blockNode = {
-          id: blockId,
-          title: ref.blockTitle,
-          order: order.has(blockId) ? order.get(blockId) : Number.MAX_SAFE_INTEGER,
-          weeks: new Map(),
-          entryMap: new Map()
-        };
-        blockMap.set(blockId, blockNode);
-      }
-      registerEntry(blockNode, entry);
-
-      const weekKey = ref.weekId || UNASSIGNED_WEEK;
-      let weekNode = blockNode.weeks.get(weekKey);
-      if (!weekNode) {
-        weekNode = {
-          id: weekKey,
-          blockId,
-          label: ref.weekLabel,
-          weekNumber: ref.weekNumber,
-          lectures: new Map(),
-          entryMap: new Map()
-        };
-        blockNode.weeks.set(weekKey, weekNode);
-      }
-      registerEntry(weekNode, entry);
-
-      const lectureKey = ref.lectureKey || `${blockId}::${UNASSIGNED_LECTURE}`;
-      let lectureNode = weekNode.lectures.get(lectureKey);
-      if (!lectureNode) {
-        lectureNode = {
-          id: lectureKey,
-          blockId,
-          weekId: weekKey,
-          weekNumber: ref.weekNumber,
-          title: ref.lectureLabel,
-          lectureId: ref.lectureId,
-          entryMap: new Map()
-        };
-        weekNode.lectures.set(lectureKey, lectureNode);
-      }
-      registerEntry(lectureNode, entry);
-    });
-  });
-
-  const blocksList = Array.from(blockMap.values());
-  blocksList.forEach(blockNode => {
-    const weekList = Array.from(blockNode.weeks.values());
-    weekList.forEach(weekNode => {
-      const lectureList = Array.from(weekNode.lectures.values());
-      lectureList.forEach(lectureNode => finalizeEntries(lectureNode));
-      lectureList.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
-      weekNode.lectures = lectureList;
-      finalizeEntries(weekNode);
-    });
-    weekList.sort((a, b) => {
-      const aNum = a.weekNumber;
-      const bNum = b.weekNumber;
-      if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
-        if (aNum !== bNum) return aNum - bNum;
-      } else if (Number.isFinite(aNum)) {
-        return -1;
-      } else if (Number.isFinite(bNum)) {
-        return 1;
-      }
-      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
-    });
-    blockNode.weeks = weekList;
-    finalizeEntries(blockNode);
-  });
-
-  blocksList.sort((a, b) => {
-    if (a.order !== b.order) return a.order - b.order;
-    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
-  });
-
-  finalizeEntries(root);
-
-  return {
-    root,
-    blocks: blocksList
-  };
 }
 
 function createNodeActions({
@@ -490,225 +205,7 @@ function renderUpcomingSection(container, upcomingEntries, now, startSession) {
   container.appendChild(section);
 }
 
-function openEntryMenu(entries, {
-  title = 'Entries',
-  now = Date.now(),
-  startSession,
-  metadata = {},
-  onChange
-} = {}) {
-  const normalized = Array.isArray(entries) ? entries.slice() : [];
-  const sorted = normalized.slice().sort((a, b) => (a.due || 0) - (b.due || 0));
-  const win = createFloatingWindow({ title, width: 720 });
-  const body = win.querySelector('.floating-body');
-  body.classList.add('review-popup');
-
-  let remainingEntries = sorted;
-
-  const status = document.createElement('div');
-  status.className = 'review-popup-status';
-
-  const updateStatus = (message = '', variant = '') => {
-    status.textContent = message;
-    status.classList.remove('is-error', 'is-success');
-    if (variant) {
-      status.classList.add(variant === 'error' ? 'is-error' : 'is-success');
-    }
-  };
-
-  const controls = document.createElement('div');
-  controls.className = 'review-popup-controls';
-  const reviewAllBtn = document.createElement('button');
-  reviewAllBtn.type = 'button';
-  reviewAllBtn.className = 'btn';
-  const updateReviewAllLabel = () => {
-    reviewAllBtn.textContent = `Review (${remainingEntries.length})`;
-    reviewAllBtn.disabled = remainingEntries.length === 0;
-  };
-  updateReviewAllLabel();
-  reviewAllBtn.addEventListener('click', () => {
-    if (!remainingEntries.length) return;
-    if (typeof startSession === 'function') {
-      startSession(buildSessionPayload(remainingEntries), metadata || {});
-    }
-  });
-  controls.appendChild(reviewAllBtn);
-  body.appendChild(controls);
-
-  const table = document.createElement('table');
-  table.className = 'review-entry-table';
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  ['Card', 'Section', 'Due', 'Phase', 'Actions'].forEach(label => {
-    const th = document.createElement('th');
-    th.textContent = label;
-    headRow.appendChild(th);
-  });
-  head.appendChild(headRow);
-  table.appendChild(head);
-
-  const bodyRows = document.createElement('tbody');
-  table.appendChild(bodyRows);
-  body.appendChild(table);
-  body.appendChild(status);
-
-  const rowsByKey = new Map();
-
-  const removeEntry = entry => {
-    const key = entryKey(entry);
-    if (!key) return;
-    remainingEntries = remainingEntries.filter(item => entryKey(item) !== key);
-    const row = rowsByKey.get(key);
-    if (row) {
-      row.classList.add('is-removed');
-      setTimeout(() => {
-        row.remove();
-      }, 160);
-      rowsByKey.delete(key);
-    }
-    updateReviewAllLabel();
-  };
-
-  let cachedDurations = null;
-
-  const ensureDurations = async () => {
-    if (cachedDurations) return cachedDurations;
-    cachedDurations = await getReviewDurations();
-    return cachedDurations;
-  };
-
-  const handleEntryChange = async () => {
-    if (typeof onChange === 'function') {
-      try {
-        await onChange();
-      } catch (err) {
-        console.error(err);
-      }
-    }
-  };
-
-  sorted.forEach(entry => {
-    const key = entryKey(entry);
-    const row = document.createElement('tr');
-    row.className = 'review-entry-table-row';
-
-    const titleCell = document.createElement('td');
-    titleCell.className = 'review-entry-cell title';
-    titleCell.textContent = titleOf(entry.item);
-    row.appendChild(titleCell);
-
-    const sectionCell = document.createElement('td');
-    sectionCell.className = 'review-entry-cell section';
-    sectionCell.textContent = getSectionLabel(entry.item, entry.sectionKey);
-    row.appendChild(sectionCell);
-
-    const dueCell = document.createElement('td');
-    dueCell.className = 'review-entry-cell due';
-    dueCell.textContent = formatOverdue(entry.due, now);
-    row.appendChild(dueCell);
-
-    const phaseCell = document.createElement('td');
-    phaseCell.className = 'review-entry-cell phase';
-    const phaseLabel = describePhase(entry.phase);
-    const interval = entry?.state?.interval;
-    let phaseText = phaseLabel;
-    if (Number.isFinite(interval) && interval > 0) {
-      const intervalText = `Last interval • ${formatIntervalMinutes(interval)}`;
-      phaseText = phaseText ? `${phaseText}
-${intervalText}` : intervalText;
-    }
-    phaseCell.textContent = phaseText || '—';
-    row.appendChild(phaseCell);
-
-    const actionsCell = document.createElement('td');
-    actionsCell.className = 'review-entry-cell actions';
-    const actionGroup = document.createElement('div');
-    actionGroup.className = 'review-entry-actions';
-
-    const reviewBtn = document.createElement('button');
-    reviewBtn.type = 'button';
-    reviewBtn.className = 'btn tertiary';
-    reviewBtn.textContent = 'Review';
-    reviewBtn.addEventListener('click', () => {
-      if (typeof startSession === 'function') {
-        startSession(buildSessionPayload([entry]), {
-          scope: 'single',
-          label: `Focused review – ${titleOf(entry.item)}`
-        });
-      }
-    });
-    actionGroup.appendChild(reviewBtn);
-
-    const suspendBtn = document.createElement('button');
-    suspendBtn.type = 'button';
-    suspendBtn.className = 'btn tertiary';
-    suspendBtn.textContent = 'Suspend';
-    suspendBtn.addEventListener('click', async () => {
-      if (suspendBtn.disabled) return;
-      suspendBtn.disabled = true;
-      retireBtn.disabled = true;
-      updateStatus('Suspending…');
-      try {
-        const nowTs = Date.now();
-        suspendSection(entry.item, entry.sectionKey, nowTs);
-        await upsertItem(entry.item);
-        updateStatus('Card suspended.', 'success');
-        removeEntry(entry);
-        await handleEntryChange();
-      } catch (err) {
-        console.error('Failed to suspend entry', err);
-        updateStatus('Failed to suspend card.', 'error');
-        suspendBtn.disabled = false;
-        retireBtn.disabled = false;
-      }
-    });
-    actionGroup.appendChild(suspendBtn);
-
-    const retireBtn = document.createElement('button');
-    retireBtn.type = 'button';
-    retireBtn.className = 'btn tertiary danger';
-    retireBtn.textContent = 'Retire';
-    retireBtn.addEventListener('click', async () => {
-      if (retireBtn.disabled) return;
-      retireBtn.disabled = true;
-      suspendBtn.disabled = true;
-      updateStatus('Retiring…');
-      try {
-        const steps = await ensureDurations();
-        const nowTs = Date.now();
-        rateSection(entry.item, entry.sectionKey, RETIRE_RATING, steps, nowTs);
-        await upsertItem(entry.item);
-        updateStatus('Card retired.', 'success');
-        removeEntry(entry);
-        await handleEntryChange();
-      } catch (err) {
-        console.error('Failed to retire entry', err);
-        updateStatus('Failed to retire card.', 'error');
-        retireBtn.disabled = false;
-        suspendBtn.disabled = false;
-      }
-    });
-    actionGroup.appendChild(retireBtn);
-
-    actionsCell.appendChild(actionGroup);
-    row.appendChild(actionsCell);
-
-    bodyRows.appendChild(row);
-    if (key) rowsByKey.set(key, row);
-  });
-
-  if (!sorted.length) {
-    const empty = document.createElement('div');
-    empty.className = 'review-popup-empty';
-    empty.textContent = 'No entries available.';
-    body.insertBefore(empty, controls.nextSibling);
-    table.hidden = true;
-  }
-
-  return win;
-}
-
-function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
+function renderHierarchy(container, hierarchy, blockTitleMap, { startSession, now, redraw }) {
   if (!hierarchy.root.entries.length) {
     renderEmptyState(container);
     return;
@@ -729,12 +226,14 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
     count: hierarchy.root.entries.length,
     reviewLabel: 'Review all',
     onReview: () => startSession(buildSessionPayload(hierarchy.root.entries), allMeta),
-    onMenu: () => openEntryMenu(hierarchy.root.entries, {
-      title: 'All due cards',
+    onMenu: () => openReviewEntryMenu({
+      hierarchy,
+      blockTitleMap,
       now,
       startSession,
-      metadata: allMeta,
-      onChange: refresh
+      onChange: refresh,
+      focus: { type: 'all' },
+      title: 'All due cards'
     }),
     defaultOpen: true
   });
@@ -757,12 +256,14 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
       count: blockNode.entries.length,
       reviewLabel: 'Review block',
       onReview: () => startSession(buildSessionPayload(blockNode.entries), blockMeta),
-      onMenu: () => openEntryMenu(blockNode.entries, {
-        title: `${blockNode.title} — cards`,
+      onMenu: () => openReviewEntryMenu({
+        hierarchy,
+        blockTitleMap,
         now,
         startSession,
-        metadata: blockMeta,
-        onChange: refresh
+        onChange: refresh,
+        focus: { type: 'block', blockId: blockNode.id },
+        title: `${blockNode.title} — cards`
       })
     });
     blockList.appendChild(block.element);
@@ -785,12 +286,14 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
         count: weekNode.entries.length,
         reviewLabel: 'Review week',
         onReview: () => startSession(buildSessionPayload(weekNode.entries), weekMeta),
-        onMenu: () => openEntryMenu(weekNode.entries, {
-          title: `${blockNode.title} • ${weekTitle}`,
+        onMenu: () => openReviewEntryMenu({
+          hierarchy,
+          blockTitleMap,
           now,
           startSession,
-          metadata: weekMeta,
-          onChange: refresh
+          onChange: refresh,
+          focus: { type: 'week', blockId: blockNode.id, weekId: weekNode.id },
+          title: `${blockNode.title} • ${weekTitle}`
         })
       });
       weekList.appendChild(week.element);
@@ -825,12 +328,19 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
           count: lectureNode.entries.length,
           reviewLabel: 'Review lecture',
           onReview: () => startSession(buildSessionPayload(lectureNode.entries), lectureMeta),
-          onMenu: () => openEntryMenu(lectureNode.entries, {
-            title: `${blockNode.title} • ${weekTitle} • ${lectureNode.title}`,
+          onMenu: () => openReviewEntryMenu({
+            hierarchy,
+            blockTitleMap,
             now,
             startSession,
-            metadata: lectureMeta,
-            onChange: refresh
+            onChange: refresh,
+            focus: {
+              type: 'lecture',
+              blockId: blockNode.id,
+              weekId: weekNode.id,
+              lectureId: lectureNode.id
+            },
+            title: `${blockNode.title} • ${weekTitle} • ${lectureNode.title}`
           })
         });
         actions.classList.add('review-lecture-actions');
@@ -929,7 +439,7 @@ export async function renderReview(root, redraw) {
 
   if (dueEntries.length) {
     const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles);
-    renderHierarchy(body, hierarchy, { startSession, now, redraw });
+    renderHierarchy(body, hierarchy, blockTitles, { startSession, now, redraw });
   } else {
     renderEmptyState(body);
   }
