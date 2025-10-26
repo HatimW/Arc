@@ -2,32 +2,21 @@
 import { setFlashSession, setSubtab, setCohort } from '../../state.js';
 import {
   collectDueSections,
-  collectUpcomingSections,
-  getReviewDurations,
-  rateSection,
-  suspendSection
+  collectUpcomingSections
 } from '../../review/scheduler.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
 import { getSectionLabel } from './section-utils.js';
 import { hydrateStudySessions, getStudySessionEntry, removeStudySession } from '../../study/study-sessions.js';
 import { loadReviewSourceItems } from '../../review/pool.js';
-import { RETIRE_RATING } from '../../review/constants.js';
-import { upsertItem } from '../../storage/storage.js';
-import { createFloatingWindow } from './window-manager.js';
+import { openReviewMenu, buildSessionPayload } from './review-menu.js';
+import { createBlockTitleMap, resolveSectionContexts, UNASSIGNED_BLOCK, UNASSIGNED_WEEK, UNASSIGNED_LECTURE } from '../../review/context.js';
 
 
 let blockTitleCache = null;
 
 function ensureBlockTitleMap(blocks) {
-  if (blockTitleCache) return blockTitleCache;
-  const map = new Map();
-  blocks.forEach(block => {
-    if (!block || !block.blockId) return;
-    map.set(block.blockId, block.title || block.blockId);
-
-  });
-  blockTitleCache = map;
-  return map;
+  blockTitleCache = createBlockTitleMap(blocks);
+  return blockTitleCache;
 }
 
 function titleOf(item) {
@@ -90,10 +79,6 @@ function describePhase(phase) {
   }
 }
 
-function buildSessionPayload(entries) {
-  return entries.map(entry => ({ item: entry.item, sections: [entry.sectionKey] }));
-}
-
 function renderEmptyState(container) {
   const empty = document.createElement('div');
   empty.className = 'review-empty';
@@ -101,10 +86,6 @@ function renderEmptyState(container) {
   container.appendChild(empty);
 }
 
-
-const UNASSIGNED_BLOCK = '__unassigned';
-const UNASSIGNED_WEEK = '__unassigned';
-const UNASSIGNED_LECTURE = '__unassigned';
 
 function registerEntry(bucket, entry) {
   if (!bucket || !entry) return;
@@ -131,99 +112,26 @@ function createBlockOrder(blocks = []) {
   return order;
 }
 
-function resolveEntryRefs(entry, blockTitles) {
-  const item = entry?.item || {};
-  const lectures = Array.isArray(item.lectures) ? item.lectures.filter(Boolean) : [];
-  const blocks = Array.isArray(item.blocks) && item.blocks.length
-    ? item.blocks
-    : [];
-  const weeks = Array.isArray(item.weeks) ? item.weeks : [];
-  const results = [];
-
-  if (lectures.length) {
-    const seen = new Set();
-    lectures.forEach(lec => {
-      if (!lec) return;
-      const blockId = lec.blockId || blocks[0] || UNASSIGNED_BLOCK;
-      const lectureId = lec.id != null ? lec.id : UNASSIGNED_LECTURE;
-      const rawWeek = lec.week;
-      const weekNumber = Number.isFinite(Number(rawWeek)) ? Number(rawWeek) : null;
-      const weekId = weekNumber != null ? String(weekNumber) : UNASSIGNED_WEEK;
-      const blockTitle = blockTitles.get(blockId) || (blockId === UNASSIGNED_BLOCK ? 'Unassigned block' : blockId || 'Unassigned block');
-      const lectureLabel = lec.name ? lec.name : (lectureId !== UNASSIGNED_LECTURE ? `Lecture ${lectureId}` : 'Unassigned lecture');
-      const weekLabel = weekNumber != null ? `Week ${weekNumber}` : 'Unassigned week';
-      const lectureKey = `${blockId || UNASSIGNED_BLOCK}::${lectureId}`;
-      const dedupKey = `${blockId || UNASSIGNED_BLOCK}::${weekId}::${lectureKey}`;
-      if (seen.has(dedupKey)) return;
-      seen.add(dedupKey);
-      results.push({
-        blockId: blockId || UNASSIGNED_BLOCK,
-        blockTitle,
-        weekId,
-        weekNumber,
-        weekLabel,
-        lectureKey,
-        lectureId,
-        lectureLabel
-      });
-    });
-  } else {
-    const blockIds = blocks.length ? blocks : [UNASSIGNED_BLOCK];
-    const weekValues = weeks.length ? weeks : [null];
-    const seen = new Set();
-    blockIds.forEach(blockRaw => {
-      const blockId = blockRaw || UNASSIGNED_BLOCK;
-      const blockTitle = blockTitles.get(blockId) || (blockId === UNASSIGNED_BLOCK ? 'Unassigned block' : blockId || 'Unassigned block');
-      weekValues.forEach(weekValue => {
-        const weekNumber = Number.isFinite(Number(weekValue)) ? Number(weekValue) : null;
-        const weekId = weekNumber != null ? String(weekNumber) : UNASSIGNED_WEEK;
-        const weekLabel = weekNumber != null ? `Week ${weekNumber}` : 'Unassigned week';
-        const dedupKey = `${blockId}::${weekId}`;
-        if (seen.has(dedupKey)) return;
-        seen.add(dedupKey);
-        results.push({
-          blockId,
-          blockTitle,
-          weekId,
-          weekNumber,
-          weekLabel,
-          lectureKey: `${blockId}::${UNASSIGNED_LECTURE}`,
-          lectureId: UNASSIGNED_LECTURE,
-          lectureLabel: 'Unassigned lecture'
-        });
-      });
-    });
-    if (!results.length) {
-      results.push({
-        blockId: UNASSIGNED_BLOCK,
-        blockTitle: 'Unassigned block',
-        weekId: UNASSIGNED_WEEK,
-        weekNumber: null,
-        weekLabel: 'Unassigned week',
-        lectureKey: `${UNASSIGNED_BLOCK}::${UNASSIGNED_LECTURE}`,
-        lectureId: UNASSIGNED_LECTURE,
-        lectureLabel: 'Unassigned lecture'
-      });
-    }
-  }
-
-  return results;
-}
-
-function buildReviewHierarchy(entries, blocks, blockTitles) {
+export function buildReviewHierarchy(entries, blocks, blockTitles) {
   const order = createBlockOrder(blocks);
   const root = {
     id: 'all',
     title: 'All cards',
     blocks: new Map(),
-    entryMap: new Map()
+    entryMap: new Map(),
+    nodeId: 'root',
+    type: 'root',
+    parent: null,
+    children: []
   };
 
   const blockMap = root.blocks;
   entries.forEach(entry => {
     registerEntry(root, entry);
-    const refs = resolveEntryRefs(entry, blockTitles);
-    refs.forEach(ref => {
+    const contexts = resolveSectionContexts(entry.item, blockTitles);
+    entry.contexts = contexts;
+    entry.primaryContext = contexts && contexts.length ? contexts[0] : null;
+    contexts.forEach(ref => {
       const blockId = ref.blockId || UNASSIGNED_BLOCK;
       let blockNode = blockMap.get(blockId);
       if (!blockNode) {
@@ -232,7 +140,12 @@ function buildReviewHierarchy(entries, blocks, blockTitles) {
           title: ref.blockTitle,
           order: order.has(blockId) ? order.get(blockId) : Number.MAX_SAFE_INTEGER,
           weeks: new Map(),
-          entryMap: new Map()
+          entryMap: new Map(),
+          blockId,
+          blockTitle: ref.blockTitle,
+          nodeId: `block:${blockId}`,
+          type: 'block',
+          parent: root
         };
         blockMap.set(blockId, blockNode);
       }
@@ -245,9 +158,14 @@ function buildReviewHierarchy(entries, blocks, blockTitles) {
           id: weekKey,
           blockId,
           label: ref.weekLabel,
+          title: ref.weekLabel,
           weekNumber: ref.weekNumber,
           lectures: new Map(),
-          entryMap: new Map()
+          entryMap: new Map(),
+          blockTitle: ref.blockTitle,
+          nodeId: `${blockNode.nodeId}|week:${weekKey}`,
+          type: 'week',
+          parent: blockNode
         };
         blockNode.weeks.set(weekKey, weekNode);
       }
@@ -263,7 +181,12 @@ function buildReviewHierarchy(entries, blocks, blockTitles) {
           weekNumber: ref.weekNumber,
           title: ref.lectureLabel,
           lectureId: ref.lectureId,
-          entryMap: new Map()
+          entryMap: new Map(),
+          blockTitle: ref.blockTitle,
+          weekLabel: ref.weekLabel,
+          nodeId: `${weekNode.nodeId}|lecture:${lectureKey}`,
+          type: 'lecture',
+          parent: weekNode
         };
         weekNode.lectures.set(lectureKey, lectureNode);
       }
@@ -273,12 +196,18 @@ function buildReviewHierarchy(entries, blocks, blockTitles) {
 
   const blocksList = Array.from(blockMap.values());
   blocksList.forEach(blockNode => {
+    blockNode.children = [];
     const weekList = Array.from(blockNode.weeks.values());
     weekList.forEach(weekNode => {
+      weekNode.children = [];
       const lectureList = Array.from(weekNode.lectures.values());
       lectureList.forEach(lectureNode => finalizeEntries(lectureNode));
       lectureList.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+      lectureList.forEach(lectureNode => {
+        lectureNode.children = [];
+      });
       weekNode.lectures = lectureList;
+      weekNode.children = lectureList;
       finalizeEntries(weekNode);
     });
     weekList.sort((a, b) => {
@@ -294,6 +223,7 @@ function buildReviewHierarchy(entries, blocks, blockTitles) {
       return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
     });
     blockNode.weeks = weekList;
+    blockNode.children = weekList;
     finalizeEntries(blockNode);
   });
 
@@ -303,10 +233,12 @@ function buildReviewHierarchy(entries, blocks, blockTitles) {
   });
 
   finalizeEntries(root);
+  root.children = blocksList;
 
   return {
     root,
-    blocks: blocksList
+    blocks: blocksList,
+    blockTitles
   };
 }
 
@@ -490,224 +422,6 @@ function renderUpcomingSection(container, upcomingEntries, now, startSession) {
   container.appendChild(section);
 }
 
-function openEntryMenu(entries, {
-  title = 'Entries',
-  now = Date.now(),
-  startSession,
-  metadata = {},
-  onChange
-} = {}) {
-  const normalized = Array.isArray(entries) ? entries.slice() : [];
-  const sorted = normalized.slice().sort((a, b) => (a.due || 0) - (b.due || 0));
-  const win = createFloatingWindow({ title, width: 720 });
-  const body = win.querySelector('.floating-body');
-  body.classList.add('review-popup');
-
-  let remainingEntries = sorted;
-
-  const status = document.createElement('div');
-  status.className = 'review-popup-status';
-
-  const updateStatus = (message = '', variant = '') => {
-    status.textContent = message;
-    status.classList.remove('is-error', 'is-success');
-    if (variant) {
-      status.classList.add(variant === 'error' ? 'is-error' : 'is-success');
-    }
-  };
-
-  const controls = document.createElement('div');
-  controls.className = 'review-popup-controls';
-  const reviewAllBtn = document.createElement('button');
-  reviewAllBtn.type = 'button';
-  reviewAllBtn.className = 'btn';
-  const updateReviewAllLabel = () => {
-    reviewAllBtn.textContent = `Review (${remainingEntries.length})`;
-    reviewAllBtn.disabled = remainingEntries.length === 0;
-  };
-  updateReviewAllLabel();
-  reviewAllBtn.addEventListener('click', () => {
-    if (!remainingEntries.length) return;
-    if (typeof startSession === 'function') {
-      startSession(buildSessionPayload(remainingEntries), metadata || {});
-    }
-  });
-  controls.appendChild(reviewAllBtn);
-  body.appendChild(controls);
-
-  const table = document.createElement('table');
-  table.className = 'review-entry-table';
-  const head = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  ['Card', 'Section', 'Due', 'Phase', 'Actions'].forEach(label => {
-    const th = document.createElement('th');
-    th.textContent = label;
-    headRow.appendChild(th);
-  });
-  head.appendChild(headRow);
-  table.appendChild(head);
-
-  const bodyRows = document.createElement('tbody');
-  table.appendChild(bodyRows);
-  body.appendChild(table);
-  body.appendChild(status);
-
-  const rowsByKey = new Map();
-
-  const removeEntry = entry => {
-    const key = entryKey(entry);
-    if (!key) return;
-    remainingEntries = remainingEntries.filter(item => entryKey(item) !== key);
-    const row = rowsByKey.get(key);
-    if (row) {
-      row.classList.add('is-removed');
-      setTimeout(() => {
-        row.remove();
-      }, 160);
-      rowsByKey.delete(key);
-    }
-    updateReviewAllLabel();
-  };
-
-  let cachedDurations = null;
-
-  const ensureDurations = async () => {
-    if (cachedDurations) return cachedDurations;
-    cachedDurations = await getReviewDurations();
-    return cachedDurations;
-  };
-
-  const handleEntryChange = async () => {
-    if (typeof onChange === 'function') {
-      try {
-        await onChange();
-      } catch (err) {
-        console.error(err);
-      }
-    }
-  };
-
-  sorted.forEach(entry => {
-    const key = entryKey(entry);
-    const row = document.createElement('tr');
-    row.className = 'review-entry-table-row';
-
-    const titleCell = document.createElement('td');
-    titleCell.className = 'review-entry-cell title';
-    titleCell.textContent = titleOf(entry.item);
-    row.appendChild(titleCell);
-
-    const sectionCell = document.createElement('td');
-    sectionCell.className = 'review-entry-cell section';
-    sectionCell.textContent = getSectionLabel(entry.item, entry.sectionKey);
-    row.appendChild(sectionCell);
-
-    const dueCell = document.createElement('td');
-    dueCell.className = 'review-entry-cell due';
-    dueCell.textContent = formatOverdue(entry.due, now);
-    row.appendChild(dueCell);
-
-    const phaseCell = document.createElement('td');
-    phaseCell.className = 'review-entry-cell phase';
-    const phaseLabel = describePhase(entry.phase);
-    const interval = entry?.state?.interval;
-    let phaseText = phaseLabel;
-    if (Number.isFinite(interval) && interval > 0) {
-      const intervalText = `Last interval • ${formatIntervalMinutes(interval)}`;
-      phaseText = phaseText ? `${phaseText}
-${intervalText}` : intervalText;
-    }
-    phaseCell.textContent = phaseText || '—';
-    row.appendChild(phaseCell);
-
-    const actionsCell = document.createElement('td');
-    actionsCell.className = 'review-entry-cell actions';
-    const actionGroup = document.createElement('div');
-    actionGroup.className = 'review-entry-actions';
-
-    const reviewBtn = document.createElement('button');
-    reviewBtn.type = 'button';
-    reviewBtn.className = 'btn tertiary';
-    reviewBtn.textContent = 'Review';
-    reviewBtn.addEventListener('click', () => {
-      if (typeof startSession === 'function') {
-        startSession(buildSessionPayload([entry]), {
-          scope: 'single',
-          label: `Focused review – ${titleOf(entry.item)}`
-        });
-      }
-    });
-    actionGroup.appendChild(reviewBtn);
-
-    const suspendBtn = document.createElement('button');
-    suspendBtn.type = 'button';
-    suspendBtn.className = 'btn tertiary';
-    suspendBtn.textContent = 'Suspend';
-    suspendBtn.addEventListener('click', async () => {
-      if (suspendBtn.disabled) return;
-      suspendBtn.disabled = true;
-      retireBtn.disabled = true;
-      updateStatus('Suspending…');
-      try {
-        const nowTs = Date.now();
-        suspendSection(entry.item, entry.sectionKey, nowTs);
-        await upsertItem(entry.item);
-        updateStatus('Card suspended.', 'success');
-        removeEntry(entry);
-        await handleEntryChange();
-      } catch (err) {
-        console.error('Failed to suspend entry', err);
-        updateStatus('Failed to suspend card.', 'error');
-        suspendBtn.disabled = false;
-        retireBtn.disabled = false;
-      }
-    });
-    actionGroup.appendChild(suspendBtn);
-
-    const retireBtn = document.createElement('button');
-    retireBtn.type = 'button';
-    retireBtn.className = 'btn tertiary danger';
-    retireBtn.textContent = 'Retire';
-    retireBtn.addEventListener('click', async () => {
-      if (retireBtn.disabled) return;
-      retireBtn.disabled = true;
-      suspendBtn.disabled = true;
-      updateStatus('Retiring…');
-      try {
-        const steps = await ensureDurations();
-        const nowTs = Date.now();
-        rateSection(entry.item, entry.sectionKey, RETIRE_RATING, steps, nowTs);
-        await upsertItem(entry.item);
-        updateStatus('Card retired.', 'success');
-        removeEntry(entry);
-        await handleEntryChange();
-      } catch (err) {
-        console.error('Failed to retire entry', err);
-        updateStatus('Failed to retire card.', 'error');
-        retireBtn.disabled = false;
-        suspendBtn.disabled = false;
-      }
-    });
-    actionGroup.appendChild(retireBtn);
-
-    actionsCell.appendChild(actionGroup);
-    row.appendChild(actionsCell);
-
-    bodyRows.appendChild(row);
-    if (key) rowsByKey.set(key, row);
-  });
-
-  if (!sorted.length) {
-    const empty = document.createElement('div');
-    empty.className = 'review-popup-empty';
-    empty.textContent = 'No entries available.';
-    body.insertBefore(empty, controls.nextSibling);
-    table.hidden = true;
-  }
-
-  return win;
-}
-
 function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
   if (!hierarchy.root.entries.length) {
     renderEmptyState(container);
@@ -729,11 +443,11 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
     count: hierarchy.root.entries.length,
     reviewLabel: 'Review all',
     onReview: () => startSession(buildSessionPayload(hierarchy.root.entries), allMeta),
-    onMenu: () => openEntryMenu(hierarchy.root.entries, {
+    onMenu: () => openReviewMenu(hierarchy, {
       title: 'All due cards',
       now,
       startSession,
-      metadata: allMeta,
+      focus: { type: 'root' },
       onChange: refresh
     }),
     defaultOpen: true
@@ -757,11 +471,11 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
       count: blockNode.entries.length,
       reviewLabel: 'Review block',
       onReview: () => startSession(buildSessionPayload(blockNode.entries), blockMeta),
-      onMenu: () => openEntryMenu(blockNode.entries, {
+      onMenu: () => openReviewMenu(hierarchy, {
         title: `${blockNode.title} — cards`,
         now,
         startSession,
-        metadata: blockMeta,
+        focus: { type: 'block', blockId: blockNode.id },
         onChange: refresh
       })
     });
@@ -785,11 +499,11 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
         count: weekNode.entries.length,
         reviewLabel: 'Review week',
         onReview: () => startSession(buildSessionPayload(weekNode.entries), weekMeta),
-        onMenu: () => openEntryMenu(weekNode.entries, {
+        onMenu: () => openReviewMenu(hierarchy, {
           title: `${blockNode.title} • ${weekTitle}`,
           now,
           startSession,
-          metadata: weekMeta,
+          focus: { type: 'week', blockId: blockNode.id, weekId: weekNode.id },
           onChange: refresh
         })
       });
@@ -825,11 +539,17 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
           count: lectureNode.entries.length,
           reviewLabel: 'Review lecture',
           onReview: () => startSession(buildSessionPayload(lectureNode.entries), lectureMeta),
-          onMenu: () => openEntryMenu(lectureNode.entries, {
+          onMenu: () => openReviewMenu(hierarchy, {
             title: `${blockNode.title} • ${weekTitle} • ${lectureNode.title}`,
             now,
             startSession,
-            metadata: lectureMeta,
+            focus: {
+              type: 'lecture',
+              blockId: blockNode.id,
+              weekId: weekNode.id,
+              lectureId: lectureNode.lectureId,
+              lectureKey: lectureNode.id
+            },
             onChange: refresh
           })
         });
