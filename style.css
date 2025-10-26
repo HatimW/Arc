@@ -7782,6 +7782,13 @@ button.question-map__item[data-status="incorrect"] {
   --qm-text: rgba(254, 226, 226, 0.98);
 }
 
+button.question-map__item[data-status="invalid"],
+button.question-map__item.is-invalid {
+  --qm-background: linear-gradient(135deg, rgba(234, 179, 8, 0.82), rgba(202, 138, 4, 0.92));
+  --qm-border: rgba(250, 204, 21, 0.9);
+  --qm-text: rgba(254, 249, 195, 0.98);
+}
+
 button.question-map__item[data-status="unanswered"],
 button.question-map__item.is-unanswered,
 button.question-map__item[data-status="review-unanswered"] {
