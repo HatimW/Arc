@@ -18,7 +18,7 @@ import { createFloatingWindow } from './window-manager.js';
 
 let blockTitleCache = null;
 
-function ensureBlockTitleMap(blocks) {
+export function ensureBlockTitleMap(blocks) {
   if (blockTitleCache) return blockTitleCache;
   const map = new Map();
   blocks.forEach(block => {
@@ -210,7 +210,7 @@ function resolveEntryRefs(entry, blockTitles) {
   return results;
 }
 
-function buildReviewHierarchy(entries, blocks, blockTitles) {
+export function buildReviewHierarchy(entries, blocks, blockTitles) {
   const order = createBlockOrder(blocks);
   const root = {
     id: 'all',
@@ -220,6 +220,24 @@ function buildReviewHierarchy(entries, blocks, blockTitles) {
   };
 
   const blockMap = root.blocks;
+  const contexts = new Map();
+
+  const registerContext = (entry, context) => {
+    const key = entryKey(entry);
+    if (!key) return;
+    if (!contexts.has(key)) {
+      contexts.set(key, []);
+    }
+    const list = contexts.get(key);
+    const exists = list.some(existing => (
+      existing.blockId === context.blockId &&
+      existing.weekId === context.weekId &&
+      existing.lectureKey === context.lectureKey
+    ));
+    if (!exists) {
+      list.push(context);
+    }
+  };
   entries.forEach(entry => {
     registerEntry(root, entry);
     const refs = resolveEntryRefs(entry, blockTitles);
@@ -268,6 +286,15 @@ function buildReviewHierarchy(entries, blocks, blockTitles) {
         weekNode.lectures.set(lectureKey, lectureNode);
       }
       registerEntry(lectureNode, entry);
+
+      registerContext(entry, {
+        blockId,
+        blockTitle: blockNode.title,
+        weekId: weekKey,
+        weekLabel: weekNode.label,
+        lectureKey,
+        lectureTitle: lectureNode.title
+      });
     });
   });
 
@@ -306,7 +333,8 @@ function buildReviewHierarchy(entries, blocks, blockTitles) {
 
   return {
     root,
-    blocks: blocksList
+    blocks: blocksList,
+    contexts
   };
 }
 
@@ -490,20 +518,31 @@ function renderUpcomingSection(container, upcomingEntries, now, startSession) {
   container.appendChild(section);
 }
 
-function openEntryMenu(entries, {
+export function openEntryManager(hierarchy, {
   title = 'Entries',
   now = Date.now(),
   startSession,
   metadata = {},
+  focus = {},
+  highlightEntryKey = null,
   onChange
 } = {}) {
-  const normalized = Array.isArray(entries) ? entries.slice() : [];
-  const sorted = normalized.slice().sort((a, b) => (a.due || 0) - (b.due || 0));
-  const win = createFloatingWindow({ title, width: 720 });
+  const win = createFloatingWindow({ title, width: 920 });
   const body = win.querySelector('.floating-body');
   body.classList.add('review-popup');
 
-  let remainingEntries = sorted;
+  const contextsMap = hierarchy?.contexts instanceof Map ? hierarchy.contexts : new Map();
+  const allEntries = Array.isArray(hierarchy?.root?.entries) ? hierarchy.root.entries.slice() : [];
+  const sorted = allEntries.slice().sort((a, b) => (a.due || 0) - (b.due || 0));
+
+  const entriesByKey = new Map();
+  const remainingKeys = new Set();
+  sorted.forEach(entry => {
+    const key = entryKey(entry);
+    if (!key) return;
+    entriesByKey.set(key, entry);
+    remainingKeys.add(key);
+  });
 
   const status = document.createElement('div');
   status.className = 'review-popup-status';
@@ -516,30 +555,62 @@ function openEntryMenu(entries, {
     }
   };
 
+  const emptyState = document.createElement('div');
+  emptyState.className = 'review-popup-empty';
+  emptyState.textContent = 'No entries available.';
+  emptyState.hidden = true;
+
+  const layout = document.createElement('div');
+  layout.className = 'review-entry-layout';
+  body.appendChild(layout);
+
+  const nav = document.createElement('nav');
+  nav.className = 'review-entry-nav';
+  layout.appendChild(nav);
+
+  const navHeader = document.createElement('div');
+  navHeader.className = 'review-entry-nav-header';
+  navHeader.textContent = 'Quick nav';
+  nav.appendChild(navHeader);
+
+  const navList = document.createElement('div');
+  navList.className = 'review-entry-nav-list';
+  nav.appendChild(navList);
+
+  const content = document.createElement('div');
+  content.className = 'review-entry-content';
+  layout.appendChild(content);
+
   const controls = document.createElement('div');
-  controls.className = 'review-popup-controls';
-  const reviewAllBtn = document.createElement('button');
-  reviewAllBtn.type = 'button';
-  reviewAllBtn.className = 'btn';
-  const updateReviewAllLabel = () => {
-    reviewAllBtn.textContent = `Review (${remainingEntries.length})`;
-    reviewAllBtn.disabled = remainingEntries.length === 0;
-  };
-  updateReviewAllLabel();
-  reviewAllBtn.addEventListener('click', () => {
-    if (!remainingEntries.length) return;
-    if (typeof startSession === 'function') {
-      startSession(buildSessionPayload(remainingEntries), metadata || {});
-    }
-  });
-  controls.appendChild(reviewAllBtn);
-  body.appendChild(controls);
+  controls.className = 'review-popup-controls review-entry-controls';
+  content.appendChild(controls);
+
+  const filterLabel = document.createElement('div');
+  filterLabel.className = 'review-entry-filter-label';
+  controls.appendChild(filterLabel);
+
+  const reviewFilteredBtn = document.createElement('button');
+  reviewFilteredBtn.type = 'button';
+  reviewFilteredBtn.className = 'btn';
+  controls.appendChild(reviewFilteredBtn);
+
+  const selectAllBtn = document.createElement('button');
+  selectAllBtn.type = 'button';
+  selectAllBtn.className = 'btn tertiary';
+  selectAllBtn.textContent = 'Select all';
+  controls.appendChild(selectAllBtn);
+
+  const clearSelectionBtn = document.createElement('button');
+  clearSelectionBtn.type = 'button';
+  clearSelectionBtn.className = 'btn tertiary';
+  clearSelectionBtn.textContent = 'Clear selection';
+  controls.appendChild(clearSelectionBtn);
 
   const table = document.createElement('table');
-  table.className = 'review-entry-table';
+  table.className = 'review-entry-table modern';
   const head = document.createElement('thead');
   const headRow = document.createElement('tr');
-  ['Card', 'Section', 'Due', 'Phase', 'Actions'].forEach(label => {
+  ['Select', 'Card', 'Part', 'Block', 'Week', 'Lecture', 'Stage', 'Due', 'Time', 'Actions'].forEach(label => {
     const th = document.createElement('th');
     th.textContent = label;
     headRow.appendChild(th);
@@ -549,28 +620,87 @@ function openEntryMenu(entries, {
 
   const bodyRows = document.createElement('tbody');
   table.appendChild(bodyRows);
-  body.appendChild(table);
-  body.appendChild(status);
+  content.appendChild(table);
+  content.appendChild(emptyState);
+  content.appendChild(status);
 
-  const rowsByKey = new Map();
+  const selectionBar = document.createElement('div');
+  selectionBar.className = 'review-selection-bar';
+  selectionBar.hidden = true;
+  const selectionInfo = document.createElement('div');
+  selectionInfo.className = 'review-selection-info';
+  selectionBar.appendChild(selectionInfo);
 
-  const removeEntry = entry => {
-    const key = entryKey(entry);
-    if (!key) return;
-    remainingEntries = remainingEntries.filter(item => entryKey(item) !== key);
-    const row = rowsByKey.get(key);
-    if (row) {
-      row.classList.add('is-removed');
-      setTimeout(() => {
-        row.remove();
-      }, 160);
-      rowsByKey.delete(key);
-    }
-    updateReviewAllLabel();
+  const selectionControls = document.createElement('div');
+  selectionControls.className = 'review-selection-actions';
+  const suspendSelectedBtn = document.createElement('button');
+  suspendSelectedBtn.type = 'button';
+  suspendSelectedBtn.className = 'btn secondary';
+  suspendSelectedBtn.textContent = 'Suspend selected';
+  selectionControls.appendChild(suspendSelectedBtn);
+  const retireSelectedBtn = document.createElement('button');
+  retireSelectedBtn.type = 'button';
+  retireSelectedBtn.className = 'btn danger';
+  retireSelectedBtn.textContent = 'Retire selected';
+  selectionControls.appendChild(retireSelectedBtn);
+  selectionBar.appendChild(selectionControls);
+
+  const selectionStatus = document.createElement('div');
+  selectionStatus.className = 'review-selection-status';
+  selectionBar.appendChild(selectionStatus);
+  content.appendChild(selectionBar);
+
+  const nodeCounts = new Map();
+  const navCountElements = new Map();
+  const navMetadata = new Map();
+
+  const rootNodeKey = 'root';
+  const blockNodeKey = blockId => `block:${blockId}`;
+  const weekNodeKey = (blockId, weekId) => `week:${blockId}::${weekId}`;
+  const lectureNodeKey = lectureKey => `lecture:${lectureKey}`;
+
+  const adjustCount = (nodeKey, delta) => {
+    const current = nodeCounts.get(nodeKey) || 0;
+    const next = Math.max(0, current + delta);
+    nodeCounts.set(nodeKey, next);
+    const badge = navCountElements.get(nodeKey);
+    if (badge) badge.textContent = String(next);
   };
 
-  let cachedDurations = null;
+  const getEntryContexts = entry => {
+    const key = entryKey(entry);
+    if (!key) return [];
+    const ctx = contextsMap.get(key);
+    if (Array.isArray(ctx) && ctx.length) return ctx;
+    return [{
+      blockId: UNASSIGNED_BLOCK,
+      blockTitle: 'Unassigned block',
+      weekId: UNASSIGNED_WEEK,
+      weekLabel: 'Unassigned week',
+      lectureKey: `${UNASSIGNED_BLOCK}::${UNASSIGNED_LECTURE}`,
+      lectureTitle: 'Unassigned lecture'
+    }];
+  };
 
+  sorted.forEach(entry => {
+    const key = entryKey(entry);
+    if (!key) return;
+    adjustCount(rootNodeKey, 1);
+    const contexts = getEntryContexts(entry);
+    contexts.forEach(ctx => {
+      adjustCount(blockNodeKey(ctx.blockId), 1);
+      adjustCount(weekNodeKey(ctx.blockId, ctx.weekId), 1);
+      adjustCount(lectureNodeKey(ctx.lectureKey), 1);
+    });
+  });
+
+  const rootMeta = { scope: 'all', label: 'All due cards' };
+  navMetadata.set(rootNodeKey, rootMeta);
+
+  const selectedKeys = new Set();
+  const rowsByKey = new Map();
+
+  let cachedDurations = null;
   const ensureDurations = async () => {
     if (cachedDurations) return cachedDurations;
     cachedDurations = await getReviewDurations();
@@ -587,126 +717,574 @@ function openEntryMenu(entries, {
     }
   };
 
-  sorted.forEach(entry => {
+  const matchesFilter = (entry, filter) => {
+    if (!filter || filter.scope === 'all') return true;
+    const contexts = getEntryContexts(entry);
+    if (!contexts.length) return filter.scope === 'all';
+    return contexts.some(ctx => {
+      if (filter.scope === 'block') {
+        return ctx.blockId === filter.blockId;
+      }
+      if (filter.scope === 'week') {
+        return ctx.blockId === filter.blockId && ctx.weekId === filter.weekId;
+      }
+      if (filter.scope === 'lecture') {
+        return ctx.lectureKey === filter.lectureKey;
+      }
+      return true;
+    });
+  };
+
+  const listFilteredEntries = filter => sorted.filter(entry => {
     const key = entryKey(entry);
-    const row = document.createElement('tr');
-    row.className = 'review-entry-table-row';
-
-    const titleCell = document.createElement('td');
-    titleCell.className = 'review-entry-cell title';
-    titleCell.textContent = titleOf(entry.item);
-    row.appendChild(titleCell);
-
-    const sectionCell = document.createElement('td');
-    sectionCell.className = 'review-entry-cell section';
-    sectionCell.textContent = getSectionLabel(entry.item, entry.sectionKey);
-    row.appendChild(sectionCell);
-
-    const dueCell = document.createElement('td');
-    dueCell.className = 'review-entry-cell due';
-    dueCell.textContent = formatOverdue(entry.due, now);
-    row.appendChild(dueCell);
-
-    const phaseCell = document.createElement('td');
-    phaseCell.className = 'review-entry-cell phase';
-    const phaseLabel = describePhase(entry.phase);
-    const interval = entry?.state?.interval;
-    let phaseText = phaseLabel;
-    if (Number.isFinite(interval) && interval > 0) {
-      const intervalText = `Last interval • ${formatIntervalMinutes(interval)}`;
-      phaseText = phaseText ? `${phaseText}
-${intervalText}` : intervalText;
-    }
-    phaseCell.textContent = phaseText || '—';
-    row.appendChild(phaseCell);
-
-    const actionsCell = document.createElement('td');
-    actionsCell.className = 'review-entry-cell actions';
-    const actionGroup = document.createElement('div');
-    actionGroup.className = 'review-entry-actions';
-
-    const reviewBtn = document.createElement('button');
-    reviewBtn.type = 'button';
-    reviewBtn.className = 'btn tertiary';
-    reviewBtn.textContent = 'Review';
-    reviewBtn.addEventListener('click', () => {
-      if (typeof startSession === 'function') {
-        startSession(buildSessionPayload([entry]), {
-          scope: 'single',
-          label: `Focused review – ${titleOf(entry.item)}`
-        });
-      }
-    });
-    actionGroup.appendChild(reviewBtn);
-
-    const suspendBtn = document.createElement('button');
-    suspendBtn.type = 'button';
-    suspendBtn.className = 'btn tertiary';
-    suspendBtn.textContent = 'Suspend';
-    suspendBtn.addEventListener('click', async () => {
-      if (suspendBtn.disabled) return;
-      suspendBtn.disabled = true;
-      retireBtn.disabled = true;
-      updateStatus('Suspending…');
-      try {
-        const nowTs = Date.now();
-        suspendSection(entry.item, entry.sectionKey, nowTs);
-        await upsertItem(entry.item);
-        updateStatus('Card suspended.', 'success');
-        removeEntry(entry);
-        await handleEntryChange();
-      } catch (err) {
-        console.error('Failed to suspend entry', err);
-        updateStatus('Failed to suspend card.', 'error');
-        suspendBtn.disabled = false;
-        retireBtn.disabled = false;
-      }
-    });
-    actionGroup.appendChild(suspendBtn);
-
-    const retireBtn = document.createElement('button');
-    retireBtn.type = 'button';
-    retireBtn.className = 'btn tertiary danger';
-    retireBtn.textContent = 'Retire';
-    retireBtn.addEventListener('click', async () => {
-      if (retireBtn.disabled) return;
-      retireBtn.disabled = true;
-      suspendBtn.disabled = true;
-      updateStatus('Retiring…');
-      try {
-        const steps = await ensureDurations();
-        const nowTs = Date.now();
-        rateSection(entry.item, entry.sectionKey, RETIRE_RATING, steps, nowTs);
-        await upsertItem(entry.item);
-        updateStatus('Card retired.', 'success');
-        removeEntry(entry);
-        await handleEntryChange();
-      } catch (err) {
-        console.error('Failed to retire entry', err);
-        updateStatus('Failed to retire card.', 'error');
-        retireBtn.disabled = false;
-        suspendBtn.disabled = false;
-      }
-    });
-    actionGroup.appendChild(retireBtn);
-
-    actionsCell.appendChild(actionGroup);
-    row.appendChild(actionsCell);
-
-    bodyRows.appendChild(row);
-    if (key) rowsByKey.set(key, row);
+    if (!key || !remainingKeys.has(key)) return false;
+    return matchesFilter(entry, filter);
   });
 
-  if (!sorted.length) {
-    const empty = document.createElement('div');
-    empty.className = 'review-popup-empty';
-    empty.textContent = 'No entries available.';
-    body.insertBefore(empty, controls.nextSibling);
-    table.hidden = true;
+  const normalizeFilter = (input = {}) => {
+    const scope = ['block', 'week', 'lecture'].includes(input.scope) ? input.scope : 'all';
+    if (scope === 'block') {
+      return { scope, blockId: input.blockId ?? UNASSIGNED_BLOCK };
+    }
+    if (scope === 'week') {
+      const blockId = input.blockId ?? UNASSIGNED_BLOCK;
+      const weekId = input.weekId ?? (input.week != null ? String(input.week) : UNASSIGNED_WEEK);
+      return { scope, blockId, weekId };
+    }
+    if (scope === 'lecture') {
+      const lectureKey = input.lectureKey || input.lectureId || input.lecture || `${UNASSIGNED_BLOCK}::${UNASSIGNED_LECTURE}`;
+      return { scope, lectureKey, blockId: input.blockId ?? UNASSIGNED_BLOCK, weekId: input.weekId ?? (input.week != null ? String(input.week) : UNASSIGNED_WEEK) };
+    }
+    return { scope: 'all' };
+  };
+
+  const nodeKeyForFilter = filter => {
+    if (!filter) return rootNodeKey;
+    switch (filter.scope) {
+      case 'block':
+        return blockNodeKey(filter.blockId ?? UNASSIGNED_BLOCK);
+      case 'week':
+        return weekNodeKey(filter.blockId ?? UNASSIGNED_BLOCK, filter.weekId ?? UNASSIGNED_WEEK);
+      case 'lecture':
+        return lectureNodeKey(filter.lectureKey ?? `${UNASSIGNED_BLOCK}::${UNASSIGNED_LECTURE}`);
+      default:
+        return rootNodeKey;
+    }
+  };
+
+  const initialFilter = (() => {
+    if (focus && focus.scope) {
+      return normalizeFilter(focus);
+    }
+    if (highlightEntryKey && entriesByKey.has(highlightEntryKey)) {
+      const entry = entriesByKey.get(highlightEntryKey);
+      const contexts = getEntryContexts(entry);
+      if (contexts.length) {
+        const ctx = contexts[0];
+        return { scope: 'lecture', lectureKey: ctx.lectureKey, blockId: ctx.blockId, weekId: ctx.weekId };
+      }
+    }
+    return { scope: 'all' };
+  })();
+
+  let currentFilter = initialFilter;
+  let activeNodeKey = nodeKeyForFilter(currentFilter);
+  let currentMetadata = navMetadata.get(activeNodeKey) || metadata || { scope: 'all', label: 'All due cards' };
+
+  const setActiveNav = nodeKey => {
+    const prev = navList.querySelector('.review-entry-nav-btn.is-active');
+    if (prev) prev.classList.remove('is-active');
+    const next = navList.querySelector(`.review-entry-nav-btn[data-node-key="${nodeKey}"]`);
+    if (next) next.classList.add('is-active');
+  };
+
+  const updateFilterLabel = () => {
+    filterLabel.textContent = currentMetadata?.label || 'All due cards';
+  };
+
+  const updateReviewButton = () => {
+    const filtered = listFilteredEntries(currentFilter);
+    reviewFilteredBtn.textContent = filtered.length ? `Start review (${filtered.length})` : 'Start review';
+    reviewFilteredBtn.disabled = filtered.length === 0;
+    selectAllBtn.disabled = filtered.length === 0;
+  };
+
+  const updateSelectionBar = () => {
+    const count = selectedKeys.size;
+    selectionBar.hidden = count === 0;
+    selectionInfo.textContent = `${count} selected`;
+    suspendSelectedBtn.disabled = count === 0;
+    retireSelectedBtn.disabled = count === 0;
+    if (count === 0) {
+      selectionStatus.textContent = '';
+      selectionStatus.classList.remove('is-error', 'is-success');
+    }
+  };
+
+  const setSelectionStatus = (message = '', variant = '') => {
+    selectionStatus.textContent = message;
+    selectionStatus.classList.remove('is-error', 'is-success');
+    if (variant) {
+      selectionStatus.classList.add(variant === 'error' ? 'is-error' : 'is-success');
+    }
+  };
+
+  const clearSelection = () => {
+    selectedKeys.clear();
+    rowsByKey.forEach(row => row.classList.remove('is-selected'));
+    rowsByKey.forEach(row => {
+      const checkbox = row.querySelector('.review-entry-checkbox');
+      if (checkbox) checkbox.checked = false;
+    });
+    updateSelectionBar();
+  };
+
+  const removeEntry = entry => {
+    const key = entryKey(entry);
+    if (!key || !remainingKeys.has(key)) return;
+    remainingKeys.delete(key);
+    if (selectedKeys.has(key)) selectedKeys.delete(key);
+
+    adjustCount(rootNodeKey, -1);
+    const contexts = getEntryContexts(entry);
+    contexts.forEach(ctx => {
+      adjustCount(blockNodeKey(ctx.blockId), -1);
+      adjustCount(weekNodeKey(ctx.blockId, ctx.weekId), -1);
+      adjustCount(lectureNodeKey(ctx.lectureKey), -1);
+    });
+
+    rowsByKey.delete(key);
+    updateSelectionBar();
+  };
+
+  let pendingHighlight = highlightEntryKey;
+
+  const renderTable = () => {
+    const filtered = listFilteredEntries(currentFilter);
+    bodyRows.innerHTML = '';
+    rowsByKey.clear();
+
+    if (!filtered.length) {
+      table.hidden = true;
+      emptyState.hidden = false;
+      return;
+    }
+
+    table.hidden = false;
+    emptyState.hidden = true;
+
+    filtered.forEach(entry => {
+      const key = entryKey(entry);
+      if (!key) return;
+      const row = document.createElement('tr');
+      row.className = 'review-entry-table-row';
+      row.dataset.entryKey = key;
+
+      const contexts = getEntryContexts(entry);
+      const blockNames = Array.from(new Set(contexts.map(ctx => ctx.blockTitle))).join(', ');
+      const weekNames = Array.from(new Set(contexts.map(ctx => ctx.weekLabel))).join(', ');
+      const lectureNames = Array.from(new Set(contexts.map(ctx => ctx.lectureTitle))).join(', ');
+
+      const selectCell = document.createElement('td');
+      selectCell.className = 'review-entry-cell select';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'review-entry-checkbox';
+      checkbox.checked = selectedKeys.has(key);
+      checkbox.addEventListener('change', event => {
+        if (event.target.checked) {
+          selectedKeys.add(key);
+          row.classList.add('is-selected');
+        } else {
+          selectedKeys.delete(key);
+          row.classList.remove('is-selected');
+        }
+        updateSelectionBar();
+      });
+      selectCell.appendChild(checkbox);
+      row.appendChild(selectCell);
+
+      const titleCell = document.createElement('td');
+      titleCell.className = 'review-entry-cell title';
+      titleCell.textContent = titleOf(entry.item);
+      row.appendChild(titleCell);
+
+      const partCell = document.createElement('td');
+      partCell.className = 'review-entry-cell part';
+      partCell.textContent = getSectionLabel(entry.item, entry.sectionKey);
+      row.appendChild(partCell);
+
+      const blockCell = document.createElement('td');
+      blockCell.className = 'review-entry-cell block';
+      blockCell.textContent = blockNames || '—';
+      row.appendChild(blockCell);
+
+      const weekCell = document.createElement('td');
+      weekCell.className = 'review-entry-cell week';
+      weekCell.textContent = weekNames || '—';
+      row.appendChild(weekCell);
+
+      const lectureCell = document.createElement('td');
+      lectureCell.className = 'review-entry-cell lecture';
+      lectureCell.textContent = lectureNames || '—';
+      row.appendChild(lectureCell);
+
+      const phaseCell = document.createElement('td');
+      phaseCell.className = 'review-entry-cell phase';
+      const phaseLabel = describePhase(entry.phase);
+      const interval = entry?.state?.interval;
+      const intervalText = Number.isFinite(interval) && interval > 0 ? `Last interval • ${formatIntervalMinutes(interval)}` : '';
+      phaseCell.textContent = intervalText ? `${phaseLabel || '—'} (${intervalText})` : (phaseLabel || '—');
+      row.appendChild(phaseCell);
+
+      const dueCell = document.createElement('td');
+      dueCell.className = 'review-entry-cell due';
+      dueCell.textContent = formatOverdue(entry.due, now);
+      row.appendChild(dueCell);
+
+      const timeCell = document.createElement('td');
+      timeCell.className = 'review-entry-cell timestamp';
+      timeCell.textContent = entry.due ? new Date(entry.due).toLocaleString() : '—';
+      row.appendChild(timeCell);
+
+      const actionsCell = document.createElement('td');
+      actionsCell.className = 'review-entry-cell actions';
+      const actionGroup = document.createElement('div');
+      actionGroup.className = 'review-entry-actions';
+
+      const reviewBtn = document.createElement('button');
+      reviewBtn.type = 'button';
+      reviewBtn.className = 'btn tertiary';
+      reviewBtn.textContent = 'Review';
+      reviewBtn.addEventListener('click', () => {
+        if (typeof startSession === 'function') {
+          startSession(buildSessionPayload([entry]), {
+            scope: 'single',
+            label: `Focused review – ${titleOf(entry.item)}`
+          });
+        }
+      });
+      actionGroup.appendChild(reviewBtn);
+
+      const suspendBtn = document.createElement('button');
+      suspendBtn.type = 'button';
+      suspendBtn.className = 'btn tertiary';
+      suspendBtn.textContent = 'Suspend';
+      suspendBtn.addEventListener('click', async () => {
+        if (suspendBtn.disabled) return;
+        suspendBtn.disabled = true;
+        retireBtn.disabled = true;
+        updateStatus('Suspending…');
+        try {
+          suspendSection(entry.item, entry.sectionKey, Date.now());
+          await upsertItem(entry.item);
+          updateStatus('Card suspended.', 'success');
+          removeEntry(entry);
+          renderTable();
+          updateReviewButton();
+          await handleEntryChange();
+        } catch (err) {
+          console.error('Failed to suspend entry', err);
+          updateStatus('Failed to suspend card.', 'error');
+          suspendBtn.disabled = false;
+          retireBtn.disabled = false;
+        }
+      });
+      actionGroup.appendChild(suspendBtn);
+
+      const retireBtn = document.createElement('button');
+      retireBtn.type = 'button';
+      retireBtn.className = 'btn tertiary danger';
+      retireBtn.textContent = 'Retire';
+      retireBtn.addEventListener('click', async () => {
+        if (retireBtn.disabled) return;
+        retireBtn.disabled = true;
+        suspendBtn.disabled = true;
+        updateStatus('Retiring…');
+        try {
+          const steps = await ensureDurations();
+          const nowTs = Date.now();
+          rateSection(entry.item, entry.sectionKey, RETIRE_RATING, steps, nowTs);
+          await upsertItem(entry.item);
+          updateStatus('Card retired.', 'success');
+          removeEntry(entry);
+          renderTable();
+          updateReviewButton();
+          await handleEntryChange();
+        } catch (err) {
+          console.error('Failed to retire entry', err);
+          updateStatus('Failed to retire card.', 'error');
+          retireBtn.disabled = false;
+          suspendBtn.disabled = false;
+        }
+      });
+      actionGroup.appendChild(retireBtn);
+
+      actionsCell.appendChild(actionGroup);
+      row.appendChild(actionsCell);
+
+      const toggleSelection = () => {
+        if (selectedKeys.has(key)) {
+          selectedKeys.delete(key);
+          row.classList.remove('is-selected');
+          checkbox.checked = false;
+        } else {
+          selectedKeys.add(key);
+          row.classList.add('is-selected');
+          checkbox.checked = true;
+        }
+        updateSelectionBar();
+      };
+
+      row.addEventListener('click', event => {
+        if (event.target instanceof HTMLElement) {
+          if (event.target.closest('button')) return;
+          if (event.target.closest('input')) return;
+        }
+        toggleSelection();
+      });
+
+      let dragMode = null;
+      const stopDrag = () => {
+        dragMode = null;
+        document.removeEventListener('pointerup', stopDrag);
+      };
+
+      row.addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        if (event.target instanceof HTMLElement && event.target.closest('button')) return;
+        if (event.target instanceof HTMLElement && event.target.closest('input')) return;
+        dragMode = selectedKeys.has(key) ? 'deselect' : 'select';
+        if (dragMode === 'select') {
+          selectedKeys.add(key);
+          row.classList.add('is-selected');
+          checkbox.checked = true;
+        } else {
+          selectedKeys.delete(key);
+          row.classList.remove('is-selected');
+          checkbox.checked = false;
+        }
+        updateSelectionBar();
+        document.addEventListener('pointerup', stopDrag);
+      });
+
+      row.addEventListener('pointerenter', () => {
+        if (!dragMode) return;
+        if (dragMode === 'select') {
+          selectedKeys.add(key);
+          row.classList.add('is-selected');
+          checkbox.checked = true;
+        } else {
+          selectedKeys.delete(key);
+          row.classList.remove('is-selected');
+          checkbox.checked = false;
+        }
+        updateSelectionBar();
+      });
+
+      if (selectedKeys.has(key)) {
+        row.classList.add('is-selected');
+      }
+
+      if (pendingHighlight && pendingHighlight === key) {
+        row.classList.add('is-highlighted');
+        queueMicrotask(() => {
+          row.scrollIntoView({ block: 'nearest' });
+        });
+        pendingHighlight = null;
+      }
+
+      rowsByKey.set(key, row);
+      bodyRows.appendChild(row);
+    });
+
+    updateSelectionBar();
+  };
+
+  const setFilter = (filter, nodeKey) => {
+    currentFilter = filter;
+    activeNodeKey = nodeKey;
+    currentMetadata = navMetadata.get(nodeKey) || metadata || { scope: 'all', label: 'All due cards' };
+    setActiveNav(nodeKey);
+    updateFilterLabel();
+    renderTable();
+    updateReviewButton();
+  };
+
+  const createNavButton = ({ label, nodeKey, depth, filter, count, meta }) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `review-entry-nav-btn depth-${depth}`;
+    button.dataset.nodeKey = nodeKey;
+    const text = document.createElement('span');
+    text.className = 'review-entry-nav-label';
+    text.textContent = label;
+    const badge = document.createElement('span');
+    badge.className = 'review-entry-nav-count';
+    badge.textContent = String(count || 0);
+    navCountElements.set(nodeKey, badge);
+    navMetadata.set(nodeKey, meta);
+    button.appendChild(text);
+    button.appendChild(badge);
+    button.addEventListener('click', () => setFilter(filter, nodeKey));
+    return button;
+  };
+
+  navList.appendChild(createNavButton({
+    label: 'All cards',
+    nodeKey: rootNodeKey,
+    depth: 0,
+    filter: { scope: 'all' },
+    count: nodeCounts.get(rootNodeKey) || 0,
+    meta: navMetadata.get(rootNodeKey)
+  }));
+
+  hierarchy.blocks.forEach(blockNode => {
+    const blockKey = blockNodeKey(blockNode.id);
+    const blockMeta = { scope: 'block', label: `Block – ${blockNode.title}`, blockId: blockNode.id };
+    navList.appendChild(createNavButton({
+      label: blockNode.title,
+      nodeKey: blockKey,
+      depth: 1,
+      filter: { scope: 'block', blockId: blockNode.id },
+      count: nodeCounts.get(blockKey) || 0,
+      meta: blockMeta
+    }));
+
+    blockNode.weeks.forEach(weekNode => {
+      const weekKey = weekNodeKey(blockNode.id, weekNode.id);
+      const weekLabel = weekNode.weekNumber != null ? `Week ${weekNode.weekNumber}` : weekNode.label;
+      const weekMeta = {
+        scope: 'week',
+        label: `${weekLabel} – ${blockNode.title}`,
+        blockId: blockNode.id,
+        weekId: weekNode.id
+      };
+      navList.appendChild(createNavButton({
+        label: `↳ ${weekLabel}`,
+        nodeKey: weekKey,
+        depth: 2,
+        filter: { scope: 'week', blockId: blockNode.id, weekId: weekNode.id },
+        count: nodeCounts.get(weekKey) || 0,
+        meta: weekMeta
+      }));
+
+      weekNode.lectures.forEach(lectureNode => {
+        const lectureKey = lectureNodeKey(lectureNode.id);
+        const lectureMeta = {
+          scope: 'lecture',
+          label: `${lectureNode.title} – ${blockNode.title}`,
+          lectureKey: lectureNode.id,
+          blockId: blockNode.id,
+          weekId: weekNode.id
+        };
+        navList.appendChild(createNavButton({
+          label: `   • ${lectureNode.title}`,
+          nodeKey: lectureKey,
+          depth: 3,
+          filter: { scope: 'lecture', lectureKey: lectureNode.id, blockId: blockNode.id, weekId: weekNode.id },
+          count: nodeCounts.get(lectureKey) || 0,
+          meta: lectureMeta
+        }));
+      });
+    });
+  });
+
+  setFilter(currentFilter, activeNodeKey);
+  if (metadata && typeof metadata === 'object') {
+    currentMetadata = metadata;
+    updateFilterLabel();
+    updateReviewButton();
   }
+
+  reviewFilteredBtn.addEventListener('click', () => {
+    const filtered = listFilteredEntries(currentFilter);
+    if (!filtered.length || typeof startSession !== 'function') return;
+    startSession(buildSessionPayload(filtered), currentMetadata || {});
+  });
+
+  selectAllBtn.addEventListener('click', () => {
+    const filtered = listFilteredEntries(currentFilter);
+    filtered.forEach(entry => {
+      const key = entryKey(entry);
+      if (!key) return;
+      selectedKeys.add(key);
+      const row = rowsByKey.get(key);
+      if (row) {
+        row.classList.add('is-selected');
+        const checkbox = row.querySelector('.review-entry-checkbox');
+        if (checkbox) checkbox.checked = true;
+      }
+    });
+    updateSelectionBar();
+  });
+
+  clearSelectionBtn.addEventListener('click', () => {
+    clearSelection();
+  });
+
+  const bulkSuspend = async keys => {
+    if (!keys.length) return;
+    selectionBar.classList.add('is-busy');
+    setSelectionStatus('Suspending…');
+    try {
+      for (const key of keys) {
+        const entry = entriesByKey.get(key);
+        if (!entry) continue;
+        suspendSection(entry.item, entry.sectionKey, Date.now());
+        await upsertItem(entry.item);
+        removeEntry(entry);
+      }
+      renderTable();
+      updateReviewButton();
+      clearSelection();
+      setSelectionStatus('Cards suspended.', 'success');
+      await handleEntryChange();
+    } catch (err) {
+      console.error('Failed to suspend cards', err);
+      setSelectionStatus('Failed to suspend cards.', 'error');
+    } finally {
+      selectionBar.classList.remove('is-busy');
+    }
+  };
+
+  const bulkRetire = async keys => {
+    if (!keys.length) return;
+    selectionBar.classList.add('is-busy');
+    setSelectionStatus('Retiring…');
+    try {
+      const steps = await ensureDurations();
+      for (const key of keys) {
+        const entry = entriesByKey.get(key);
+        if (!entry) continue;
+        rateSection(entry.item, entry.sectionKey, RETIRE_RATING, steps, Date.now());
+        await upsertItem(entry.item);
+        removeEntry(entry);
+      }
+      renderTable();
+      updateReviewButton();
+      clearSelection();
+      setSelectionStatus('Cards retired.', 'success');
+      await handleEntryChange();
+    } catch (err) {
+      console.error('Failed to retire cards', err);
+      setSelectionStatus('Failed to retire cards.', 'error');
+    } finally {
+      selectionBar.classList.remove('is-busy');
+    }
+  };
+
+  suspendSelectedBtn.addEventListener('click', () => {
+    bulkSuspend(Array.from(selectedKeys));
+  });
+
+  retireSelectedBtn.addEventListener('click', () => {
+    bulkRetire(Array.from(selectedKeys));
+  });
 
   return win;
 }
+
 
 function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
   if (!hierarchy.root.entries.length) {
@@ -729,11 +1307,12 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
     count: hierarchy.root.entries.length,
     reviewLabel: 'Review all',
     onReview: () => startSession(buildSessionPayload(hierarchy.root.entries), allMeta),
-    onMenu: () => openEntryMenu(hierarchy.root.entries, {
+    onMenu: () => openEntryManager(hierarchy, {
       title: 'All due cards',
       now,
       startSession,
       metadata: allMeta,
+      focus: { scope: 'all' },
       onChange: refresh
     }),
     defaultOpen: true
@@ -757,11 +1336,12 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
       count: blockNode.entries.length,
       reviewLabel: 'Review block',
       onReview: () => startSession(buildSessionPayload(blockNode.entries), blockMeta),
-      onMenu: () => openEntryMenu(blockNode.entries, {
+      onMenu: () => openEntryManager(hierarchy, {
         title: `${blockNode.title} — cards`,
         now,
         startSession,
         metadata: blockMeta,
+        focus: { scope: 'block', blockId: blockNode.id },
         onChange: refresh
       })
     });
@@ -777,7 +1357,8 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
         scope: 'week',
         label: `${weekTitle} – ${blockNode.title}`,
         blockId: blockNode.id,
-        week: weekNode.weekNumber
+        week: weekNode.weekNumber,
+        weekId: weekNode.id
       };
       const week = createCollapsibleNode({
         level: 2,
@@ -785,11 +1366,12 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
         count: weekNode.entries.length,
         reviewLabel: 'Review week',
         onReview: () => startSession(buildSessionPayload(weekNode.entries), weekMeta),
-        onMenu: () => openEntryMenu(weekNode.entries, {
+        onMenu: () => openEntryManager(hierarchy, {
           title: `${blockNode.title} • ${weekTitle}`,
           now,
           startSession,
           metadata: weekMeta,
+          focus: { scope: 'week', blockId: blockNode.id, weekId: weekNode.id },
           onChange: refresh
         })
       });
@@ -818,18 +1400,21 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
           scope: 'lecture',
           label: `${lectureNode.title} – ${blockNode.title}`,
           lectureId: lectureNode.id,
+          lectureKey: lectureNode.id,
           blockId: blockNode.id,
-          week: lectureNode.weekNumber
+          week: lectureNode.weekNumber,
+          weekId: weekNode.id
         };
         const actions = createNodeActions({
           count: lectureNode.entries.length,
           reviewLabel: 'Review lecture',
           onReview: () => startSession(buildSessionPayload(lectureNode.entries), lectureMeta),
-          onMenu: () => openEntryMenu(lectureNode.entries, {
+          onMenu: () => openEntryManager(hierarchy, {
             title: `${blockNode.title} • ${weekTitle} • ${lectureNode.title}`,
             now,
             startSession,
             metadata: lectureMeta,
+            focus: { scope: 'lecture', lectureKey: lectureNode.id, blockId: blockNode.id, weekId: weekNode.id },
             onChange: refresh
           })
         });
