@@ -1,12 +1,15 @@
-import { state, setFlashSession, setSubtab, setStudySelectedMode } from '../../state.js';
+import { state, setFlashSession, setSubtab, setStudySelectedMode, setCohort } from '../../state.js';
 import { setToggleState } from '../../utils.js';
 import { renderRichText } from './rich-text.js';
 import { sectionsForItem } from './section-utils.js';
 import { openEditor } from './editor.js';
 import { REVIEW_RATINGS, DEFAULT_REVIEW_STEPS } from '../../review/constants.js';
-import { getReviewDurations, rateSection, getSectionStateSnapshot, projectSectionRating } from '../../review/scheduler.js';
+import { collectDueSections, getReviewDurations, rateSection, getSectionStateSnapshot, projectSectionRating } from '../../review/scheduler.js';
 import { upsertItem } from '../../storage/storage.js';
 import { persistStudySession, removeStudySession } from '../../study/study-sessions.js';
+import { loadReviewSourceItems } from '../../review/pool.js';
+import { loadBlockCatalog } from '../../storage/block-catalog.js';
+import { ensureBlockTitleMap, buildReviewHierarchy, openEntryManager } from './review.js';
 
 
 const KIND_ACCENTS = {
@@ -59,6 +62,24 @@ function queueStatusLabel(snapshot) {
     return `In review (${RATING_LABELS[rating]})`;
   }
   return 'Already in review queue';
+}
+
+function entryIdentifier(item = {}, fallbackId = 'item') {
+  return item.id || item.slug || item.name || fallbackId;
+}
+
+function reviewEntryKey(entry) {
+  if (!entry) return null;
+  const itemId = entry.itemId || entryIdentifier(entry.item);
+  const section = entry.sectionKey || (Array.isArray(entry.sections) ? entry.sections[0] : null);
+  if (!itemId || !section) return null;
+  return `${itemId}::${section}`;
+}
+
+function sessionEntryKey(entry) {
+  if (!entry) return null;
+  const section = Array.isArray(entry.sections) && entry.sections.length ? entry.sections[0] : entry.sectionKey;
+  return reviewEntryKey({ item: entry.item, sectionKey: section });
 }
 
 function ratingKey(item, sectionKey) {
@@ -133,6 +154,60 @@ export function renderFlashcards(root, redraw) {
 
   const isReview = active.mode === 'review';
 
+  const syncReviewSession = async () => {
+    if (!isReview) return;
+    try {
+      const nowTs = Date.now();
+      const cohortItems = await loadReviewSourceItems();
+      setCohort(cohortItems);
+      const dueEntries = collectDueSections(cohortItems, { now: nowTs });
+      const dueKeys = new Set(dueEntries.map(reviewEntryKey).filter(Boolean));
+      const pool = resolvePool();
+      const filtered = pool.filter(entry => {
+        const key = sessionEntryKey(entry);
+        return !key || dueKeys.has(key);
+      });
+      if (filtered.length === pool.length) return;
+      let idx = active.idx;
+      if (idx >= filtered.length) idx = Math.max(filtered.length - 1, 0);
+      commitSession({ pool: filtered, idx });
+      redraw();
+    } catch (err) {
+      console.error('Failed to sync review session', err);
+    }
+  };
+
+  const openQueueManager = async (focusEntry = null, triggerBtn = null) => {
+    if (!isReview) return;
+    if (triggerBtn) triggerBtn.disabled = true;
+    try {
+      const nowTs = Date.now();
+      const cohortItems = await loadReviewSourceItems();
+      setCohort(cohortItems);
+      const dueEntries = collectDueSections(cohortItems, { now: nowTs });
+      const { blocks } = await loadBlockCatalog();
+      const blockTitles = ensureBlockTitleMap(blocks);
+      const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles);
+      const highlightKey = focusEntry ? sessionEntryKey(focusEntry) : null;
+      openEntryManager(hierarchy, {
+        title: 'Manage review queue',
+        now: nowTs,
+        startSession: async (pool, metadata = {}) => {
+          await removeStudySession('review').catch(err => console.warn('Failed to clear saved review entry', err));
+          setFlashSession({ idx: 0, pool, ratings: {}, mode: 'review', metadata });
+          redraw();
+        },
+        metadata: { scope: 'all', label: 'All due cards' },
+        highlightEntryKey: highlightKey,
+        onChange: syncReviewSession
+      });
+    } catch (err) {
+      console.error('Failed to open review manager', err);
+    } finally {
+      if (triggerBtn) triggerBtn.disabled = false;
+    }
+  };
+
   root.innerHTML = '';
 
   if (!items.length) {
@@ -170,6 +245,9 @@ export function renderFlashcards(root, redraw) {
   const card = document.createElement('section');
   card.className = 'card flashcard';
   card.tabIndex = 0;
+  if (isReview) {
+    card.classList.add('is-review');
+  }
 
   const header = document.createElement('div');
   header.className = 'flashcard-header';
@@ -178,6 +256,10 @@ export function renderFlashcards(root, redraw) {
   title.className = 'flashcard-title';
   title.textContent = item.name || item.concept || '';
   header.appendChild(title);
+
+  const headerActions = document.createElement('div');
+  headerActions.className = 'flashcard-header-actions';
+  header.appendChild(headerActions);
 
   const editBtn = document.createElement('button');
   editBtn.type = 'button';
@@ -190,7 +272,21 @@ export function renderFlashcards(root, redraw) {
     const onSave = typeof redraw === 'function' ? () => redraw() : undefined;
     openEditor(item.kind, onSave, item);
   });
-  header.appendChild(editBtn);
+  headerActions.appendChild(editBtn);
+
+  if (isReview) {
+    const manageBtn = document.createElement('button');
+    manageBtn.type = 'button';
+    manageBtn.className = 'icon-btn flashcard-manage-btn';
+    manageBtn.innerHTML = '⚙';
+    manageBtn.title = 'Manage review queue';
+    manageBtn.setAttribute('aria-label', 'Manage review queue');
+    manageBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      openQueueManager(entry, manageBtn);
+    });
+    headerActions.appendChild(manageBtn);
+  }
 
   card.appendChild(header);
 
