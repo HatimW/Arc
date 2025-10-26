@@ -8526,10 +8526,10 @@ button.question-map__item[data-change-direction="returned"] {
   flex-direction: column;
   gap: var(--pad-sm);
   padding: var(--pad);
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.26);
   border-radius: var(--radius-lg, 18px);
-  background: color-mix(in srgb, rgba(15, 23, 42, 0.92) 88%, rgba(56, 189, 248, 0.08));
-  box-shadow: 0 18px 32px rgba(2, 6, 23, 0.42);
+  background: color-mix(in srgb, rgba(15, 23, 42, 0.95) 90%, rgba(148, 163, 184, 0.18));
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.45);
   min-height: 0;
 }
 
@@ -8561,27 +8561,28 @@ button.question-map__item[data-change-direction="returned"] {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: var(--radius);
   background: color-mix(
     in srgb,
-    rgba(15, 23, 42, 0.92) 88%,
-    color-mix(in srgb, var(--nav-accent) 18%, transparent)
+    rgba(15, 23, 42, 0.94) 90%,
+    color-mix(in srgb, var(--nav-accent) 15%, rgba(148, 163, 184, 0.1))
   );
   padding: 0.4rem 0.45rem;
+  box-shadow: inset 0 1px 0 rgba(248, 250, 252, 0.04);
 }
 
 .review-entry-nav-group.depth-2 {
   background: color-mix(
     in srgb,
-    rgba(15, 23, 42, 0.9) 86%,
-    color-mix(in srgb, var(--nav-accent) 24%, transparent)
+    rgba(15, 23, 42, 0.92) 88%,
+    color-mix(in srgb, var(--nav-accent) 20%, rgba(148, 163, 184, 0.12))
   );
 }
 
 .review-entry-nav-group.has-active {
-  border-color: color-mix(in srgb, var(--nav-accent) 55%, rgba(148, 163, 184, 0.32));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--nav-accent) 42%, transparent);
+  border-color: color-mix(in srgb, var(--nav-accent) 45%, rgba(226, 232, 240, 0.28));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--nav-accent) 36%, transparent);
 }
 
 .review-entry-nav-group-header {
@@ -8598,8 +8599,8 @@ button.question-map__item[data-change-direction="returned"] {
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(30, 41, 59, 0.8);
   color: rgba(226, 232, 240, 0.82);
   display: inline-flex;
   align-items: center;
@@ -8611,14 +8612,14 @@ button.question-map__item[data-change-direction="returned"] {
 
 .review-entry-nav-toggle:hover,
 .review-entry-nav-toggle:focus-visible {
-  background: rgba(56, 189, 248, 0.2);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: rgba(148, 163, 184, 0.26);
+  border-color: rgba(226, 232, 240, 0.36);
   outline: none;
 }
 
 .review-entry-nav-group.is-open .review-entry-nav-toggle {
-  background: color-mix(in srgb, var(--nav-accent, rgba(56, 189, 248, 0.4)) 32%, rgba(15, 23, 42, 0.75));
-  border-color: color-mix(in srgb, var(--nav-accent, rgba(56, 189, 248, 0.45)) 48%, rgba(148, 163, 184, 0.24));
+  background: color-mix(in srgb, var(--nav-accent, rgba(148, 163, 184, 0.55)) 28%, rgba(30, 41, 59, 0.82));
+  border-color: color-mix(in srgb, var(--nav-accent, rgba(148, 163, 184, 0.5)) 44%, rgba(148, 163, 184, 0.24));
   color: rgba(226, 232, 240, 0.95);
 }
 
@@ -8654,12 +8655,12 @@ button.question-map__item[data-change-direction="returned"] {
   justify-content: space-between;
   gap: 0.45rem;
   width: 100%;
-  border: none;
-  background: transparent;
+  border: 1px solid transparent;
+  background: rgba(148, 163, 184, 0.08);
   color: rgba(226, 232, 240, 0.86);
   padding: 0.5rem 0.65rem;
   border-radius: var(--radius-sm);
-  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
   font-size: 0.9rem;
   text-align: left;
 }
@@ -8693,14 +8694,16 @@ button.question-map__item[data-change-direction="returned"] {
 
 .review-entry-nav-btn:hover,
 .review-entry-nav-btn:focus-visible {
-  background: color-mix(in srgb, var(--nav-accent) 24%, rgba(15, 23, 42, 0.85));
-  color: rgba(226, 232, 240, 0.98);
+  background: color-mix(in srgb, rgba(148, 163, 184, 0.22) 85%, rgba(15, 23, 42, 0.78));
+  border-color: rgba(226, 232, 240, 0.28);
+  color: rgba(244, 247, 254, 0.96);
 }
 
 .review-entry-nav-btn.is-active {
-  background: color-mix(in srgb, var(--nav-accent) 38%, rgba(15, 23, 42, 0.88));
+  background: color-mix(in srgb, rgba(148, 163, 184, 0.28) 78%, rgba(15, 23, 42, 0.8));
+  border-color: color-mix(in srgb, var(--nav-accent) 45%, rgba(226, 232, 240, 0.32));
   color: rgba(244, 247, 254, 0.98);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--nav-accent) 60%, transparent);
+  box-shadow: 0 12px 22px rgba(2, 6, 23, 0.32);
 }
 
 .review-entry-nav-btn.is-active::before {
@@ -8771,29 +8774,29 @@ button.question-map__item[data-change-direction="returned"] {
 }
 
 .review-entry-table-row:hover {
-  background: color-mix(in srgb, rgba(56, 189, 248, 0.16), rgba(15, 23, 42, 0.92));
+  background: color-mix(in srgb, rgba(148, 163, 184, 0.22), rgba(15, 23, 42, 0.92));
 }
 
 .review-entry-table-row.is-selected {
-  background: color-mix(in srgb, rgba(56, 189, 248, 0.22), rgba(15, 23, 42, 0.9));
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.38);
+  background: color-mix(in srgb, rgba(148, 163, 184, 0.28), rgba(15, 23, 42, 0.88));
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.28);
 }
 
 .review-entry-table-row.has-accent {
-  background: color-mix(in srgb, rgba(15, 23, 42, 0.9) 92%, color-mix(in srgb, var(--entry-accent, rgba(56, 189, 248, 0.55)) 18%, transparent));
-  box-shadow: inset 4px 0 0 color-mix(in srgb, var(--entry-accent, rgba(56, 189, 248, 0.55)) 92%, transparent);
+  background: color-mix(in srgb, rgba(15, 23, 42, 0.9) 92%, color-mix(in srgb, var(--entry-accent, rgba(148, 163, 184, 0.45)) 18%, transparent));
+  box-shadow: inset 4px 0 0 color-mix(in srgb, var(--entry-accent, rgba(148, 163, 184, 0.55)) 88%, transparent);
 }
 
 .review-entry-table-row.has-accent:hover {
-  background: color-mix(in srgb, rgba(15, 23, 42, 0.88) 90%, color-mix(in srgb, var(--entry-accent, rgba(56, 189, 248, 0.45)) 24%, transparent));
+  background: color-mix(in srgb, rgba(15, 23, 42, 0.88) 90%, color-mix(in srgb, var(--entry-accent, rgba(148, 163, 184, 0.5)) 22%, transparent));
 }
 
 .review-entry-table-row.has-accent.is-selected {
-  box-shadow: inset 4px 0 0 color-mix(in srgb, var(--entry-accent, rgba(56, 189, 248, 0.65)) 96%, transparent);
+  box-shadow: inset 4px 0 0 color-mix(in srgb, var(--entry-accent, rgba(148, 163, 184, 0.68)) 96%, transparent);
 }
 
 .review-entry-table-row.is-highlighted {
-  box-shadow: inset 0 0 0 2px rgba(139, 92, 246, 0.45);
+  box-shadow: inset 0 0 0 2px rgba(226, 232, 240, 0.45);
 }
 
 .review-entry-cell.title {
@@ -8984,24 +8987,26 @@ button.question-map__item[data-change-direction="returned"] {
 }
 
 .review-entry {
-  background: rgba(15, 23, 42, 0.6);
+  background: color-mix(in srgb, rgba(15, 23, 42, 0.92) 88%, rgba(148, 163, 184, 0.18));
   border-radius: var(--radius);
   padding: var(--pad-sm);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.28);
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .review-entry:hover,
 .review-entry:focus-within {
   transform: translateY(-1px);
-  border-color: rgba(56, 189, 248, 0.4);
-  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(226, 232, 240, 0.35);
+  background: color-mix(in srgb, rgba(15, 23, 42, 0.9) 82%, rgba(148, 163, 184, 0.24));
+  box-shadow: 0 16px 32px rgba(2, 6, 23, 0.35);
 }
 
 .review-entry.is-selected {
-  border-color: rgba(56, 189, 248, 0.55);
-  background: rgba(56, 189, 248, 0.18);
-  box-shadow: 0 12px 28px rgba(56, 189, 248, 0.18);
+  border-color: rgba(226, 232, 240, 0.55);
+  background: color-mix(in srgb, rgba(148, 163, 184, 0.32) 55%, rgba(15, 23, 42, 0.86));
+  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.4);
 }
 
 .review-entry-title {
@@ -9015,8 +9020,8 @@ button.question-map__item[data-change-direction="returned"] {
 }
 
 .review-entry.is-upcoming {
-  background: rgba(56, 189, 248, 0.08);
-  border-color: rgba(56, 189, 248, 0.28);
+  background: color-mix(in srgb, rgba(15, 23, 42, 0.9) 86%, rgba(148, 163, 184, 0.18));
+  border-color: rgba(148, 163, 184, 0.3);
 }
 
 .review-entry-trigger {
@@ -9035,8 +9040,8 @@ button.question-map__item[data-change-direction="returned"] {
 
 .review-entry-trigger:hover,
 .review-entry-trigger:focus-visible {
-  background: rgba(15, 23, 42, 0.42);
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.32);
+  background: rgba(30, 41, 59, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.32);
 }
 
 .review-entry-extra {
@@ -9052,9 +9057,58 @@ button.question-map__item[data-change-direction="returned"] {
   padding: 2px 10px;
   border-radius: 999px;
   font-size: 0.75rem;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.78);
+  background: rgba(148, 163, 184, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.28);
+}
+
+.review-entry-chip[data-chip="phase"] {
+  color: rgba(15, 23, 42, 0.95);
+}
+
+.review-entry-chip[data-chip="interval"] {
+  background: rgba(148, 163, 184, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.32);
+  color: rgba(226, 232, 240, 0.85);
+  font-weight: 500;
+}
+
+.review-entry-chip[data-phase="new"] {
+  background: color-mix(in srgb, var(--indigo) 24%, rgba(248, 250, 252, 0.85));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--indigo) 38%, transparent);
+  color: rgba(240, 242, 255, 0.95);
+}
+
+.review-entry-chip[data-phase="learning"] {
+  background: color-mix(in srgb, var(--yellow) 28%, rgba(248, 250, 252, 0.9));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--yellow) 40%, transparent);
+  color: rgba(38, 38, 15, 0.9);
+}
+
+.review-entry-chip[data-phase="relearning"] {
+  background: color-mix(in srgb, var(--rose) 26%, rgba(248, 250, 252, 0.9));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rose) 42%, transparent);
+  color: rgba(40, 15, 26, 0.9);
+}
+
+.review-entry-chip[data-phase="review"] {
+  background: color-mix(in srgb, var(--green) 28%, rgba(248, 250, 252, 0.92));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 40%, transparent);
+  color: rgba(14, 35, 23, 0.9);
+}
+
+.review-entry-chip.is-inline {
+  margin-right: 8px;
+}
+
+.review-entry-subtext {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
   letter-spacing: 0.02em;
-  color: rgba(248, 250, 252, 0.7);
-  background: rgba(148, 163, 184, 0.22);
+  color: rgba(148, 163, 184, 0.8);
 }
 
 .review-upcoming-section {

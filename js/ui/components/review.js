@@ -504,12 +504,15 @@ function createUpcomingEntry(entry, now, startSession) {
     if (phaseLabel) {
       const chip = document.createElement('span');
       chip.className = 'review-entry-chip';
+      chip.dataset.chip = 'phase';
+      if (entry.phase) chip.dataset.phase = entry.phase;
       chip.textContent = phaseLabel;
       extra.appendChild(chip);
     }
     if (Number.isFinite(interval) && interval > 0) {
       const chip = document.createElement('span');
       chip.className = 'review-entry-chip';
+      chip.dataset.chip = 'interval';
       chip.textContent = `Last interval • ${formatIntervalMinutes(interval)}`;
       extra.appendChild(chip);
     }
@@ -1041,7 +1044,26 @@ export function openEntryManager(hierarchy, {
       const phaseLabel = describePhase(entry.phase);
       const interval = entry?.state?.interval;
       const intervalText = Number.isFinite(interval) && interval > 0 ? `Last interval • ${formatIntervalMinutes(interval)}` : '';
-      phaseCell.textContent = intervalText ? `${phaseLabel || '—'} (${intervalText})` : (phaseLabel || '—');
+      let hasPhaseContent = false;
+      if (phaseLabel) {
+        const phaseChip = document.createElement('span');
+        phaseChip.className = 'review-entry-chip is-inline';
+        phaseChip.dataset.chip = 'phase';
+        if (entry.phase) phaseChip.dataset.phase = entry.phase;
+        phaseChip.textContent = phaseLabel;
+        phaseCell.appendChild(phaseChip);
+        hasPhaseContent = true;
+      }
+      if (intervalText) {
+        const intervalEl = document.createElement('span');
+        intervalEl.className = 'review-entry-subtext';
+        intervalEl.textContent = intervalText;
+        phaseCell.appendChild(intervalEl);
+        hasPhaseContent = true;
+      }
+      if (!hasPhaseContent) {
+        phaseCell.textContent = '—';
+      }
       row.appendChild(phaseCell);
 
       const dueCell = document.createElement('td');
@@ -1195,8 +1217,14 @@ export function openEntryManager(hierarchy, {
 
       if (pendingHighlight && pendingHighlight === key) {
         row.classList.add('is-highlighted');
+        if (!selectedKeys.has(key)) {
+          selectedKeys.add(key);
+          row.classList.add('is-selected');
+          checkbox.checked = true;
+        }
         queueMicrotask(() => {
           row.scrollIntoView({ block: 'nearest' });
+          updateSelectionBar();
         });
         pendingHighlight = null;
       }
