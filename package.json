@@ -7,7 +7,8 @@
     "bundle": "esbuild js/main.js --bundle --format=iife --global-name=Arc --outfile=bundle.js",
     "start": "npm run bundle && electron .",
     "package": "npm run bundle && electron-builder",
-    "test": "node --test"
+    "test": "node --test",
+    "prepare:pr": "npm run bundle && npm test"
   },
   "build": {
     "appId": "com.arc.desktop",
