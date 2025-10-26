@@ -3,10 +3,14 @@ import { setToggleState } from '../../utils.js';
 import { renderRichText } from './rich-text.js';
 import { sectionsForItem } from './section-utils.js';
 import { openEditor } from './editor.js';
-import { REVIEW_RATINGS, DEFAULT_REVIEW_STEPS } from '../../review/constants.js';
-import { getReviewDurations, rateSection, getSectionStateSnapshot, projectSectionRating } from '../../review/scheduler.js';
+import { REVIEW_RATINGS, DEFAULT_REVIEW_STEPS, RETIRE_RATING } from '../../review/constants.js';
+import { getReviewDurations, rateSection, suspendSection, getSectionStateSnapshot, projectSectionRating, collectDueSections } from '../../review/scheduler.js';
 import { upsertItem } from '../../storage/storage.js';
 import { persistStudySession, removeStudySession } from '../../study/study-sessions.js';
+import { openReviewMenu } from './review-menu.js';
+import { buildReviewHierarchy } from './review.js';
+import { loadBlockCatalog } from '../../storage/block-catalog.js';
+import { createBlockTitleMap, resolveSectionContexts, UNASSIGNED_BLOCK, UNASSIGNED_WEEK, UNASSIGNED_LECTURE } from '../../review/context.js';
 
 
 const KIND_ACCENTS = {
@@ -31,6 +35,58 @@ const RATING_CLASS = {
 };
 
 
+function describeDue(due, now) {
+  if (!Number.isFinite(due)) return 'No due date';
+  if (due <= now) {
+    const diff = Math.max(0, now - due);
+    const minutes = Math.round(diff / (60 * 1000));
+    if (minutes < 1) return 'Due now';
+    if (minutes < 60) return `${minutes} min overdue`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours} hr overdue`;
+    const days = Math.round(hours / 24);
+    return `${days} day${days === 1 ? '' : 's'} overdue`;
+  }
+  const diff = due - now;
+  const minutes = Math.round(diff / (60 * 1000));
+  if (minutes < 1) return 'Due soon';
+  if (minutes < 60) return `Due in ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `Due in ${hours} hr`;
+  const days = Math.round(hours / 24);
+  return `Due in ${days} day${days === 1 ? '' : 's'}`;
+}
+
+function describeLastReviewed(last, now) {
+  if (!Number.isFinite(last) || last <= 0) return 'Never reviewed';
+  const diff = Math.max(0, now - last);
+  const minutes = Math.round(diff / (60 * 1000));
+  if (minutes < 1) return 'Reviewed just now';
+  if (minutes < 60) return `Reviewed ${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `Reviewed ${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `Reviewed ${days} day${days === 1 ? '' : 's'} ago`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `Reviewed ${months} mo ago`;
+  const years = Math.round(months / 12);
+  return `Reviewed ${years} yr ago`;
+}
+
+function determineStage(snapshot) {
+  if (!snapshot) return { label: 'New', variant: 'naive' };
+  switch (snapshot.phase) {
+    case 'review':
+      return { label: 'Mature', variant: 'mature' };
+    case 'learning':
+    case 'relearning':
+      return { label: 'Learning', variant: 'learning' };
+    case 'new':
+    default:
+      return { label: 'Naive', variant: 'naive' };
+  }
+}
+
 function formatReviewInterval(minutes) {
   if (!Number.isFinite(minutes) || minutes <= 0) return 'Now';
   if (minutes < 60) return `${minutes} min`;
@@ -44,6 +100,25 @@ function formatReviewInterval(minutes) {
   return `${years} yr`;
 }
 
+
+let cachedBlockTitles = null;
+let blockTitlePromise = null;
+
+async function ensureBlockTitles() {
+  if (cachedBlockTitles) return cachedBlockTitles;
+  if (!blockTitlePromise) {
+    blockTitlePromise = loadBlockCatalog()
+      .then(({ blocks }) => {
+        cachedBlockTitles = createBlockTitleMap(blocks);
+        return cachedBlockTitles;
+      })
+      .catch(() => {
+        cachedBlockTitles = createBlockTitleMap([]);
+        return cachedBlockTitles;
+      });
+  }
+  return blockTitlePromise;
+}
 
 function getFlashcardAccent(item) {
   if (item?.color) return item.color;
@@ -166,6 +241,11 @@ export function renderFlashcards(root, redraw) {
 
   const allowedSections = entry && entry.sections ? entry.sections : null;
   const sections = sectionsForItem(item, allowedSections);
+  const primarySectionKey = Array.isArray(entry?.sections) && entry.sections.length
+    ? entry.sections[0]
+    : (sections[0]?.key ?? null);
+  const primarySnapshot = primarySectionKey ? getSectionStateSnapshot(item, primarySectionKey) : null;
+  const nowTs = Date.now();
 
   const card = document.createElement('section');
   card.className = 'card flashcard';
@@ -174,10 +254,71 @@ export function renderFlashcards(root, redraw) {
   const header = document.createElement('div');
   header.className = 'flashcard-header';
 
+  const titleGroup = document.createElement('div');
+  titleGroup.className = 'flashcard-title-group';
+
   const title = document.createElement('h2');
   title.className = 'flashcard-title';
   title.textContent = item.name || item.concept || '';
-  header.appendChild(title);
+  titleGroup.appendChild(title);
+
+  header.appendChild(titleGroup);
+
+  const headerActions = document.createElement('div');
+  headerActions.className = 'flashcard-header-actions';
+
+  if (isReview) {
+    const queueBtn = document.createElement('button');
+    queueBtn.type = 'button';
+    queueBtn.className = 'btn tertiary flashcard-queue-btn';
+    queueBtn.textContent = 'Manage queue';
+    queueBtn.title = 'Open review queue';
+    queueBtn.addEventListener('click', async event => {
+      event.stopPropagation();
+      try {
+        const cohort = Array.isArray(state.cohort) ? state.cohort : [];
+        const now = Date.now();
+        const dueEntries = collectDueSections(cohort, { now });
+        const { blocks } = await loadBlockCatalog();
+        const blockTitles = createBlockTitleMap(blocks);
+        const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles);
+        const contexts = resolveSectionContexts(item, blockTitles);
+        const preferredContext = contexts.find(ctx => ctx.lectureId && ctx.lectureId !== UNASSIGNED_LECTURE) || contexts[0] || null;
+        let focus = { type: 'root' };
+        if (preferredContext) {
+          if (preferredContext.lectureId && preferredContext.lectureId !== UNASSIGNED_LECTURE) {
+            focus = {
+              type: 'lecture',
+              blockId: preferredContext.blockId,
+              weekId: preferredContext.weekId,
+              lectureId: preferredContext.lectureId,
+              lectureKey: preferredContext.lectureKey
+            };
+          } else if (preferredContext.weekId && preferredContext.weekId !== UNASSIGNED_WEEK) {
+            focus = { type: 'week', blockId: preferredContext.blockId, weekId: preferredContext.weekId };
+          } else if (preferredContext.blockId && preferredContext.blockId !== UNASSIGNED_BLOCK) {
+            focus = { type: 'block', blockId: preferredContext.blockId };
+          }
+        }
+        const focusEntryKey = primarySectionKey ? ratingKey(item, primarySectionKey) : null;
+        openReviewMenu(hierarchy, {
+          title: 'Review queue',
+          now,
+          startSession: (pool, metadata = {}) => {
+            if (!Array.isArray(pool) || !pool.length) return;
+            setFlashSession({ idx: 0, pool, ratings: {}, mode: 'review', metadata });
+            redraw();
+          },
+          focus,
+          focusEntryKey,
+          onChange: () => redraw()
+        });
+      } catch (err) {
+        console.error('Failed to open review menu', err);
+      }
+    });
+    headerActions.appendChild(queueBtn);
+  }
 
   const editBtn = document.createElement('button');
   editBtn.type = 'button';
@@ -190,9 +331,182 @@ export function renderFlashcards(root, redraw) {
     const onSave = typeof redraw === 'function' ? () => redraw() : undefined;
     openEditor(item.kind, onSave, item);
   });
-  header.appendChild(editBtn);
+  headerActions.appendChild(editBtn);
 
+  header.appendChild(headerActions);
   card.appendChild(header);
+
+  const metaRow = document.createElement('div');
+  metaRow.className = 'flashcard-meta-row';
+
+  const stageInfo = determineStage(primarySnapshot);
+  const stageChip = document.createElement('span');
+  stageChip.className = `flashcard-stage-chip stage-${stageInfo.variant}`;
+  stageChip.textContent = stageInfo.label;
+  metaRow.appendChild(stageChip);
+
+  const dueChip = document.createElement('span');
+  dueChip.className = 'flashcard-meta-chip';
+  dueChip.textContent = describeDue(primarySnapshot?.due, nowTs);
+  metaRow.appendChild(dueChip);
+
+  const lastChip = document.createElement('span');
+  lastChip.className = 'flashcard-meta-chip';
+  lastChip.textContent = describeLastReviewed(primarySnapshot?.last, nowTs);
+  metaRow.appendChild(lastChip);
+
+  const intervalValue = Number.isFinite(primarySnapshot?.interval) ? primarySnapshot.interval : null;
+  const intervalChip = document.createElement('span');
+  intervalChip.className = 'flashcard-meta-chip';
+  intervalChip.textContent = `Interval: ${intervalValue != null ? formatReviewInterval(intervalValue) : '—'}`;
+  metaRow.appendChild(intervalChip);
+
+  const contextRow = document.createElement('div');
+  contextRow.className = 'flashcard-context-row';
+  contextRow.textContent = '';
+
+  metaRow.appendChild(contextRow);
+
+  card.appendChild(metaRow);
+
+  const reviewActionButtons = [];
+  let reviewActionStatus = null;
+  let reviewActionBusy = false;
+
+  const sectionKeysForEntry = () => {
+    if (Array.isArray(entry?.sections) && entry.sections.length) {
+      return entry.sections.filter(Boolean);
+    }
+    return sections.map(section => section.key).filter(Boolean);
+  };
+
+  const setReviewStatus = (message, variant = '') => {
+    if (!reviewActionStatus) return;
+    reviewActionStatus.textContent = message;
+    reviewActionStatus.classList.remove('is-error', 'is-success', 'is-pending');
+    if (!variant) return;
+    if (variant === 'error') {
+      reviewActionStatus.classList.add('is-error');
+    } else if (variant === 'pending') {
+      reviewActionStatus.classList.add('is-pending');
+    } else if (variant === 'success') {
+      reviewActionStatus.classList.add('is-success');
+    }
+  };
+
+  const setReviewBusy = (busy) => {
+    reviewActionBusy = busy;
+    reviewActionButtons.forEach(btn => { btn.disabled = busy; });
+  };
+
+  const performInlineReviewAction = async (action) => {
+    if (!isReview || reviewActionBusy) return;
+    const sectionKeys = sectionKeysForEntry();
+    if (!sectionKeys.length) return;
+    setReviewBusy(true);
+    setReviewStatus(action === 'retire' ? 'Retiring card…' : 'Suspending card…', 'pending');
+    let sessionCleared = false;
+    try {
+      const now = Date.now();
+      if (action === 'retire') {
+        const durations = await getReviewDurations();
+        sectionKeys.forEach(key => rateSection(item, key, RETIRE_RATING, durations, now));
+      } else {
+        sectionKeys.forEach(key => suspendSection(item, key, now));
+      }
+      const nextRatings = { ...active.ratings };
+      sectionKeys.forEach(key => { delete nextRatings[ratingKey(item, key)]; });
+      await upsertItem(item);
+
+      const nextPool = Array.isArray(active.pool) ? active.pool.slice() : [];
+      if (active.idx >= 0 && active.idx < nextPool.length) {
+        nextPool.splice(active.idx, 1);
+      }
+
+      if (!nextPool.length) {
+        sessionCleared = true;
+        setReviewStatus('', '');
+        setFlashSession(null);
+        setSubtab('Study', 'Review');
+        redraw();
+        return;
+      }
+
+      const nextIdx = Math.min(active.idx, nextPool.length - 1);
+      commitSession({ pool: nextPool, idx: nextIdx, ratings: nextRatings });
+      setReviewStatus('', '');
+      redraw();
+    } catch (err) {
+      console.error('Failed to update review card', err);
+      const failure = action === 'retire' ? 'Failed to retire card.' : 'Failed to suspend card.';
+      setReviewStatus(failure, 'error');
+    } finally {
+      if (!sessionCleared) {
+        setReviewBusy(false);
+      }
+    }
+  };
+
+  if (isReview) {
+    const actionRow = document.createElement('div');
+    actionRow.className = 'flashcard-review-actions';
+
+    const suspendBtn = document.createElement('button');
+    suspendBtn.type = 'button';
+    suspendBtn.className = 'btn secondary';
+    suspendBtn.textContent = 'Suspend card';
+    suspendBtn.addEventListener('click', () => performInlineReviewAction('suspend'));
+    actionRow.appendChild(suspendBtn);
+    reviewActionButtons.push(suspendBtn);
+
+    const retireBtn = document.createElement('button');
+    retireBtn.type = 'button';
+    retireBtn.className = 'btn tertiary danger';
+    retireBtn.textContent = 'Retire card';
+    retireBtn.addEventListener('click', () => performInlineReviewAction('retire'));
+    actionRow.appendChild(retireBtn);
+    reviewActionButtons.push(retireBtn);
+
+    reviewActionStatus = document.createElement('span');
+    reviewActionStatus.className = 'flashcard-review-status';
+    actionRow.appendChild(reviewActionStatus);
+
+    card.appendChild(actionRow);
+  }
+
+  ensureBlockTitles().then(blockTitles => {
+    const contexts = resolveSectionContexts(item, blockTitles);
+    contextRow.innerHTML = '';
+    if (!contexts.length) {
+      const chip = document.createElement('span');
+      chip.className = 'flashcard-context-chip';
+      chip.textContent = 'Unassigned';
+      contextRow.appendChild(chip);
+      return;
+    }
+    contexts.slice(0, 4).forEach(ctx => {
+      const chip = document.createElement('span');
+      chip.className = 'flashcard-context-chip';
+      const labelParts = [];
+      if (ctx.blockTitle && ctx.blockId !== UNASSIGNED_BLOCK) labelParts.push(ctx.blockTitle);
+      if (ctx.weekLabel && ctx.weekId !== UNASSIGNED_WEEK) labelParts.push(ctx.weekLabel);
+      if (ctx.lectureLabel && ctx.lectureId !== UNASSIGNED_LECTURE) labelParts.push(ctx.lectureLabel);
+      chip.textContent = labelParts.length ? labelParts.join(' • ') : (ctx.blockTitle || 'Unassigned');
+      contextRow.appendChild(chip);
+    });
+    if (contexts.length > 4) {
+      const more = document.createElement('span');
+      more.className = 'flashcard-context-chip is-muted';
+      more.textContent = `+${contexts.length - 4} more`;
+      contextRow.appendChild(more);
+    }
+  }).catch(() => {
+    contextRow.innerHTML = '';
+    const chip = document.createElement('span');
+    chip.className = 'flashcard-context-chip is-muted';
+    chip.textContent = 'Context unavailable';
+    contextRow.appendChild(chip);
+  });
 
   const durationsPromise = getReviewDurations().catch(() => ({ ...DEFAULT_REVIEW_STEPS }));
   const sectionBlocks = sections.length ? sections : [];
@@ -531,8 +845,8 @@ export function renderFlashcards(root, redraw) {
 
   const accent = getFlashcardAccent(item);
   card.style.setProperty('--flash-accent', accent);
-  card.style.setProperty('--flash-accent-soft', `color-mix(in srgb, ${accent} 16%, transparent)`);
-  card.style.setProperty('--flash-accent-strong', `color-mix(in srgb, ${accent} 32%, rgba(15, 23, 42, 0.08))`);
-  card.style.setProperty('--flash-accent-border', `color-mix(in srgb, ${accent} 42%, transparent)`);
+  card.style.setProperty('--flash-accent-soft', `color-mix(in srgb, ${accent} 22%, rgba(148, 163, 184, 0.18))`);
+  card.style.setProperty('--flash-accent-strong', `color-mix(in srgb, ${accent} 34%, rgba(15, 23, 42, 0.1))`);
+  card.style.setProperty('--flash-accent-border', `color-mix(in srgb, ${accent} 28%, rgba(148, 163, 184, 0.42))`);
 
 }
