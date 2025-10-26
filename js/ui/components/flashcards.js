@@ -190,6 +190,19 @@ export function renderFlashcards(root, redraw) {
       const blockAccents = ensureBlockAccentMap(blocks);
       const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles, blockAccents);
       const highlightKey = focusEntry ? sessionEntryKey(focusEntry) : null;
+      let focusFilter = null;
+      if (highlightKey && hierarchy?.contexts instanceof Map) {
+        const contexts = hierarchy.contexts.get(highlightKey);
+        if (Array.isArray(contexts) && contexts.length) {
+          const ctx = contexts[0];
+          focusFilter = {
+            scope: 'lecture',
+            lectureKey: ctx.lectureKey,
+            blockId: ctx.blockId,
+            weekId: ctx.weekId
+          };
+        }
+      }
       openEntryManager(hierarchy, {
         title: 'Manage review queue',
         now: nowTs,
@@ -199,6 +212,7 @@ export function renderFlashcards(root, redraw) {
           redraw();
         },
         metadata: { scope: 'all', label: 'All due cards' },
+        focus: focusFilter || undefined,
         highlightEntryKey: highlightKey,
         onChange: syncReviewSession
       });
