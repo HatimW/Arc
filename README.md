@@ -51,6 +51,13 @@ loader. If you modify files under `js/`, regenerate the bundle:
 npm run bundle
 ```
 
+Before opening a pull request, run the convenience script below to rebuild the
+bundle and execute the automated tests in one step:
+
+```bash
+npm run prepare:pr
+```
+
 The **Settings** tab lets you adjust the daily review target and manage
 curriculum blocks with their lectures. It also offers buttons to export or
 import the database as JSON and to export an Anki-compatible CSV. Data is stored
