@@ -13,10 +13,9 @@ import { hydrateStudySessions, getStudySessionEntry, removeStudySession } from '
 import { loadReviewSourceItems } from '../../review/pool.js';
 import { RETIRE_RATING } from '../../review/constants.js';
 import { upsertItem } from '../../storage/storage.js';
+import { createFloatingWindow } from './window-manager.js';
 
 
-const REVIEW_SCOPES = ['all', 'blocks', 'lectures'];
-let activeScope = 'all';
 let blockTitleCache = null;
 
 function ensureBlockTitleMap(blocks) {
@@ -76,56 +75,6 @@ function entryKey(entry) {
   return `${itemId}::${entry.sectionKey}`;
 }
 
-function createSelectionModel(onChange) {
-  const selected = new Map();
-  const api = {
-    keyOf: entryKey,
-    toggle(entry, active = true) {
-      const key = entryKey(entry);
-      if (!key) return;
-      if (active) {
-        selected.set(key, entry);
-      } else {
-        selected.delete(key);
-      }
-      if (typeof onChange === 'function') onChange(api);
-    },
-    clear() {
-      if (!selected.size) return;
-      selected.clear();
-      if (typeof onChange === 'function') onChange(api);
-    },
-    selectAll(entries = []) {
-      let changed = false;
-      entries.forEach(entry => {
-        const key = entryKey(entry);
-        if (!key) return;
-        if (!selected.has(key)) {
-          selected.set(key, entry);
-          changed = true;
-        }
-      });
-      if (changed && typeof onChange === 'function') onChange(api);
-    },
-    entries() {
-      return Array.from(selected.values());
-    },
-    has(entry) {
-      return selected.has(entryKey(entry));
-    },
-    hasKey(key) {
-      return selected.has(key);
-    },
-    size() {
-      return selected.size;
-    },
-    keys() {
-      return Array.from(selected.keys());
-    }
-  };
-  return api;
-}
-
 function describePhase(phase) {
   switch (phase) {
     case 'learning':
@@ -141,43 +90,6 @@ function describePhase(phase) {
   }
 }
 
-function groupByBlock(entries, blockTitles) {
-  const groups = new Map();
-  entries.forEach(entry => {
-    const blocks = Array.isArray(entry.item.blocks) && entry.item.blocks.length
-      ? entry.item.blocks
-      : ['__unassigned'];
-    blocks.forEach(blockId => {
-      const group = groups.get(blockId) || { id: blockId, entries: [] };
-      group.entries.push(entry);
-      groups.set(blockId, group);
-    });
-  });
-  return Array.from(groups.values()).map(group => ({
-    id: group.id,
-    title: group.id === '__unassigned' ? 'Unassigned' : (blockTitles.get(group.id) || group.id),
-    entries: group.entries
-  })).sort((a, b) => b.entries.length - a.entries.length);
-}
-
-function groupByLecture(entries, blockTitles) {
-  const groups = new Map();
-  entries.forEach(entry => {
-    const lectures = Array.isArray(entry.item.lectures) && entry.item.lectures.length
-      ? entry.item.lectures
-      : [{ blockId: '__unassigned', id: '__none', name: 'Unassigned lecture' }];
-    lectures.forEach(lec => {
-      const key = `${lec.blockId || '__unassigned'}::${lec.id}`;
-      const blockTitle = blockTitles.get(lec.blockId) || lec.blockId || 'Unassigned';
-      const title = lec.name ? `${blockTitle} – ${lec.name}` : `${blockTitle} – Lecture ${lec.id}`;
-      const group = groups.get(key) || { id: key, title, entries: [] };
-      group.entries.push(entry);
-      groups.set(key, group);
-    });
-  });
-  return Array.from(groups.values()).sort((a, b) => b.entries.length - a.entries.length);
-}
-
 function buildSessionPayload(entries) {
   return entries.map(entry => ({ item: entry.item, sections: [entry.sectionKey] }));
 }
@@ -189,454 +101,746 @@ function renderEmptyState(container) {
   container.appendChild(empty);
 }
 
-function renderAllView(container, dueEntries, upcomingEntries, now, start, blocks, redraw) {
-  const allEntries = [...dueEntries, ...upcomingEntries];
-  const entryRefs = new Map();
-  let busy = false;
-  const normalizedBlocks = Array.isArray(blocks) ? blocks : [];
 
-  let updateSelectionUI = () => {};
-  const selectionModel = createSelectionModel(() => updateSelectionUI());
+const UNASSIGNED_BLOCK = '__unassigned';
+const UNASSIGNED_WEEK = '__unassigned';
+const UNASSIGNED_LECTURE = '__unassigned';
 
-  const actionRow = document.createElement('div');
-  actionRow.className = 'review-actions';
-  const startBtn = document.createElement('button');
-  startBtn.className = 'btn';
-  startBtn.textContent = `Start review (${dueEntries.length})`;
-  startBtn.disabled = dueEntries.length === 0;
-  startBtn.addEventListener('click', () => {
-    if (!dueEntries.length) return;
-    start(buildSessionPayload(dueEntries), { scope: 'all', label: 'All due cards' });
+function registerEntry(bucket, entry) {
+  if (!bucket || !entry) return;
+  if (!bucket.entryMap) bucket.entryMap = new Map();
+  const key = entryKey(entry);
+  if (!key || bucket.entryMap.has(key)) return;
+  bucket.entryMap.set(key, entry);
+}
+
+function finalizeEntries(bucket) {
+  if (!bucket) return;
+  const entries = bucket.entryMap ? Array.from(bucket.entryMap.values()) : [];
+  bucket.entries = entries;
+  delete bucket.entryMap;
+}
+
+function createBlockOrder(blocks = []) {
+  const order = new Map();
+  if (!Array.isArray(blocks)) return order;
+  blocks.forEach((block, index) => {
+    if (!block || !block.blockId) return;
+    order.set(block.blockId, index);
   });
-  actionRow.appendChild(startBtn);
+  return order;
+}
 
-  if (upcomingEntries.length) {
-    const upcomingBtn = document.createElement('button');
-    upcomingBtn.className = 'btn secondary';
-    upcomingBtn.textContent = `Review upcoming (${upcomingEntries.length})`;
-    upcomingBtn.addEventListener('click', () => {
-      if (!upcomingEntries.length) return;
-      start(buildSessionPayload(upcomingEntries), { scope: 'upcoming', label: 'Upcoming cards' });
+function resolveEntryRefs(entry, blockTitles) {
+  const item = entry?.item || {};
+  const lectures = Array.isArray(item.lectures) ? item.lectures.filter(Boolean) : [];
+  const blocks = Array.isArray(item.blocks) && item.blocks.length
+    ? item.blocks
+    : [];
+  const weeks = Array.isArray(item.weeks) ? item.weeks : [];
+  const results = [];
+
+  if (lectures.length) {
+    const seen = new Set();
+    lectures.forEach(lec => {
+      if (!lec) return;
+      const blockId = lec.blockId || blocks[0] || UNASSIGNED_BLOCK;
+      const lectureId = lec.id != null ? lec.id : UNASSIGNED_LECTURE;
+      const rawWeek = lec.week;
+      const weekNumber = Number.isFinite(Number(rawWeek)) ? Number(rawWeek) : null;
+      const weekId = weekNumber != null ? String(weekNumber) : UNASSIGNED_WEEK;
+      const blockTitle = blockTitles.get(blockId) || (blockId === UNASSIGNED_BLOCK ? 'Unassigned block' : blockId || 'Unassigned block');
+      const lectureLabel = lec.name ? lec.name : (lectureId !== UNASSIGNED_LECTURE ? `Lecture ${lectureId}` : 'Unassigned lecture');
+      const weekLabel = weekNumber != null ? `Week ${weekNumber}` : 'Unassigned week';
+      const lectureKey = `${blockId || UNASSIGNED_BLOCK}::${lectureId}`;
+      const dedupKey = `${blockId || UNASSIGNED_BLOCK}::${weekId}::${lectureKey}`;
+      if (seen.has(dedupKey)) return;
+      seen.add(dedupKey);
+      results.push({
+        blockId: blockId || UNASSIGNED_BLOCK,
+        blockTitle,
+        weekId,
+        weekNumber,
+        weekLabel,
+        lectureKey,
+        lectureId,
+        lectureLabel
+      });
     });
-    actionRow.appendChild(upcomingBtn);
-  }
-  container.appendChild(actionRow);
-
-  const selectionBar = document.createElement('div');
-  selectionBar.className = 'review-selection-bar';
-  const selectionInfo = document.createElement('div');
-  selectionInfo.className = 'review-selection-info';
-  selectionInfo.textContent = 'Select cards to manage them.';
-  selectionBar.appendChild(selectionInfo);
-
-  const selectionControls = document.createElement('div');
-  selectionControls.className = 'review-selection-controls';
-  selectionBar.appendChild(selectionControls);
-
-  const selectAllBtn = document.createElement('button');
-  selectAllBtn.type = 'button';
-  selectAllBtn.className = 'btn tertiary';
-  selectAllBtn.textContent = 'Select all';
-  selectAllBtn.addEventListener('click', () => {
-    selectionModel.selectAll(allEntries);
-  });
-  selectionControls.appendChild(selectAllBtn);
-
-  const clearBtn = document.createElement('button');
-  clearBtn.type = 'button';
-  clearBtn.className = 'btn tertiary';
-  clearBtn.textContent = 'Clear';
-  clearBtn.addEventListener('click', () => selectionModel.clear());
-  selectionControls.appendChild(clearBtn);
-
-  const selectionActions = document.createElement('div');
-  selectionActions.className = 'review-selection-actions';
-  selectionBar.appendChild(selectionActions);
-
-  const startSelectedBtn = document.createElement('button');
-  startSelectedBtn.type = 'button';
-  startSelectedBtn.className = 'btn secondary';
-  startSelectedBtn.textContent = 'Start selected';
-  startSelectedBtn.addEventListener('click', () => {
-    const entries = selectionModel.entries();
-    if (!entries.length) return;
-    start(buildSessionPayload(entries), {
-      scope: 'selection',
-      label: `Custom review (${entries.length})`
+  } else {
+    const blockIds = blocks.length ? blocks : [UNASSIGNED_BLOCK];
+    const weekValues = weeks.length ? weeks : [null];
+    const seen = new Set();
+    blockIds.forEach(blockRaw => {
+      const blockId = blockRaw || UNASSIGNED_BLOCK;
+      const blockTitle = blockTitles.get(blockId) || (blockId === UNASSIGNED_BLOCK ? 'Unassigned block' : blockId || 'Unassigned block');
+      weekValues.forEach(weekValue => {
+        const weekNumber = Number.isFinite(Number(weekValue)) ? Number(weekValue) : null;
+        const weekId = weekNumber != null ? String(weekNumber) : UNASSIGNED_WEEK;
+        const weekLabel = weekNumber != null ? `Week ${weekNumber}` : 'Unassigned week';
+        const dedupKey = `${blockId}::${weekId}`;
+        if (seen.has(dedupKey)) return;
+        seen.add(dedupKey);
+        results.push({
+          blockId,
+          blockTitle,
+          weekId,
+          weekNumber,
+          weekLabel,
+          lectureKey: `${blockId}::${UNASSIGNED_LECTURE}`,
+          lectureId: UNASSIGNED_LECTURE,
+          lectureLabel: 'Unassigned lecture'
+        });
+      });
     });
-  });
-  selectionActions.appendChild(startSelectedBtn);
-
-  const suspendBtn = document.createElement('button');
-  suspendBtn.type = 'button';
-  suspendBtn.className = 'btn secondary';
-  suspendBtn.textContent = 'Suspend';
-  selectionActions.appendChild(suspendBtn);
-
-  const retireBtn = document.createElement('button');
-  retireBtn.type = 'button';
-  retireBtn.className = 'btn secondary danger';
-  retireBtn.textContent = 'Retire';
-  selectionActions.appendChild(retireBtn);
-
-  const moveBtn = document.createElement('button');
-  moveBtn.type = 'button';
-  moveBtn.className = 'btn secondary';
-  moveBtn.textContent = 'Move';
-  selectionActions.appendChild(moveBtn);
-
-  const selectionStatus = document.createElement('div');
-  selectionStatus.className = 'review-selection-status';
-  selectionBar.appendChild(selectionStatus);
-
-  const movePanel = document.createElement('div');
-  movePanel.className = 'review-move-panel';
-  movePanel.hidden = true;
-
-  const moveLabel = document.createElement('label');
-  moveLabel.className = 'review-move-label';
-  moveLabel.textContent = 'Move to block';
-  const moveSelect = document.createElement('select');
-  moveSelect.className = 'input review-move-select';
-  const placeholderOption = document.createElement('option');
-  placeholderOption.value = '';
-  placeholderOption.textContent = 'Choose…';
-  placeholderOption.disabled = true;
-  placeholderOption.selected = true;
-  moveSelect.appendChild(placeholderOption);
-  normalizedBlocks.forEach(block => {
-    if (!block) return;
-    const option = document.createElement('option');
-    option.value = block.blockId;
-    option.textContent = block.title || block.blockId || 'Untitled block';
-    moveSelect.appendChild(option);
-  });
-  const unassignOption = document.createElement('option');
-  unassignOption.value = '__unassigned';
-  unassignOption.textContent = 'Unassign from blocks';
-  moveSelect.appendChild(unassignOption);
-  moveLabel.appendChild(moveSelect);
-  movePanel.appendChild(moveLabel);
-
-  const replaceWrap = document.createElement('label');
-  replaceWrap.className = 'review-move-replace';
-  const replaceCheckbox = document.createElement('input');
-  replaceCheckbox.type = 'checkbox';
-  replaceWrap.appendChild(replaceCheckbox);
-  const replaceText = document.createElement('span');
-  replaceText.textContent = 'Replace existing blocks';
-  replaceWrap.appendChild(replaceText);
-  movePanel.appendChild(replaceWrap);
-
-  const moveActions = document.createElement('div');
-  moveActions.className = 'review-move-actions';
-  const applyMoveBtn = document.createElement('button');
-  applyMoveBtn.type = 'button';
-  applyMoveBtn.className = 'btn';
-  applyMoveBtn.textContent = 'Apply move';
-  const cancelMoveBtn = document.createElement('button');
-  cancelMoveBtn.type = 'button';
-  cancelMoveBtn.className = 'btn tertiary';
-  cancelMoveBtn.textContent = 'Cancel';
-  moveActions.appendChild(applyMoveBtn);
-  moveActions.appendChild(cancelMoveBtn);
-  movePanel.appendChild(moveActions);
-  selectionBar.appendChild(movePanel);
-
-  container.appendChild(selectionBar);
-
-  const setBusy = (value) => {
-    busy = value;
-    selectionBar.classList.toggle('is-busy', value);
-    moveSelect.disabled = value;
-    replaceCheckbox.disabled = value;
-    applyMoveBtn.disabled = value;
-    cancelMoveBtn.disabled = value;
-    updateSelectionUI();
-  };
-
-  updateSelectionUI = () => {
-    const selectedKeys = selectionModel.keys();
-    const count = selectionModel.size();
-    selectionInfo.textContent = count ? `${count} card${count === 1 ? '' : 's'} selected` : 'Select cards to manage them.';
-    const disableActions = busy || count === 0;
-    startSelectedBtn.disabled = disableActions;
-    suspendBtn.disabled = disableActions;
-    retireBtn.disabled = disableActions;
-    moveBtn.disabled = disableActions;
-    clearBtn.disabled = busy || count === 0;
-    selectAllBtn.disabled = busy || !allEntries.length || count === allEntries.length;
-    const selectedSet = new Set(selectedKeys);
-    entryRefs.forEach((refs, key) => {
-      const selected = selectedSet.has(key);
-      if (refs.checkbox) refs.checkbox.checked = selected;
-      if (refs.element) refs.element.classList.toggle('is-selected', selected);
-    });
-  };
-
-  const runBulkAction = async (handler, { successMessage, failureMessage }) => {
-    const entries = selectionModel.entries();
-    if (!entries.length) return false;
-    let succeeded = false;
-    setBusy(true);
-    selectionStatus.textContent = 'Working…';
-    selectionStatus.classList.remove('is-error', 'is-success');
-    try {
-      await handler(entries);
-      selectionStatus.textContent = successMessage || 'Done.';
-      selectionStatus.classList.add('is-success');
-      selectionModel.clear();
-      succeeded = true;
-    } catch (err) {
-      console.error('Bulk review action failed', err);
-      selectionStatus.textContent = failureMessage || 'Action failed.';
-      selectionStatus.classList.add('is-error');
-    } finally {
-      setBusy(false);
-      setTimeout(() => {
-        selectionStatus.textContent = '';
-        selectionStatus.classList.remove('is-error', 'is-success');
-      }, 2400);
+    if (!results.length) {
+      results.push({
+        blockId: UNASSIGNED_BLOCK,
+        blockTitle: 'Unassigned block',
+        weekId: UNASSIGNED_WEEK,
+        weekNumber: null,
+        weekLabel: 'Unassigned week',
+        lectureKey: `${UNASSIGNED_BLOCK}::${UNASSIGNED_LECTURE}`,
+        lectureId: UNASSIGNED_LECTURE,
+        lectureLabel: 'Unassigned lecture'
+      });
     }
-    return succeeded;
-  };
-
-  suspendBtn.addEventListener('click', async () => {
-    const success = await runBulkAction(async entries => {
-      const nowTs = Date.now();
-      for (const entry of entries) {
-        suspendSection(entry.item, entry.sectionKey, nowTs);
-        await upsertItem(entry.item);
-      }
-    }, { successMessage: 'Suspended selected cards.' });
-    if (success && typeof redraw === 'function') redraw();
-  });
-
-  retireBtn.addEventListener('click', async () => {
-    const success = await runBulkAction(async entries => {
-      const steps = await getReviewDurations();
-      const nowTs = Date.now();
-      for (const entry of entries) {
-        rateSection(entry.item, entry.sectionKey, RETIRE_RATING, steps, nowTs);
-        await upsertItem(entry.item);
-      }
-    }, { successMessage: 'Retired selected cards.' });
-    if (success && typeof redraw === 'function') redraw();
-  });
-
-  moveBtn.addEventListener('click', () => {
-    if (movePanel.hidden) {
-      movePanel.hidden = false;
-      moveBtn.classList.add('is-active');
-      moveSelect.focus();
-    } else {
-      movePanel.hidden = true;
-      moveBtn.classList.remove('is-active');
-    }
-  });
-
-  cancelMoveBtn.addEventListener('click', () => {
-    movePanel.hidden = true;
-    moveBtn.classList.remove('is-active');
-  });
-
-  applyMoveBtn.addEventListener('click', async () => {
-    const target = moveSelect.value;
-    if (!target) {
-      moveSelect.focus();
-      return;
-    }
-    const replace = replaceCheckbox.checked;
-    const success = await runBulkAction(async entries => {
-      for (const entry of entries) {
-        const item = entry.item;
-        const currentBlocks = Array.isArray(item.blocks) ? [...item.blocks] : [];
-        if (target === '__unassigned') {
-          item.blocks = [];
-        } else if (replace) {
-          item.blocks = [target];
-        } else {
-          const next = new Set(currentBlocks);
-          next.add(target);
-          item.blocks = Array.from(next);
-        }
-        await upsertItem(item);
-      }
-    }, {
-      successMessage: target === '__unassigned' ? 'Unassigned selected cards.' : 'Updated block assignments.'
-    });
-    movePanel.hidden = true;
-    moveBtn.classList.remove('is-active');
-    if (success && typeof redraw === 'function') redraw();
-  });
-
-  const registerEntry = (entry, checkbox, element) => {
-    const key = selectionModel.keyOf(entry);
-    if (!key) return;
-    entryRefs.set(key, { checkbox, element });
-  };
-
-  if (!dueEntries.length && !upcomingEntries.length) {
-    renderEmptyState(container);
-    updateSelectionUI();
-    return;
   }
 
-  const buildEntryElement = (entry, { upcoming = false } = {}) => {
-    const item = document.createElement('li');
-    item.className = 'review-entry';
-    if (upcoming) item.classList.add('is-upcoming');
+  return results;
+}
 
-    const row = document.createElement('div');
-    row.className = 'review-entry-row';
+function buildReviewHierarchy(entries, blocks, blockTitles) {
+  const order = createBlockOrder(blocks);
+  const root = {
+    id: 'all',
+    title: 'All cards',
+    blocks: new Map(),
+    entryMap: new Map()
+  };
 
-    const checkboxLabel = document.createElement('label');
-    checkboxLabel.className = 'review-entry-checkbox';
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'review-entry-check';
-    checkbox.addEventListener('click', event => event.stopPropagation());
-    checkbox.addEventListener('change', event => {
+  const blockMap = root.blocks;
+  entries.forEach(entry => {
+    registerEntry(root, entry);
+    const refs = resolveEntryRefs(entry, blockTitles);
+    refs.forEach(ref => {
+      const blockId = ref.blockId || UNASSIGNED_BLOCK;
+      let blockNode = blockMap.get(blockId);
+      if (!blockNode) {
+        blockNode = {
+          id: blockId,
+          title: ref.blockTitle,
+          order: order.has(blockId) ? order.get(blockId) : Number.MAX_SAFE_INTEGER,
+          weeks: new Map(),
+          entryMap: new Map()
+        };
+        blockMap.set(blockId, blockNode);
+      }
+      registerEntry(blockNode, entry);
+
+      const weekKey = ref.weekId || UNASSIGNED_WEEK;
+      let weekNode = blockNode.weeks.get(weekKey);
+      if (!weekNode) {
+        weekNode = {
+          id: weekKey,
+          blockId,
+          label: ref.weekLabel,
+          weekNumber: ref.weekNumber,
+          lectures: new Map(),
+          entryMap: new Map()
+        };
+        blockNode.weeks.set(weekKey, weekNode);
+      }
+      registerEntry(weekNode, entry);
+
+      const lectureKey = ref.lectureKey || `${blockId}::${UNASSIGNED_LECTURE}`;
+      let lectureNode = weekNode.lectures.get(lectureKey);
+      if (!lectureNode) {
+        lectureNode = {
+          id: lectureKey,
+          blockId,
+          weekId: weekKey,
+          weekNumber: ref.weekNumber,
+          title: ref.lectureLabel,
+          lectureId: ref.lectureId,
+          entryMap: new Map()
+        };
+        weekNode.lectures.set(lectureKey, lectureNode);
+      }
+      registerEntry(lectureNode, entry);
+    });
+  });
+
+  const blocksList = Array.from(blockMap.values());
+  blocksList.forEach(blockNode => {
+    const weekList = Array.from(blockNode.weeks.values());
+    weekList.forEach(weekNode => {
+      const lectureList = Array.from(weekNode.lectures.values());
+      lectureList.forEach(lectureNode => finalizeEntries(lectureNode));
+      lectureList.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
+      weekNode.lectures = lectureList;
+      finalizeEntries(weekNode);
+    });
+    weekList.sort((a, b) => {
+      const aNum = a.weekNumber;
+      const bNum = b.weekNumber;
+      if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+        if (aNum !== bNum) return aNum - bNum;
+      } else if (Number.isFinite(aNum)) {
+        return -1;
+      } else if (Number.isFinite(bNum)) {
+        return 1;
+      }
+      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+    });
+    blockNode.weeks = weekList;
+    finalizeEntries(blockNode);
+  });
+
+  blocksList.sort((a, b) => {
+    if (a.order !== b.order) return a.order - b.order;
+    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+  });
+
+  finalizeEntries(root);
+
+  return {
+    root,
+    blocks: blocksList
+  };
+}
+
+function createNodeActions({
+  count = 0,
+  reviewLabel = 'Review',
+  onReview,
+  onMenu,
+  preventToggle = false
+}) {
+  const actions = document.createElement('div');
+  actions.className = 'review-node-actions';
+
+  const reviewBtn = document.createElement('button');
+  reviewBtn.type = 'button';
+  reviewBtn.className = 'btn tertiary review-node-action';
+  reviewBtn.textContent = `${reviewLabel}${count ? ` (${count})` : ''}`;
+  reviewBtn.disabled = !count;
+  reviewBtn.addEventListener('click', event => {
+    if (preventToggle) {
+      event.preventDefault();
       event.stopPropagation();
-      selectionModel.toggle(entry, checkbox.checked);
+    }
+    if (!count) return;
+    if (typeof onReview === 'function') onReview();
+  });
+  actions.appendChild(reviewBtn);
+
+  const menuBtn = document.createElement('button');
+  menuBtn.type = 'button';
+  menuBtn.className = 'icon-button review-node-gear';
+  menuBtn.innerHTML = '⚙';
+  menuBtn.title = 'View entries';
+  menuBtn.disabled = !count;
+  menuBtn.addEventListener('click', event => {
+    if (preventToggle) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (typeof onMenu === 'function') onMenu();
+  });
+  actions.appendChild(menuBtn);
+
+  return actions;
+}
+
+function createCollapsibleNode({
+  level = 0,
+  title,
+  count,
+  reviewLabel,
+  onReview,
+  onMenu,
+  defaultOpen = false
+}) {
+  const details = document.createElement('details');
+  details.className = `review-node review-node-level-${level}`;
+  if (defaultOpen) details.open = true;
+
+  const summary = document.createElement('summary');
+  summary.className = 'review-node-summary';
+
+  const header = document.createElement('div');
+  header.className = 'review-node-header';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'review-node-title';
+  titleEl.textContent = title;
+  const countEl = document.createElement('span');
+  countEl.className = 'review-node-count';
+  countEl.textContent = `${count} card${count === 1 ? '' : 's'}`;
+  header.appendChild(titleEl);
+  header.appendChild(countEl);
+  summary.appendChild(header);
+
+  const actions = createNodeActions({
+    count,
+    reviewLabel,
+    onReview,
+    onMenu,
+    preventToggle: true
+  });
+  summary.appendChild(actions);
+
+  details.appendChild(summary);
+
+  const content = document.createElement('div');
+  content.className = 'review-node-content';
+  details.appendChild(content);
+
+  return { element: details, content, actions };
+}
+
+function createUpcomingEntry(entry, now, startSession) {
+  const item = document.createElement('li');
+  item.className = 'review-entry is-upcoming';
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'review-entry-trigger';
+
+  const title = document.createElement('div');
+  title.className = 'review-entry-title';
+  title.textContent = titleOf(entry.item);
+  trigger.appendChild(title);
+
+  const meta = document.createElement('div');
+  meta.className = 'review-entry-meta';
+  meta.textContent = `${getSectionLabel(entry.item, entry.sectionKey)} • ${formatTimeUntil(entry.due, now)}`;
+  trigger.appendChild(meta);
+
+  const phaseLabel = describePhase(entry.phase);
+  const interval = entry?.state?.interval;
+  if (phaseLabel || Number.isFinite(interval)) {
+    const extra = document.createElement('div');
+    extra.className = 'review-entry-extra';
+    if (phaseLabel) {
+      const chip = document.createElement('span');
+      chip.className = 'review-entry-chip';
+      chip.textContent = phaseLabel;
+      extra.appendChild(chip);
+    }
+    if (Number.isFinite(interval) && interval > 0) {
+      const chip = document.createElement('span');
+      chip.className = 'review-entry-chip';
+      chip.textContent = `Last interval • ${formatIntervalMinutes(interval)}`;
+      extra.appendChild(chip);
+    }
+    trigger.appendChild(extra);
+  }
+
+  trigger.addEventListener('click', () => {
+    if (typeof startSession !== 'function') return;
+    startSession(buildSessionPayload([entry]), {
+      scope: 'single',
+      label: `Focused review – ${titleOf(entry.item)}`
     });
-    checkboxLabel.appendChild(checkbox);
-    row.appendChild(checkboxLabel);
+  });
 
-    const trigger = document.createElement('button');
-    trigger.type = 'button';
-    trigger.className = 'review-entry-trigger';
-    trigger.setAttribute('aria-label', upcoming
-      ? `Review ${titleOf(entry.item)} early`
-      : `Review ${titleOf(entry.item)} immediately`);
+  item.appendChild(trigger);
+  return item;
+}
 
-    const title = document.createElement('div');
-    title.className = 'review-entry-title';
-    title.textContent = titleOf(entry.item);
-    trigger.appendChild(title);
+function renderUpcomingSection(container, upcomingEntries, now, startSession) {
+  if (!Array.isArray(upcomingEntries) || !upcomingEntries.length) return;
 
-    const meta = document.createElement('div');
-    meta.className = 'review-entry-meta';
-    meta.textContent = `${getSectionLabel(entry.item, entry.sectionKey)} • ${upcoming
-      ? formatTimeUntil(entry.due, now)
-      : formatOverdue(entry.due, now)}`;
-    trigger.appendChild(meta);
+  const section = document.createElement('div');
+  section.className = 'review-upcoming-section';
 
+  const heading = document.createElement('div');
+  heading.className = 'review-upcoming-title';
+  heading.textContent = 'Upcoming cards';
+  section.appendChild(heading);
+
+  const note = document.createElement('div');
+  note.className = 'review-upcoming-note';
+  note.textContent = `Next ${upcomingEntries.length} card${upcomingEntries.length === 1 ? '' : 's'} in the queue`;
+  section.appendChild(note);
+
+  const actions = document.createElement('div');
+  actions.className = 'review-upcoming-actions';
+  const startUpcomingBtn = document.createElement('button');
+  startUpcomingBtn.type = 'button';
+  startUpcomingBtn.className = 'btn secondary';
+  startUpcomingBtn.textContent = `Review upcoming (${upcomingEntries.length})`;
+  startUpcomingBtn.addEventListener('click', () => {
+    if (!upcomingEntries.length) return;
+    if (typeof startSession === 'function') {
+      startSession(buildSessionPayload(upcomingEntries), { scope: 'upcoming', label: 'Upcoming cards' });
+    }
+  });
+  actions.appendChild(startUpcomingBtn);
+  section.appendChild(actions);
+
+  const list = document.createElement('ul');
+  list.className = 'review-entry-list';
+  upcomingEntries.forEach(entry => {
+    list.appendChild(createUpcomingEntry(entry, now, startSession));
+  });
+  section.appendChild(list);
+
+  container.appendChild(section);
+}
+
+function openEntryMenu(entries, {
+  title = 'Entries',
+  now = Date.now(),
+  startSession,
+  metadata = {},
+  onChange
+} = {}) {
+  const normalized = Array.isArray(entries) ? entries.slice() : [];
+  const sorted = normalized.slice().sort((a, b) => (a.due || 0) - (b.due || 0));
+  const win = createFloatingWindow({ title, width: 720 });
+  const body = win.querySelector('.floating-body');
+  body.classList.add('review-popup');
+
+  let remainingEntries = sorted;
+
+  const status = document.createElement('div');
+  status.className = 'review-popup-status';
+
+  const updateStatus = (message = '', variant = '') => {
+    status.textContent = message;
+    status.classList.remove('is-error', 'is-success');
+    if (variant) {
+      status.classList.add(variant === 'error' ? 'is-error' : 'is-success');
+    }
+  };
+
+  const controls = document.createElement('div');
+  controls.className = 'review-popup-controls';
+  const reviewAllBtn = document.createElement('button');
+  reviewAllBtn.type = 'button';
+  reviewAllBtn.className = 'btn';
+  const updateReviewAllLabel = () => {
+    reviewAllBtn.textContent = `Review (${remainingEntries.length})`;
+    reviewAllBtn.disabled = remainingEntries.length === 0;
+  };
+  updateReviewAllLabel();
+  reviewAllBtn.addEventListener('click', () => {
+    if (!remainingEntries.length) return;
+    if (typeof startSession === 'function') {
+      startSession(buildSessionPayload(remainingEntries), metadata || {});
+    }
+  });
+  controls.appendChild(reviewAllBtn);
+  body.appendChild(controls);
+
+  const table = document.createElement('table');
+  table.className = 'review-entry-table';
+  const head = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  ['Card', 'Section', 'Due', 'Phase', 'Actions'].forEach(label => {
+    const th = document.createElement('th');
+    th.textContent = label;
+    headRow.appendChild(th);
+  });
+  head.appendChild(headRow);
+  table.appendChild(head);
+
+  const bodyRows = document.createElement('tbody');
+  table.appendChild(bodyRows);
+  body.appendChild(table);
+  body.appendChild(status);
+
+  const rowsByKey = new Map();
+
+  const removeEntry = entry => {
+    const key = entryKey(entry);
+    if (!key) return;
+    remainingEntries = remainingEntries.filter(item => entryKey(item) !== key);
+    const row = rowsByKey.get(key);
+    if (row) {
+      row.classList.add('is-removed');
+      setTimeout(() => {
+        row.remove();
+      }, 160);
+      rowsByKey.delete(key);
+    }
+    updateReviewAllLabel();
+  };
+
+  let cachedDurations = null;
+
+  const ensureDurations = async () => {
+    if (cachedDurations) return cachedDurations;
+    cachedDurations = await getReviewDurations();
+    return cachedDurations;
+  };
+
+  const handleEntryChange = async () => {
+    if (typeof onChange === 'function') {
+      try {
+        await onChange();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  sorted.forEach(entry => {
+    const key = entryKey(entry);
+    const row = document.createElement('tr');
+    row.className = 'review-entry-table-row';
+
+    const titleCell = document.createElement('td');
+    titleCell.className = 'review-entry-cell title';
+    titleCell.textContent = titleOf(entry.item);
+    row.appendChild(titleCell);
+
+    const sectionCell = document.createElement('td');
+    sectionCell.className = 'review-entry-cell section';
+    sectionCell.textContent = getSectionLabel(entry.item, entry.sectionKey);
+    row.appendChild(sectionCell);
+
+    const dueCell = document.createElement('td');
+    dueCell.className = 'review-entry-cell due';
+    dueCell.textContent = formatOverdue(entry.due, now);
+    row.appendChild(dueCell);
+
+    const phaseCell = document.createElement('td');
+    phaseCell.className = 'review-entry-cell phase';
     const phaseLabel = describePhase(entry.phase);
     const interval = entry?.state?.interval;
-    if (phaseLabel || Number.isFinite(interval)) {
-      const extra = document.createElement('div');
-      extra.className = 'review-entry-extra';
-      if (phaseLabel) {
-        const chip = document.createElement('span');
-        chip.className = 'review-entry-chip';
-        chip.textContent = phaseLabel;
-        extra.appendChild(chip);
-      }
-      if (Number.isFinite(interval) && interval > 0) {
-        const chip = document.createElement('span');
-        chip.className = 'review-entry-chip';
-        chip.textContent = `Last interval • ${formatIntervalMinutes(interval)}`;
-        extra.appendChild(chip);
-      }
-      trigger.appendChild(extra);
+    let phaseText = phaseLabel;
+    if (Number.isFinite(interval) && interval > 0) {
+      const intervalText = `Last interval • ${formatIntervalMinutes(interval)}`;
+      phaseText = phaseText ? `${phaseText}
+${intervalText}` : intervalText;
     }
+    phaseCell.textContent = phaseText || '—';
+    row.appendChild(phaseCell);
 
-    const launch = () => {
-      start(buildSessionPayload([entry]), { scope: 'single', label: `Focused review – ${titleOf(entry.item)}` });
-    };
-    trigger.addEventListener('click', launch);
+    const actionsCell = document.createElement('td');
+    actionsCell.className = 'review-entry-cell actions';
+    const actionGroup = document.createElement('div');
+    actionGroup.className = 'review-entry-actions';
 
-    row.appendChild(trigger);
-    item.appendChild(row);
-
-    registerEntry(entry, checkbox, item);
-    return item;
-  };
-
-  if (!dueEntries.length) {
-    const info = document.createElement('div');
-    info.className = 'review-empty';
-    info.textContent = 'No cards are due right now. Upcoming cards are listed below.';
-    container.appendChild(info);
-  } else {
-    const list = document.createElement('ul');
-    list.className = 'review-entry-list';
-    dueEntries.forEach(entry => {
-      list.appendChild(buildEntryElement(entry));
+    const reviewBtn = document.createElement('button');
+    reviewBtn.type = 'button';
+    reviewBtn.className = 'btn tertiary';
+    reviewBtn.textContent = 'Review';
+    reviewBtn.addEventListener('click', () => {
+      if (typeof startSession === 'function') {
+        startSession(buildSessionPayload([entry]), {
+          scope: 'single',
+          label: `Focused review – ${titleOf(entry.item)}`
+        });
+      }
     });
-    container.appendChild(list);
+    actionGroup.appendChild(reviewBtn);
+
+    const suspendBtn = document.createElement('button');
+    suspendBtn.type = 'button';
+    suspendBtn.className = 'btn tertiary';
+    suspendBtn.textContent = 'Suspend';
+    suspendBtn.addEventListener('click', async () => {
+      if (suspendBtn.disabled) return;
+      suspendBtn.disabled = true;
+      retireBtn.disabled = true;
+      updateStatus('Suspending…');
+      try {
+        const nowTs = Date.now();
+        suspendSection(entry.item, entry.sectionKey, nowTs);
+        await upsertItem(entry.item);
+        updateStatus('Card suspended.', 'success');
+        removeEntry(entry);
+        await handleEntryChange();
+      } catch (err) {
+        console.error('Failed to suspend entry', err);
+        updateStatus('Failed to suspend card.', 'error');
+        suspendBtn.disabled = false;
+        retireBtn.disabled = false;
+      }
+    });
+    actionGroup.appendChild(suspendBtn);
+
+    const retireBtn = document.createElement('button');
+    retireBtn.type = 'button';
+    retireBtn.className = 'btn tertiary danger';
+    retireBtn.textContent = 'Retire';
+    retireBtn.addEventListener('click', async () => {
+      if (retireBtn.disabled) return;
+      retireBtn.disabled = true;
+      suspendBtn.disabled = true;
+      updateStatus('Retiring…');
+      try {
+        const steps = await ensureDurations();
+        const nowTs = Date.now();
+        rateSection(entry.item, entry.sectionKey, RETIRE_RATING, steps, nowTs);
+        await upsertItem(entry.item);
+        updateStatus('Card retired.', 'success');
+        removeEntry(entry);
+        await handleEntryChange();
+      } catch (err) {
+        console.error('Failed to retire entry', err);
+        updateStatus('Failed to retire card.', 'error');
+        retireBtn.disabled = false;
+        suspendBtn.disabled = false;
+      }
+    });
+    actionGroup.appendChild(retireBtn);
+
+    actionsCell.appendChild(actionGroup);
+    row.appendChild(actionsCell);
+
+    bodyRows.appendChild(row);
+    if (key) rowsByKey.set(key, row);
+  });
+
+  if (!sorted.length) {
+    const empty = document.createElement('div');
+    empty.className = 'review-popup-empty';
+    empty.textContent = 'No entries available.';
+    body.insertBefore(empty, controls.nextSibling);
+    table.hidden = true;
   }
 
-  if (upcomingEntries.length) {
-    const upcomingSection = document.createElement('div');
-    upcomingSection.className = 'review-upcoming-section';
-
-    const heading = document.createElement('div');
-    heading.className = 'review-upcoming-title';
-    heading.textContent = 'Upcoming cards';
-    upcomingSection.appendChild(heading);
-
-    const note = document.createElement('div');
-    note.className = 'review-upcoming-note';
-    note.textContent = `Next ${upcomingEntries.length} card${upcomingEntries.length === 1 ? '' : 's'} in the queue`;
-    upcomingSection.appendChild(note);
-
-    const list = document.createElement('ul');
-    list.className = 'review-entry-list';
-    upcomingEntries.forEach(entry => {
-      list.appendChild(buildEntryElement(entry, { upcoming: true }));
-    });
-    upcomingSection.appendChild(list);
-    container.appendChild(upcomingSection);
-  }
-
-  updateSelectionUI();
+  return win;
 }
 
-
-function renderGroupView(container, groups, label, start, metaBuilder = null) {
-
-  if (!groups.length) {
+function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
+  if (!hierarchy.root.entries.length) {
     renderEmptyState(container);
     return;
   }
-  const list = document.createElement('div');
-  list.className = 'review-group-list';
-  groups.forEach(group => {
-    const card = document.createElement('div');
-    card.className = 'review-group-card';
-    const heading = document.createElement('div');
-    heading.className = 'review-group-heading';
-    const title = document.createElement('div');
-    title.className = 'review-group-title';
-    title.textContent = group.title;
-    const count = document.createElement('span');
-    count.className = 'review-group-count';
-    count.textContent = `${group.entries.length} card${group.entries.length === 1 ? '' : 's'}`;
-    heading.appendChild(title);
-    heading.appendChild(count);
-    card.appendChild(heading);
 
+  const tree = document.createElement('div');
+  tree.className = 'review-tree';
+  container.appendChild(tree);
 
-    const actions = document.createElement('div');
-    actions.className = 'review-group-actions';
-    const startBtn = document.createElement('button');
-    startBtn.className = 'btn';
-    startBtn.textContent = `Start ${label}`;
-    startBtn.addEventListener('click', () => {
-      const metadata = typeof metaBuilder === 'function' ? metaBuilder(group) : { label };
-      start(buildSessionPayload(group.entries), metadata);
-    });
-    actions.appendChild(startBtn);
-    card.appendChild(actions);
+  const refresh = () => {
+    if (typeof redraw === 'function') redraw();
+  };
 
-    list.appendChild(card);
-
+  const allMeta = { scope: 'all', label: 'All due cards' };
+  const allNode = createCollapsibleNode({
+    level: 0,
+    title: 'All cards',
+    count: hierarchy.root.entries.length,
+    reviewLabel: 'Review all',
+    onReview: () => startSession(buildSessionPayload(hierarchy.root.entries), allMeta),
+    onMenu: () => openEntryMenu(hierarchy.root.entries, {
+      title: 'All due cards',
+      now,
+      startSession,
+      metadata: allMeta,
+      onChange: refresh
+    }),
+    defaultOpen: true
   });
-  container.appendChild(list);
-}
 
+  tree.appendChild(allNode.element);
+
+  const blockList = document.createElement('div');
+  blockList.className = 'review-tree-children';
+  allNode.content.appendChild(blockList);
+
+  hierarchy.blocks.forEach(blockNode => {
+    const blockMeta = {
+      scope: 'block',
+      label: `Block – ${blockNode.title}`,
+      blockId: blockNode.id
+    };
+    const block = createCollapsibleNode({
+      level: 1,
+      title: blockNode.title,
+      count: blockNode.entries.length,
+      reviewLabel: 'Review block',
+      onReview: () => startSession(buildSessionPayload(blockNode.entries), blockMeta),
+      onMenu: () => openEntryMenu(blockNode.entries, {
+        title: `${blockNode.title} — cards`,
+        now,
+        startSession,
+        metadata: blockMeta,
+        onChange: refresh
+      })
+    });
+    blockList.appendChild(block.element);
+
+    const weekList = document.createElement('div');
+    weekList.className = 'review-tree-children';
+    block.content.appendChild(weekList);
+
+    blockNode.weeks.forEach(weekNode => {
+      const weekTitle = weekNode.weekNumber != null ? `Week ${weekNode.weekNumber}` : 'Unassigned week';
+      const weekMeta = {
+        scope: 'week',
+        label: `${weekTitle} – ${blockNode.title}`,
+        blockId: blockNode.id,
+        week: weekNode.weekNumber
+      };
+      const week = createCollapsibleNode({
+        level: 2,
+        title: weekTitle,
+        count: weekNode.entries.length,
+        reviewLabel: 'Review week',
+        onReview: () => startSession(buildSessionPayload(weekNode.entries), weekMeta),
+        onMenu: () => openEntryMenu(weekNode.entries, {
+          title: `${blockNode.title} • ${weekTitle}`,
+          now,
+          startSession,
+          metadata: weekMeta,
+          onChange: refresh
+        })
+      });
+      weekList.appendChild(week.element);
+
+      const lectureList = document.createElement('div');
+      lectureList.className = 'review-lecture-list';
+      week.content.appendChild(lectureList);
+
+      weekNode.lectures.forEach(lectureNode => {
+        const lectureRow = document.createElement('div');
+        lectureRow.className = 'review-lecture-row';
+        const info = document.createElement('div');
+        info.className = 'review-lecture-info';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'review-lecture-title';
+        titleEl.textContent = lectureNode.title;
+        info.appendChild(titleEl);
+        const countEl = document.createElement('div');
+        countEl.className = 'review-lecture-count';
+        countEl.textContent = `${lectureNode.entries.length} card${lectureNode.entries.length === 1 ? '' : 's'}`;
+        info.appendChild(countEl);
+        lectureRow.appendChild(info);
+
+        const lectureMeta = {
+          scope: 'lecture',
+          label: `${lectureNode.title} – ${blockNode.title}`,
+          lectureId: lectureNode.id,
+          blockId: blockNode.id,
+          week: lectureNode.weekNumber
+        };
+        const actions = createNodeActions({
+          count: lectureNode.entries.length,
+          reviewLabel: 'Review lecture',
+          onReview: () => startSession(buildSessionPayload(lectureNode.entries), lectureMeta),
+          onMenu: () => openEntryMenu(lectureNode.entries, {
+            title: `${blockNode.title} • ${weekTitle} • ${lectureNode.title}`,
+            now,
+            startSession,
+            metadata: lectureMeta,
+            onChange: refresh
+          })
+        });
+        actions.classList.add('review-lecture-actions');
+        lectureRow.appendChild(actions);
+
+        lectureList.appendChild(lectureRow);
+      });
+    });
+  });
+}
 export async function renderReview(root, redraw) {
   root.innerHTML = '';
   await hydrateStudySessions().catch(err => console.error('Failed to load saved sessions', err));
@@ -710,25 +914,6 @@ export async function renderReview(root, redraw) {
     wrapper.appendChild(resumeRow);
   }
 
-  const tabs = document.createElement('div');
-  tabs.className = 'review-tabs';
-  REVIEW_SCOPES.forEach(scope => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'tab';
-    const label = scope === 'all' ? 'All' : scope === 'blocks' ? 'By block' : 'By lecture';
-    if (activeScope === scope) btn.classList.add('active');
-    btn.textContent = label;
-    btn.addEventListener('click', () => {
-      if (activeScope === scope) return;
-      activeScope = scope;
-      renderReview(root, redraw);
-    });
-    tabs.appendChild(btn);
-  });
-
-  wrapper.appendChild(tabs);
-
   const body = document.createElement('div');
   body.className = 'review-body';
   wrapper.appendChild(body);
@@ -742,24 +927,15 @@ export async function renderReview(root, redraw) {
     redraw();
   };
 
-  if (activeScope === 'all') {
-    renderAllView(body, dueEntries, upcomingEntries, now, startSession, blocks, redraw);
-  } else if (activeScope === 'blocks') {
-    const groups = groupByBlock(dueEntries, blockTitles);
-
-    renderGroupView(body, groups, 'block review', startSession, (group) => ({
-      scope: 'block',
-      label: `Block – ${group.title}`,
-      blockId: group.id
-    }));
+  if (dueEntries.length) {
+    const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles);
+    renderHierarchy(body, hierarchy, { startSession, now, redraw });
   } else {
-    const groups = groupByLecture(dueEntries, blockTitles);
-    renderGroupView(body, groups, 'lecture review', startSession, (group) => ({
-      scope: 'lecture',
-      label: `Lecture – ${group.title}`,
-      lectureId: group.id
-    }));
+    renderEmptyState(body);
+  }
 
+  if (upcomingEntries.length) {
+    renderUpcomingSection(body, upcomingEntries, now, startSession);
   }
 
   root.appendChild(wrapper);
