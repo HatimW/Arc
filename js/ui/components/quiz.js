@@ -433,11 +433,76 @@ export function renderQuiz(root, redraw) {
 
   const status = document.createElement('span');
   status.className = 'quiz-rating-status';
-  status.textContent = 'Optional: rate your confidence after answering.';
-  ratingRow.appendChild(status);
+  status.textContent = 'Optional: set a rating to queue this card.';
 
   const ratingId = ratingKey(item, '__overall__');
   let selectedRating = session.ratings[ratingId] || null;
+  let ratingLocked = Boolean(selectedRating);
+  let adjustBtn = null;
+
+  const clearStatusInteraction = () => {
+    status.classList.remove('quiz-rating-status-action');
+    status.removeAttribute('role');
+    status.removeAttribute('tabindex');
+    status.removeAttribute('aria-label');
+  };
+
+  const makeStatusInteractive = (ariaLabel = '') => {
+    status.classList.add('quiz-rating-status-action');
+    status.setAttribute('role', 'button');
+    status.setAttribute('tabindex', '0');
+    if (ariaLabel) {
+      status.setAttribute('aria-label', ariaLabel);
+    }
+  };
+
+  const unlockRating = () => {
+    if (!ratingLocked) return;
+    ratingLocked = false;
+    delete options.dataset.lock;
+    clearStatusInteraction();
+    if (adjustBtn) adjustBtn.hidden = true;
+    delete ratingRow.dataset.state;
+    Array.from(options.querySelectorAll('button')).forEach(btn => {
+      btn.disabled = !isSolved;
+      btn.classList.remove('is-locked-choice');
+    });
+    status.classList.remove('is-error');
+    status.textContent = selectedRating
+      ? 'Update rating (updates queue)'
+      : 'Optional: set a rating to queue this card.';
+  };
+
+  const applySessionLock = () => {
+    ratingLocked = true;
+    options.dataset.lock = 'session';
+    Array.from(options.querySelectorAll('button')).forEach(btn => {
+      const isSelected = btn.dataset.value === selectedRating;
+      btn.disabled = !isSelected;
+      btn.classList.toggle('is-locked-choice', !isSelected);
+    });
+    status.classList.remove('is-error');
+    ratingRow.dataset.state = 'queued';
+    status.textContent = 'Queued for review — click to adjust';
+    makeStatusInteractive('Adjust saved rating');
+    if (adjustBtn) adjustBtn.hidden = false;
+  };
+
+  const activateStatus = event => {
+    if (!ratingLocked) return;
+    event.preventDefault();
+    event.stopPropagation();
+    unlockRating();
+  };
+
+  status.addEventListener('click', activateStatus);
+  status.addEventListener('keydown', event => {
+    if (!ratingLocked) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      activateStatus(event);
+    }
+  });
 
   const updateSelection = (value) => {
     selectedRating = value;
@@ -456,6 +521,7 @@ export function renderQuiz(root, redraw) {
   const handleRating = async (value) => {
     const current = session.answers[session.idx];
     if (!(current && current.checked && (current.isCorrect || current.revealed))) return;
+    if (ratingLocked) return;
     status.textContent = 'Saving…';
     status.classList.remove('is-error');
     try {
@@ -467,7 +533,7 @@ export function renderQuiz(root, redraw) {
       }
       session.ratings[ratingId] = value;
       updateSelection(value);
-      status.textContent = 'Saved';
+      applySessionLock();
     } catch (err) {
       console.error('Failed to record quiz rating', err);
       status.textContent = 'Save failed';
@@ -489,9 +555,32 @@ export function renderQuiz(root, redraw) {
     options.appendChild(btn);
   });
 
+  adjustBtn = document.createElement('button');
+  adjustBtn.type = 'button';
+  adjustBtn.className = 'quiz-rating-adjust';
+  adjustBtn.textContent = 'Adjust';
+  adjustBtn.hidden = true;
+  adjustBtn.setAttribute('aria-label', 'Adjust rating');
+  adjustBtn.addEventListener('click', event => {
+    event.stopPropagation();
+    unlockRating();
+  });
+  adjustBtn.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      unlockRating();
+    }
+  });
+
   if (selectedRating) {
     updateSelection(selectedRating);
-    status.textContent = 'Saved';
+    applySessionLock();
+  } else {
+    ratingLocked = false;
+    delete options.dataset.lock;
+    clearStatusInteraction();
+    delete ratingRow.dataset.state;
   }
 
   if (!sections.length) {
@@ -500,6 +589,9 @@ export function renderQuiz(root, redraw) {
     note.textContent = 'This card has no reviewable sections.';
     ratingPanel.appendChild(note);
   }
+
+  ratingRow.appendChild(status);
+  ratingRow.appendChild(adjustBtn);
 
   const controls = document.createElement('div');
   controls.className = 'quiz-controls';
