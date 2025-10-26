@@ -1542,6 +1542,26 @@ function answerClass(question, selectedId, optionId) {
   return isCorrect ? 'correct-answer' : '';
 }
 
+function evaluateQuestionAnswer(question, answer) {
+  const options = Array.isArray(question?.options) ? question.options : [];
+  const responded = answer != null && answer !== '';
+  if (!responded) {
+    return {
+      responded: false,
+      isValid: false,
+      isCorrect: false
+    };
+  }
+  const matchedOption = options.find(opt => opt.id === answer) || null;
+  const isValid = Boolean(matchedOption);
+  const isCorrect = isValid && matchedOption?.id === question?.answer;
+  return {
+    responded: true,
+    isValid,
+    isCorrect
+  };
+}
+
 function renderQuestionMap(sidebar, sess, render) {
   const map = document.createElement('section');
   map.className = 'question-map';
@@ -1557,9 +1577,8 @@ function renderQuestionMap(sidebar, sess, render) {
   const answers = isReview ? sess.result?.answers || {} : sess.answers || {};
   const answeredCount = sess.exam.questions.reduce((count, question, idx) => {
     const answer = answers[idx];
-    if (answer == null) return count;
-    const matched = question.options.some(opt => opt.id === answer);
-    return matched ? count + 1 : count;
+    const evaluation = evaluateQuestionAnswer(question, answer);
+    return evaluation.responded ? count + 1 : count;
   }, 0);
   const countBadge = document.createElement('span');
   countBadge.className = 'question-map__count';
@@ -1606,20 +1625,23 @@ function renderQuestionMap(sidebar, sess, render) {
     }
 
     const answer = answers[idx];
-    const answered = answer != null && question.options.some(opt => opt.id === answer);
+    const evaluation = evaluateQuestionAnswer(question, answer);
+    const { responded, isValid, isCorrect } = evaluation;
     const tooltipParts = [];
     const labelParts = [`Question ${idx + 1}`];
     let status = 'unanswered';
     const wasChecked = !isReview && Boolean(sess.checked?.[idx]);
 
     if (isReview) {
-      if (answered) {
-        const isCorrect = answer === question.answer;
-        status = isCorrect ? 'correct' : 'incorrect';
-        tooltipParts.push(isCorrect ? 'Answered correctly' : 'Answered incorrectly');
-      } else {
+      if (!responded) {
         status = 'review-unanswered';
         tooltipParts.push('Not answered');
+      } else if (!isValid) {
+        status = 'invalid';
+        tooltipParts.push('Answered (option removed)');
+      } else {
+        status = isCorrect ? 'correct' : 'incorrect';
+        tooltipParts.push(isCorrect ? 'Answered correctly' : 'Answered incorrectly');
       }
 
       const stat = statsList[idx];
@@ -1641,15 +1663,17 @@ function renderQuestionMap(sidebar, sess, render) {
         tooltipParts.push('Changed answers but returned to start');
       }
     } else {
-      if (wasChecked && answered) {
-        const isCorrect = answer === question.answer;
+      if (!responded) {
+        tooltipParts.push(wasChecked ? 'Checked without answer' : 'Not answered');
+      } else if (!isValid) {
+        status = 'invalid';
+        tooltipParts.push('Answer no longer matches options');
+      } else if (wasChecked) {
         status = isCorrect ? 'correct' : 'incorrect';
         tooltipParts.push(isCorrect ? 'Checked correct' : 'Checked incorrect');
-      } else if (answered) {
+      } else {
         status = 'answered';
         tooltipParts.push('Answered');
-      } else {
-        tooltipParts.push(wasChecked ? 'Checked without answer' : 'Not answered');
       }
     }
 
@@ -1658,11 +1682,17 @@ function renderQuestionMap(sidebar, sess, render) {
       item.classList.add('is-graded');
     } else if (status === 'answered') {
       item.classList.add('is-answered');
+    } else if (status === 'invalid') {
+      item.classList.add('is-invalid');
     } else {
       item.classList.add('is-unanswered');
     }
     if (status === 'review-unanswered') {
       item.classList.add('is-review-unanswered');
+    }
+
+    if (status === 'invalid') {
+      labelParts.push('Answer needs review');
     }
 
     if (tooltipParts.length) {

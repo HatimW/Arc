@@ -7526,9 +7526,17 @@ body.map-toolbox-dragging {
   transform: translateY(-1px);
 }
 
-.exam-option.selected {
-  border-color: rgba(56, 189, 248, 0.65);
-  background: rgba(56, 189, 248, 0.16);
+.exam-option.selected:not(.correct-answer):not(.incorrect-answer) {
+  border-color: rgba(192, 132, 252, 0.75);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.32), rgba(192, 132, 252, 0.38));
+  box-shadow: 0 18px 36px rgba(88, 28, 135, 0.28);
+}
+
+.exam-option.selected:not(.correct-answer):not(.incorrect-answer) .option-indicator {
+  border-color: transparent;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.85), rgba(192, 132, 252, 0.85));
+  color: #0b1020;
+  box-shadow: 0 8px 18px rgba(76, 29, 149, 0.35);
 }
 
 .exam-option.correct-answer {
@@ -7780,6 +7788,13 @@ button.question-map__item[data-status="incorrect"] {
   --qm-background: linear-gradient(135deg, rgba(239, 68, 68, 0.84), rgba(185, 28, 28, 0.92));
   --qm-border: rgba(248, 113, 113, 0.95);
   --qm-text: rgba(254, 226, 226, 0.98);
+}
+
+button.question-map__item[data-status="invalid"],
+button.question-map__item.is-invalid {
+  --qm-background: linear-gradient(135deg, rgba(234, 179, 8, 0.82), rgba(202, 138, 4, 0.92));
+  --qm-border: rgba(250, 204, 21, 0.9);
+  --qm-text: rgba(254, 249, 195, 0.98);
 }
 
 button.question-map__item[data-status="unanswered"],
