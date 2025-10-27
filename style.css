@@ -2450,6 +2450,109 @@ input[type="checkbox"]:checked::after {
   transform: scale(1.1);
 }
 
+.rich-editor-image-occlude {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.85);
+  color: rgba(248, 250, 252, 0.92);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  pointer-events: auto;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(2, 6, 23, 0.45);
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
+}
+
+.rich-editor-image-occlude:hover,
+.rich-editor-image-occlude:focus-visible {
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.25);
+  outline: none;
+}
+
+.rich-editor-image-occlude[data-active="true"] {
+  background: rgba(59, 130, 246, 0.45);
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #020617;
+}
+
+.rich-editor-image-occlusion-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.rich-editor-image-occlusion-layer.is-active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.rich-editor-image-occlusion-layer:not(.is-active) .image-occlusion-box {
+  pointer-events: none;
+}
+
+.rich-editor-image-occlusion-box.is-drawing {
+  opacity: 0.65;
+}
+
+.rich-editor-image-occlusion-remove {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(15, 23, 42, 0.92);
+  color: rgba(248, 250, 252, 0.92);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 10px 18px rgba(2, 6, 23, 0.5);
+  opacity: 0;
+  transform: scale(0.88);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.rich-editor-image-occlusion-remove:hover,
+.rich-editor-image-occlusion-remove:focus-visible {
+  background: rgba(59, 130, 246, 0.75);
+  color: #020617;
+  outline: none;
+}
+
+.rich-editor-image-occlusion-box:hover .rich-editor-image-occlusion-remove,
+.rich-editor-image-occlusion-box:focus-within .rich-editor-image-occlusion-remove,
+.image-occlusion-box:hover .rich-editor-image-occlusion-remove,
+.image-occlusion-box:focus-within .rich-editor-image-occlusion-remove {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.rich-editor-image-overlay.is-occluding .rich-editor-image-handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rich-editor-occlusion-display {
+  position: absolute;
+  pointer-events: none;
+  z-index: 26;
+}
+
+.rich-editor-occlusion-display.is-hidden,
+.rich-editor-occlusion-display.is-suppressed {
+  display: none;
+}
+
 .editor-form textarea.input {
   min-height: 90px;
   resize: vertical;
@@ -4080,8 +4183,213 @@ button.builder-pill.builder-pill-outline {
 }
 
 .rich-content {
+  position: relative;
   white-space: normal;
   word-break: break-word;
+}
+
+.image-occlusion-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.image-occlusion-layer.is-active {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.image-occlusion-box {
+  position: absolute;
+  border-radius: 10px;
+  border: 2px solid rgba(59, 130, 246, 0.85);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.58);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.image-occlusion-box.is-revealed {
+  background: rgba(15, 23, 42, 0.18);
+  border-color: rgba(148, 163, 184, 0.55);
+  opacity: 0.5;
+}
+
+.rich-content-occlusion-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.rich-content-occlusion-overlay.is-hidden {
+  display: none;
+}
+
+.rich-content-occlusion-overlay .image-occlusion-layer {
+  pointer-events: none;
+}
+
+.rich-content-occlusion-overlay .image-occlusion-box {
+  pointer-events: auto;
+}
+
+.image-occlusion-workspace {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.image-occlusion-workspace.is-visible {
+  opacity: 1;
+}
+
+.image-occlusion-workspace-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.85);
+  backdrop-filter: blur(10px);
+}
+
+.image-occlusion-workspace-frame {
+  position: relative;
+  z-index: 1;
+  width: min(96vw, 1280px);
+  max-height: min(92vh, 900px);
+  padding: 36px 40px 42px;
+  border-radius: clamp(18px, 4vw, 26px);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 45px 80px rgba(2, 6, 23, 0.72);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  overflow: hidden;
+}
+
+.image-occlusion-workspace-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(15, 23, 42, 0.95);
+  color: rgba(248, 250, 252, 0.92);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  box-shadow: 0 18px 32px rgba(2, 6, 23, 0.58);
+}
+
+.image-occlusion-workspace-close:hover,
+.image-occlusion-workspace-close:focus-visible {
+  background: rgba(59, 130, 246, 0.85);
+  color: #020617;
+  outline: none;
+}
+
+.image-occlusion-workspace-canvas {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  max-height: calc(90vh - 220px);
+}
+
+.image-occlusion-workspace-img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(90vh - 230px);
+  border-radius: clamp(14px, 3vw, 22px);
+  box-shadow: 0 32px 64px rgba(2, 6, 23, 0.6);
+}
+
+.image-occlusion-workspace-hint {
+  color: rgba(226, 232, 240, 0.82);
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.rich-content-image-interactive {
+  cursor: zoom-in;
+}
+
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.image-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.image-lightbox-frame {
+  position: relative;
+  z-index: 1;
+  max-width: min(90vw, 1080px);
+  max-height: min(90vh, 820px);
+  padding: 32px;
+  border-radius: var(--radius-lg);
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 30px 60px rgba(2, 6, 23, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-lightbox-img {
+  max-width: 100%;
+  max-height: 70vh;
+  border-radius: var(--radius);
+  box-shadow: 0 24px 48px rgba(2, 6, 23, 0.55);
+}
+
+.image-lightbox-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(15, 23, 42, 0.95);
+  color: rgba(248, 250, 252, 0.92);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.55);
+}
+
+.image-lightbox-close:hover,
+.image-lightbox-close:focus-visible {
+  background: rgba(59, 130, 246, 0.85);
+  color: #020617;
+  outline: none;
+}
+
+.image-lightbox-occlusions {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.image-lightbox-occlusions .image-occlusion-box {
+  pointer-events: auto;
 }
 
 .rich-content-with-cloze .cloze-text {
