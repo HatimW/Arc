@@ -774,16 +774,122 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
       const revealStates = new Map();
       let active = false;
       let drawing = null;
+      let workspace = null;
 
       const MIN_PIXEL_SIZE = 8;
 
-      function refreshBoxes(){
+      function createWorkspace(){
+        const workspaceOverlay = document.createElement('div');
+        workspaceOverlay.className = 'image-occlusion-workspace';
+        workspaceOverlay.setAttribute('aria-hidden', 'true');
+
+        const backdrop = document.createElement('div');
+        backdrop.className = 'image-occlusion-workspace-backdrop';
+        workspaceOverlay.appendChild(backdrop);
+
+        const frame = document.createElement('div');
+        frame.className = 'image-occlusion-workspace-frame';
+        workspaceOverlay.appendChild(frame);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'image-occlusion-workspace-close';
+        closeBtn.setAttribute('aria-label', 'Close occlusion editor');
+        closeBtn.innerHTML = '✕';
+        frame.appendChild(closeBtn);
+
+        const canvas = document.createElement('div');
+        canvas.className = 'image-occlusion-workspace-canvas';
+        frame.appendChild(canvas);
+
+        const editingImage = image.cloneNode(true);
+        editingImage.removeAttribute('width');
+        editingImage.removeAttribute('height');
+        editingImage.classList.add('image-occlusion-workspace-img');
+        canvas.appendChild(editingImage);
+
+        const workspaceLayer = document.createElement('div');
+        workspaceLayer.className = 'image-occlusion-layer';
+        workspaceLayer.setAttribute('aria-hidden', 'true');
+        canvas.appendChild(workspaceLayer);
+
+        const hint = document.createElement('div');
+        hint.className = 'image-occlusion-workspace-hint';
+        hint.textContent = 'Drag to draw boxes. Click to toggle. Hover for remove.';
+        frame.appendChild(hint);
+
+        const workspaceBoxes = new Map();
+
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            deactivate();
+          }
+        };
+
+        const handleClickOutside = (event) => {
+          if (event.target === workspaceOverlay || event.target === backdrop) {
+            event.preventDefault();
+            deactivate();
+          }
+        };
+
+        const handleClose = (event) => {
+          event.preventDefault();
+          deactivate();
+        };
+
+        closeBtn.addEventListener('click', handleClose);
+
+        workspaceOverlay.addEventListener('click', handleClickOutside);
+        workspaceLayer.addEventListener('pointerdown', handlePointerDown);
+
+        editingImage.addEventListener('load', () => {
+          requestAnimationFrame(() => refreshBoxes());
+        });
+
+        return {
+          overlay: workspaceOverlay,
+          layer: workspaceLayer,
+          image: editingImage,
+          boxElements: workspaceBoxes,
+          attach(){
+            if (!document.body.contains(workspaceOverlay)) {
+              document.body.appendChild(workspaceOverlay);
+            }
+            workspaceOverlay.setAttribute('aria-hidden', 'false');
+            requestAnimationFrame(() => workspaceOverlay.classList.add('is-visible'));
+            window.addEventListener('keydown', onKeyDown);
+          },
+          detach(){
+            workspaceOverlay.classList.remove('is-visible');
+            workspaceOverlay.setAttribute('aria-hidden', 'true');
+            if (workspaceOverlay.parentNode) {
+              workspaceOverlay.parentNode.removeChild(workspaceOverlay);
+            }
+            window.removeEventListener('keydown', onKeyDown);
+          },
+          destroy(){
+            workspaceLayer.removeEventListener('pointerdown', handlePointerDown);
+            closeBtn.removeEventListener('click', handleClose);
+            workspaceOverlay.removeEventListener('click', handleClickOutside);
+            workspaceBoxes.clear();
+            this.detach();
+          }
+        };
+      }
+
+      function getWorkspace(){
+        if (!workspace) workspace = createWorkspace();
+        return workspace;
+      }
+
+      function syncLayer(targetLayer, targetBoxes){
+        if (!targetLayer) return;
         const occlusions = parseImageOcclusions(image);
-        overlay.classList.toggle('has-occlusions', occlusions.length > 0);
-        occlusionToggle.classList.toggle('has-occlusions', occlusions.length > 0);
         const seen = new Set();
         occlusions.forEach(box => {
-          let element = boxElements.get(box.id);
+          let element = targetBoxes.get(box.id);
           if (!element) {
             element = document.createElement('div');
             element.className = 'rich-editor-image-occlusion-box image-occlusion-box';
@@ -814,22 +920,39 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
               removeOcclusion(element.dataset.id || '');
             });
             element.appendChild(removeBtn);
-            layer.appendChild(element);
-            boxElements.set(box.id, element);
+            targetLayer.appendChild(element);
+            targetBoxes.set(box.id, element);
           }
           applyOcclusionBoxGeometry(element, box);
           const revealed = revealStates.get(box.id) === true;
           setOcclusionRevealState(element, revealed);
           seen.add(box.id);
         });
-        boxElements.forEach((element, id) => {
+        targetBoxes.forEach((element, id) => {
           if (!seen.has(id)) {
             element.remove();
-            boxElements.delete(id);
+            targetBoxes.delete(id);
             revealStates.delete(id);
           }
         });
-        layer.classList.toggle('has-boxes', boxElements.size > 0);
+        targetLayer.classList.toggle('has-boxes', targetBoxes.size > 0);
+      }
+
+      function refreshBoxes(){
+        const occlusions = parseImageOcclusions(image);
+        overlay.classList.toggle('has-occlusions', occlusions.length > 0);
+        occlusionToggle.classList.toggle('has-occlusions', occlusions.length > 0);
+        syncLayer(layer, boxElements);
+        if (workspace) {
+          if (workspace.image) {
+            if (occlusions.length) {
+              workspace.image.setAttribute(IMAGE_OCCLUSION_ATTR, JSON.stringify(occlusions));
+            } else {
+              workspace.image.removeAttribute(IMAGE_OCCLUSION_ATTR);
+            }
+          }
+          syncLayer(workspace.layer, workspace.boxElements);
+        }
       }
 
       function toggleReveal(element){
@@ -843,7 +966,11 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
       function removeOcclusion(id){
         if (!id) return;
         const next = parseImageOcclusions(image).filter(box => box.id !== id);
-        writeImageOcclusions(image, next);
+        const normalized = writeImageOcclusions(image, next);
+        if (workspace?.image) {
+          if (normalized.length) workspace.image.setAttribute(IMAGE_OCCLUSION_ATTR, JSON.stringify(normalized));
+          else workspace.image.removeAttribute(IMAGE_OCCLUSION_ATTR);
+        }
         notifyImageOcclusionChange(image);
         revealStates.delete(id);
         refreshBoxes();
@@ -854,16 +981,19 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
       function handlePointerDown(event){
         if (!active) return;
         if (event.button !== 0) return;
-        if (event.target !== layer) return;
+        const surface = event.currentTarget;
+        if (!(surface instanceof HTMLElement)) return;
+        if (event.target !== surface) return;
         event.preventDefault();
-        const rect = layer.getBoundingClientRect();
+        const rect = surface.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return;
         const startX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
         const startY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
         const element = document.createElement('div');
         element.className = 'rich-editor-image-occlusion-box image-occlusion-box is-drawing';
-        layer.appendChild(element);
+        surface.appendChild(element);
         drawing = {
+          surface,
           rect,
           element,
           startX,
@@ -912,7 +1042,11 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             const heightPx = normalized.height * rect.height;
             if (widthPx >= MIN_PIXEL_SIZE && heightPx >= MIN_PIXEL_SIZE) {
               const next = parseImageOcclusions(image).concat([normalized]);
-              writeImageOcclusions(image, next);
+              const applied = writeImageOcclusions(image, next);
+              if (workspace?.image) {
+                if (applied.length) workspace.image.setAttribute(IMAGE_OCCLUSION_ATTR, JSON.stringify(applied));
+                else workspace.image.removeAttribute(IMAGE_OCCLUSION_ATTR);
+              }
               notifyImageOcclusionChange(image);
               refreshBoxes();
               triggerEditorChange();
@@ -946,22 +1080,31 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         if (active) return;
         active = true;
         revealStates.clear();
-        layer.classList.add('is-active');
-        layer.setAttribute('aria-hidden', 'false');
         overlay.classList.add('is-occluding');
         occlusionToggle.dataset.active = 'true';
         occlusionToggle.setAttribute('aria-pressed', 'true');
+        layer.classList.add('is-active');
+        layer.setAttribute('aria-hidden', 'false');
+        const workspaceInstance = getWorkspace();
+        workspaceInstance.attach();
+        workspaceInstance.layer.classList.add('is-active');
+        workspaceInstance.layer.setAttribute('aria-hidden', 'false');
         refreshBoxes();
       }
 
       function deactivate(){
         if (!active) return;
         active = false;
-        layer.classList.remove('is-active');
-        layer.setAttribute('aria-hidden', 'true');
         overlay.classList.remove('is-occluding');
         occlusionToggle.dataset.active = 'false';
         occlusionToggle.setAttribute('aria-pressed', 'false');
+        layer.classList.remove('is-active');
+        layer.setAttribute('aria-hidden', 'true');
+        if (workspace) {
+          workspace.layer.classList.remove('is-active');
+          workspace.layer.setAttribute('aria-hidden', 'true');
+          workspace.detach();
+        }
         revealStates.clear();
         refreshBoxes();
         if (drawing) finishDrawing(true);
@@ -977,6 +1120,10 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         if (drawing) finishDrawing(true);
         boxElements.clear();
         revealStates.clear();
+        if (workspace) {
+          workspace.destroy();
+          workspace = null;
+        }
         layer.remove();
       }
 
