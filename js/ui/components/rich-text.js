@@ -6,7 +6,7 @@ const allowedTags = new Set([
 
 const allowedAttributes = {
   'a': ['href', 'title', 'target', 'rel'],
-  'img': ['src', 'alt', 'title', 'width', 'height', 'data-occlusions'],
+  'img': ['src', 'alt', 'title', 'width', 'height', 'data-occlusions', 'data-highlights', 'data-textboxes'],
   'span': ['style', 'data-cloze'],
   'div': ['style'],
   'p': ['style'],
@@ -59,7 +59,17 @@ function decodeHtmlEntities(str = ''){
 }
 
 const IMAGE_OCCLUSION_ATTR = 'data-occlusions';
+const IMAGE_HIGHLIGHT_ATTR = 'data-highlights';
+const IMAGE_TEXTBOX_ATTR = 'data-textboxes';
 const IMAGE_OCCLUSION_EVENT = 'imageocclusionchange';
+
+const WORKSPACE_HIGHLIGHT_COLORS = [
+  '#facc15', // amber
+  '#60a5fa', // blue
+  '#f472b6', // pink
+  '#34d399', // green
+  '#f97316'  // orange
+];
 
 function clamp(value, min, max){
   const number = Number(value);
@@ -74,6 +84,15 @@ function ensureOcclusionId(box){
   const rand = Math.random().toString(36).slice(2, 8);
   const stamp = Date.now().toString(36);
   return `occ-${stamp}-${rand}`;
+}
+
+function ensureAnnotationId(prefix, annotation){
+  if (annotation && typeof annotation.id === 'string' && annotation.id) {
+    return annotation.id;
+  }
+  const rand = Math.random().toString(36).slice(2, 8);
+  const stamp = Date.now().toString(36);
+  return `${prefix}-${stamp}-${rand}`;
 }
 
 function normalizeOcclusionBox(box){
@@ -124,6 +143,143 @@ function writeImageOcclusions(image, boxes){
     return [];
   }
   image.setAttribute(IMAGE_OCCLUSION_ATTR, JSON.stringify(normalized));
+  return normalized;
+}
+
+function sanitizeHighlightColor(value){
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(trimmed)) {
+    return trimmed.length === 4
+      ? `#${trimmed[1]}${trimmed[1]}${trimmed[2]}${trimmed[2]}${trimmed[3]}${trimmed[3]}`
+      : trimmed.toLowerCase();
+  }
+  const lower = trimmed.toLowerCase();
+  const allowed = new Set(WORKSPACE_HIGHLIGHT_COLORS.map(color => color.toLowerCase()));
+  if (allowed.has(lower)) return lower;
+  return null;
+}
+
+function highlightColorToRgba(color, alpha){
+  if (typeof color !== 'string') return `rgba(250, 204, 21, ${alpha})`;
+  const normalized = sanitizeHighlightColor(color) || WORKSPACE_HIGHLIGHT_COLORS[0];
+  const hex = normalized.replace('#', '');
+  const value = hex.length === 3
+    ? `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
+    : hex;
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  const safeAlpha = clamp(alpha, 0, 1);
+  return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`;
+}
+
+function normalizeHighlightBox(box){
+  if (!box || typeof box !== 'object') return null;
+  const id = ensureAnnotationId('hlt', box);
+  const x = clamp(box.x, 0, 1);
+  const y = clamp(box.y, 0, 1);
+  const width = clamp(box.width, 0, 1);
+  const height = clamp(box.height, 0, 1);
+  if (width <= 0 || height <= 0) return null;
+  const maxWidth = Math.max(0, 1 - x);
+  const maxHeight = Math.max(0, 1 - y);
+  const normalizedWidth = Math.min(width, maxWidth);
+  const normalizedHeight = Math.min(height, maxHeight);
+  if (normalizedWidth <= 0 || normalizedHeight <= 0) return null;
+  const color = sanitizeHighlightColor(box.color) || WORKSPACE_HIGHLIGHT_COLORS[0];
+  return {
+    id,
+    x,
+    y,
+    width: normalizedWidth,
+    height: normalizedHeight,
+    color
+  };
+}
+
+function parseImageHighlights(image){
+  if (!(image instanceof HTMLImageElement)) return [];
+  const attr = image.getAttribute(IMAGE_HIGHLIGHT_ATTR);
+  if (!attr) return [];
+  try {
+    const parsed = JSON.parse(attr);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeHighlightBox).filter(Boolean);
+  } catch (err) {
+    console.warn('Failed to parse image highlights', err);
+    return [];
+  }
+}
+
+function writeImageHighlights(image, boxes){
+  if (!(image instanceof HTMLImageElement)) return [];
+  const normalized = Array.isArray(boxes)
+    ? boxes.map(normalizeHighlightBox).filter(Boolean)
+    : [];
+  if (!normalized.length) {
+    image.removeAttribute(IMAGE_HIGHLIGHT_ATTR);
+    return [];
+  }
+  image.setAttribute(IMAGE_HIGHLIGHT_ATTR, JSON.stringify(normalized));
+  return normalized;
+}
+
+function sanitizeTextboxContent(value){
+  const plain = sanitizeToPlainText(String(value || ''));
+  if (!plain) return '';
+  return plain.slice(0, 1000);
+}
+
+function normalizeTextbox(box){
+  if (!box || typeof box !== 'object') return null;
+  const id = ensureAnnotationId('txt', box);
+  const x = clamp(box.x, 0, 1);
+  const y = clamp(box.y, 0, 1);
+  const width = clamp(box.width, 0, 1);
+  const height = clamp(box.height, 0, 1);
+  if (width <= 0 || height <= 0) return null;
+  const maxWidth = Math.max(0, 1 - x);
+  const maxHeight = Math.max(0, 1 - y);
+  const normalizedWidth = Math.min(width, maxWidth);
+  const normalizedHeight = Math.min(height, maxHeight);
+  if (normalizedWidth <= 0 || normalizedHeight <= 0) return null;
+  const text = sanitizeTextboxContent(box.text || '');
+  return {
+    id,
+    x,
+    y,
+    width: normalizedWidth,
+    height: normalizedHeight,
+    text
+  };
+}
+
+function parseImageTextboxes(image){
+  if (!(image instanceof HTMLImageElement)) return [];
+  const attr = image.getAttribute(IMAGE_TEXTBOX_ATTR);
+  if (!attr) return [];
+  try {
+    const parsed = JSON.parse(attr);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeTextbox).filter(Boolean);
+  } catch (err) {
+    console.warn('Failed to parse image text boxes', err);
+    return [];
+  }
+}
+
+function writeImageTextboxes(image, boxes){
+  if (!(image instanceof HTMLImageElement)) return [];
+  const normalized = Array.isArray(boxes)
+    ? boxes.map(normalizeTextbox).filter(Boolean)
+    : [];
+  if (!normalized.length) {
+    image.removeAttribute(IMAGE_TEXTBOX_ATTR);
+    return [];
+  }
+  image.setAttribute(IMAGE_TEXTBOX_ATTR, JSON.stringify(normalized));
   return normalized;
 }
 
@@ -765,18 +921,53 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
     }
 
     function createImageOcclusionEditor(onGeometryChange){
+      const highlightLayer = document.createElement('div');
+      highlightLayer.className = 'image-annotation-layer image-highlight-layer';
+      highlightLayer.setAttribute('aria-hidden', 'true');
+      overlay.appendChild(highlightLayer);
+
+      const textLayer = document.createElement('div');
+      textLayer.className = 'image-annotation-layer image-text-layer';
+      textLayer.setAttribute('aria-hidden', 'true');
+      overlay.appendChild(textLayer);
+
       const layer = document.createElement('div');
       layer.className = 'rich-editor-image-occlusion-layer';
       layer.setAttribute('aria-hidden', 'true');
       overlay.appendChild(layer);
 
       const boxElements = new Map();
+      const highlightElements = new Map();
+      const textboxElements = new Map();
       const revealStates = new Map();
       let active = false;
       let drawing = null;
+      let highlightDrawing = null;
+      let textboxDrawing = null;
       let workspace = null;
+      let activeWorkspaceTool = 'occlusion';
+      let highlightColorIndex = 0;
 
       const MIN_PIXEL_SIZE = 8;
+
+      const getCurrentHighlightColor = () => {
+        const index = highlightColorIndex % WORKSPACE_HIGHLIGHT_COLORS.length;
+        return WORKSPACE_HIGHLIGHT_COLORS[index];
+      };
+
+      const cycleHighlightColor = () => {
+        highlightColorIndex = (highlightColorIndex + 1) % WORKSPACE_HIGHLIGHT_COLORS.length;
+        if (workspace && typeof workspace.updateHighlightSwatch === 'function') {
+          workspace.updateHighlightSwatch();
+        }
+      };
+
+      const setWorkspaceTool = (tool) => {
+        activeWorkspaceTool = tool;
+        if (workspace && typeof workspace.setTool === 'function') {
+          workspace.setTool(tool);
+        }
+      };
 
       function createWorkspace(){
         const workspaceOverlay = document.createElement('div');
@@ -808,6 +999,18 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         editingImage.classList.add('image-occlusion-workspace-img');
         canvas.appendChild(editingImage);
 
+        const workspaceHighlightLayer = document.createElement('div');
+        workspaceHighlightLayer.className = 'image-annotation-layer image-highlight-layer';
+        workspaceHighlightLayer.setAttribute('aria-hidden', 'true');
+        workspaceHighlightLayer.classList.add('is-interactive');
+        canvas.appendChild(workspaceHighlightLayer);
+
+        const workspaceTextLayer = document.createElement('div');
+        workspaceTextLayer.className = 'image-annotation-layer image-text-layer';
+        workspaceTextLayer.setAttribute('aria-hidden', 'true');
+        workspaceTextLayer.classList.add('is-interactive');
+        canvas.appendChild(workspaceTextLayer);
+
         const workspaceLayer = document.createElement('div');
         workspaceLayer.className = 'image-occlusion-layer';
         workspaceLayer.setAttribute('aria-hidden', 'true');
@@ -815,10 +1018,78 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
         const hint = document.createElement('div');
         hint.className = 'image-occlusion-workspace-hint';
-        hint.textContent = 'Drag to draw boxes. Click to toggle. Hover for remove.';
+        hint.textContent = 'Use the toolbar to occlude, highlight, or add text. Drag to draw and click occlusions to toggle.';
         frame.appendChild(hint);
 
+        const tools = document.createElement('div');
+        tools.className = 'image-occlusion-workspace-tools';
+        frame.appendChild(tools);
+
+        const occlusionToolBtn = document.createElement('button');
+        occlusionToolBtn.type = 'button';
+        occlusionToolBtn.className = 'image-workspace-tool';
+        occlusionToolBtn.title = 'Occlusion tool';
+        occlusionToolBtn.setAttribute('aria-label', 'Occlusion tool');
+        occlusionToolBtn.setAttribute('aria-pressed', 'false');
+        occlusionToolBtn.textContent = '👁';
+        tools.appendChild(occlusionToolBtn);
+
+        const highlightToolBtn = document.createElement('button');
+        highlightToolBtn.type = 'button';
+        highlightToolBtn.className = 'image-workspace-tool image-workspace-tool--highlight';
+        highlightToolBtn.title = 'Highlight tool';
+        highlightToolBtn.setAttribute('aria-label', 'Highlight tool');
+        highlightToolBtn.setAttribute('aria-pressed', 'false');
+        highlightToolBtn.textContent = '🖍';
+        const highlightSwatch = document.createElement('span');
+        highlightSwatch.className = 'image-workspace-tool-swatch';
+        highlightToolBtn.appendChild(highlightSwatch);
+        tools.appendChild(highlightToolBtn);
+
+        const textToolBtn = document.createElement('button');
+        textToolBtn.type = 'button';
+        textToolBtn.className = 'image-workspace-tool image-workspace-tool--text';
+        textToolBtn.title = 'Text tool';
+        textToolBtn.setAttribute('aria-label', 'Text tool');
+        textToolBtn.setAttribute('aria-pressed', 'false');
+        textToolBtn.textContent = '📝';
+        tools.appendChild(textToolBtn);
+
         const workspaceBoxes = new Map();
+        const workspaceHighlights = new Map();
+        const workspaceTextboxes = new Map();
+
+        function refreshHighlightSwatch(){
+          const color = getCurrentHighlightColor();
+          highlightSwatch.style.backgroundColor = highlightColorToRgba(color, 0.65);
+          highlightSwatch.style.borderColor = color;
+        }
+
+        function applyToolState(tool){
+          const mapping = new Map([
+            ['occlusion', occlusionToolBtn],
+            ['highlight', highlightToolBtn],
+            ['text', textToolBtn]
+          ]);
+          mapping.forEach((btn, key) => {
+            if (!btn) return;
+            const isActive = key === tool;
+            btn.classList.toggle('is-active', isActive);
+            btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+          });
+          workspaceOverlay.dataset.tool = tool;
+        }
+
+        occlusionToolBtn.addEventListener('click', () => setWorkspaceTool('occlusion'));
+        highlightToolBtn.addEventListener('click', () => setWorkspaceTool('highlight'));
+        highlightToolBtn.addEventListener('dblclick', (event) => {
+          event.preventDefault();
+          cycleHighlightColor();
+          setWorkspaceTool('highlight');
+        });
+        textToolBtn.addEventListener('click', () => setWorkspaceTool('text'));
+
+        refreshHighlightSwatch();
 
         const onKeyDown = (event) => {
           if (event.key === 'Escape') {
@@ -843,6 +1114,8 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
         workspaceOverlay.addEventListener('click', handleClickOutside);
         workspaceLayer.addEventListener('pointerdown', handlePointerDown);
+        workspaceHighlightLayer.addEventListener('pointerdown', handleHighlightPointerDown);
+        workspaceTextLayer.addEventListener('pointerdown', handleTextboxPointerDown);
 
         editingImage.addEventListener('load', () => {
           requestAnimationFrame(() => refreshBoxes());
@@ -851,8 +1124,12 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         return {
           overlay: workspaceOverlay,
           layer: workspaceLayer,
+          highlightLayer: workspaceHighlightLayer,
+          textLayer: workspaceTextLayer,
           image: editingImage,
           boxElements: workspaceBoxes,
+          highlightElements: workspaceHighlights,
+          textboxElements: workspaceTextboxes,
           attach(){
             if (!document.body.contains(workspaceOverlay)) {
               document.body.appendChild(workspaceOverlay);
@@ -871,10 +1148,20 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
           },
           destroy(){
             workspaceLayer.removeEventListener('pointerdown', handlePointerDown);
+            workspaceHighlightLayer.removeEventListener('pointerdown', handleHighlightPointerDown);
+            workspaceTextLayer.removeEventListener('pointerdown', handleTextboxPointerDown);
             closeBtn.removeEventListener('click', handleClose);
             workspaceOverlay.removeEventListener('click', handleClickOutside);
             workspaceBoxes.clear();
+            workspaceHighlights.clear();
+            workspaceTextboxes.clear();
             this.detach();
+          },
+          setTool(tool){
+            applyToolState(tool);
+          },
+          updateHighlightSwatch(){
+            refreshHighlightSwatch();
           }
         };
       }
@@ -884,7 +1171,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         return workspace;
       }
 
-      function syncLayer(targetLayer, targetBoxes){
+      function syncOcclusionLayer(targetLayer, targetBoxes){
         if (!targetLayer) return;
         const occlusions = parseImageOcclusions(image);
         const seen = new Set();
@@ -938,11 +1225,133 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         targetLayer.classList.toggle('has-boxes', targetBoxes.size > 0);
       }
 
+      function syncHighlightLayer(targetLayer, targetHighlights, { interactive = false } = {}){
+        if (!targetLayer) return;
+        const highlights = parseImageHighlights(image);
+        const seen = new Set();
+        highlights.forEach(box => {
+          let element = targetHighlights.get(box.id);
+          if (!element) {
+            element = document.createElement('div');
+            element.className = 'image-highlight-box';
+            element.dataset.id = box.id;
+            if (interactive) {
+              element.tabIndex = 0;
+              element.setAttribute('role', 'button');
+              element.setAttribute('aria-label', 'Edit highlight');
+              const removeBtn = document.createElement('button');
+              removeBtn.type = 'button';
+              removeBtn.className = 'image-annotation-remove';
+              removeBtn.setAttribute('aria-label', 'Remove highlight');
+              removeBtn.textContent = '✕';
+              removeBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                removeHighlight(element.dataset.id || box.id);
+              });
+              element.appendChild(removeBtn);
+              element.addEventListener('dblclick', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const id = element.dataset.id || box.id;
+                const color = getCurrentHighlightColor();
+                updateHighlightColor(id, color);
+              });
+            }
+            targetLayer.appendChild(element);
+            targetHighlights.set(box.id, element);
+          }
+          element.dataset.id = box.id;
+          element.style.borderColor = box.color;
+          element.style.backgroundColor = highlightColorToRgba(box.color, interactive ? 0.5 : 0.35);
+          applyOcclusionBoxGeometry(element, box);
+          seen.add(box.id);
+        });
+        targetHighlights.forEach((element, id) => {
+          if (!seen.has(id)) {
+            element.remove();
+            targetHighlights.delete(id);
+          }
+        });
+        targetLayer.classList.toggle('has-annotations', targetHighlights.size > 0);
+      }
+
+      function syncTextboxLayer(targetLayer, targetTextboxes, { interactive = false } = {}){
+        if (!targetLayer) return;
+        const textboxes = parseImageTextboxes(image);
+        const seen = new Set();
+        textboxes.forEach(box => {
+          let element = targetTextboxes.get(box.id);
+          if (!element) {
+            element = document.createElement('div');
+            element.className = 'image-textbox';
+            element.dataset.id = box.id;
+            const content = document.createElement('div');
+            content.className = 'image-textbox-content';
+            if (interactive) {
+              content.contentEditable = 'true';
+              content.setAttribute('role', 'textbox');
+              content.setAttribute('aria-label', 'Edit text');
+              content.addEventListener('input', () => {
+                const id = element.dataset.id || box.id;
+                updateTextboxText(id, content.textContent || '');
+              });
+              content.addEventListener('blur', () => {
+                const id = element.dataset.id || box.id;
+                updateTextboxText(id, content.textContent || '');
+              });
+              content.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  content.blur();
+                }
+              });
+            } else {
+              content.setAttribute('aria-hidden', 'true');
+            }
+            element.appendChild(content);
+            if (interactive) {
+              const removeBtn = document.createElement('button');
+              removeBtn.type = 'button';
+              removeBtn.className = 'image-annotation-remove';
+              removeBtn.setAttribute('aria-label', 'Remove text');
+              removeBtn.textContent = '✕';
+              removeBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                removeTextbox(element.dataset.id || box.id);
+              });
+              element.appendChild(removeBtn);
+            }
+            targetLayer.appendChild(element);
+            targetTextboxes.set(box.id, element);
+          }
+          element.dataset.id = box.id;
+          const contentEl = element.querySelector('.image-textbox-content');
+          if (contentEl && (contentEl.textContent || '') !== (box.text || '')) {
+            contentEl.textContent = box.text || '';
+          }
+          applyOcclusionBoxGeometry(element, box);
+          seen.add(box.id);
+        });
+        targetTextboxes.forEach((element, id) => {
+          if (!seen.has(id)) {
+            element.remove();
+            targetTextboxes.delete(id);
+          }
+        });
+        targetLayer.classList.toggle('has-annotations', targetTextboxes.size > 0);
+      }
+
       function refreshBoxes(){
         const occlusions = parseImageOcclusions(image);
+        const highlights = parseImageHighlights(image);
+        const textboxes = parseImageTextboxes(image);
         overlay.classList.toggle('has-occlusions', occlusions.length > 0);
         occlusionToggle.classList.toggle('has-occlusions', occlusions.length > 0);
-        syncLayer(layer, boxElements);
+        syncOcclusionLayer(layer, boxElements);
+        syncHighlightLayer(highlightLayer, highlightElements, { interactive: false });
+        syncTextboxLayer(textLayer, textboxElements, { interactive: false });
         if (workspace) {
           if (workspace.image) {
             if (occlusions.length) {
@@ -950,8 +1359,20 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             } else {
               workspace.image.removeAttribute(IMAGE_OCCLUSION_ATTR);
             }
+            if (highlights.length) {
+              workspace.image.setAttribute(IMAGE_HIGHLIGHT_ATTR, JSON.stringify(highlights));
+            } else {
+              workspace.image.removeAttribute(IMAGE_HIGHLIGHT_ATTR);
+            }
+            if (textboxes.length) {
+              workspace.image.setAttribute(IMAGE_TEXTBOX_ATTR, JSON.stringify(textboxes));
+            } else {
+              workspace.image.removeAttribute(IMAGE_TEXTBOX_ATTR);
+            }
           }
-          syncLayer(workspace.layer, workspace.boxElements);
+          syncOcclusionLayer(workspace.layer, workspace.boxElements);
+          syncHighlightLayer(workspace.highlightLayer, workspace.highlightElements, { interactive: true });
+          syncTextboxLayer(workspace.textLayer, workspace.textboxElements, { interactive: true });
         }
       }
 
@@ -973,6 +1394,71 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         }
         notifyImageOcclusionChange(image);
         revealStates.delete(id);
+        refreshBoxes();
+        triggerEditorChange();
+        if (typeof onGeometryChange === 'function') onGeometryChange();
+      }
+
+      function removeHighlight(id){
+        if (!id) return;
+        const next = parseImageHighlights(image).filter(box => box.id !== id);
+        const normalized = writeImageHighlights(image, next);
+        if (workspace?.image) {
+          if (normalized.length) workspace.image.setAttribute(IMAGE_HIGHLIGHT_ATTR, JSON.stringify(normalized));
+          else workspace.image.removeAttribute(IMAGE_HIGHLIGHT_ATTR);
+        }
+        notifyImageOcclusionChange(image);
+        refreshBoxes();
+        triggerEditorChange();
+        if (typeof onGeometryChange === 'function') onGeometryChange();
+      }
+
+      function updateHighlightColor(id, color){
+        if (!id) return;
+        const highlights = parseImageHighlights(image);
+        const next = highlights.map(box => {
+          if (box.id !== id) return box;
+          return normalizeHighlightBox({ ...box, color });
+        }).filter(Boolean);
+        const normalized = writeImageHighlights(image, next);
+        if (workspace?.image) {
+          if (normalized.length) workspace.image.setAttribute(IMAGE_HIGHLIGHT_ATTR, JSON.stringify(normalized));
+          else workspace.image.removeAttribute(IMAGE_HIGHLIGHT_ATTR);
+        }
+        notifyImageOcclusionChange(image);
+        refreshBoxes();
+        triggerEditorChange();
+        if (typeof onGeometryChange === 'function') onGeometryChange();
+      }
+
+      function removeTextbox(id){
+        if (!id) return;
+        const next = parseImageTextboxes(image).filter(box => box.id !== id);
+        const normalized = writeImageTextboxes(image, next);
+        if (workspace?.image) {
+          if (normalized.length) workspace.image.setAttribute(IMAGE_TEXTBOX_ATTR, JSON.stringify(normalized));
+          else workspace.image.removeAttribute(IMAGE_TEXTBOX_ATTR);
+        }
+        notifyImageOcclusionChange(image);
+        refreshBoxes();
+        triggerEditorChange();
+        if (typeof onGeometryChange === 'function') onGeometryChange();
+      }
+
+      function updateTextboxText(id, text){
+        if (!id) return;
+        const safeText = sanitizeTextboxContent(text);
+        const textboxes = parseImageTextboxes(image);
+        const next = textboxes.map(box => {
+          if (box.id !== id) return box;
+          return normalizeTextbox({ ...box, text: safeText });
+        }).filter(Boolean);
+        const normalized = writeImageTextboxes(image, next);
+        if (workspace?.image) {
+          if (normalized.length) workspace.image.setAttribute(IMAGE_TEXTBOX_ATTR, JSON.stringify(normalized));
+          else workspace.image.removeAttribute(IMAGE_TEXTBOX_ATTR);
+        }
+        notifyImageOcclusionChange(image);
         refreshBoxes();
         triggerEditorChange();
         if (typeof onGeometryChange === 'function') onGeometryChange();
@@ -1076,6 +1562,231 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
       layer.addEventListener('pointerdown', handlePointerDown);
 
+      function handleHighlightPointerDown(event){
+        if (!active || activeWorkspaceTool !== 'highlight') return;
+        if (event.button !== 0) return;
+        const surface = event.currentTarget;
+        if (!(surface instanceof HTMLElement)) return;
+        if (event.target !== surface) return;
+        event.preventDefault();
+        const rect = surface.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const startX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+        const startY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+        const color = getCurrentHighlightColor();
+        const element = document.createElement('div');
+        element.className = 'image-highlight-box is-drawing';
+        element.style.borderColor = color;
+        element.style.backgroundColor = highlightColorToRgba(color, 0.45);
+        surface.appendChild(element);
+        highlightDrawing = {
+          surface,
+          rect,
+          element,
+          color,
+          startX,
+          startY,
+          box: {
+            id: ensureAnnotationId('hlt', {}),
+            x: startX,
+            y: startY,
+            width: 0,
+            height: 0,
+            color
+          }
+        };
+        updateHighlightDrawing(event);
+        window.addEventListener('pointermove', handleHighlightPointerMove);
+        window.addEventListener('pointerup', handleHighlightPointerUp);
+        window.addEventListener('pointercancel', handleHighlightPointerCancel);
+      }
+
+      function updateHighlightDrawing(event){
+        if (!highlightDrawing) return;
+        const { rect, startX, startY, box, element } = highlightDrawing;
+        const currentX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+        const currentY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+        const minX = Math.min(startX, currentX);
+        const minY = Math.min(startY, currentY);
+        const width = Math.abs(currentX - startX);
+        const height = Math.abs(currentY - startY);
+        box.x = minX;
+        box.y = minY;
+        box.width = width;
+        box.height = height;
+        applyOcclusionBoxGeometry(element, box);
+      }
+
+      function finishHighlightDrawing(cancelled){
+        if (!highlightDrawing) return;
+        const { element, box, rect } = highlightDrawing;
+        window.removeEventListener('pointermove', handleHighlightPointerMove);
+        window.removeEventListener('pointerup', handleHighlightPointerUp);
+        window.removeEventListener('pointercancel', handleHighlightPointerCancel);
+        element.remove();
+        if (!cancelled) {
+          const normalized = normalizeHighlightBox(box);
+          if (normalized) {
+            const widthPx = normalized.width * rect.width;
+            const heightPx = normalized.height * rect.height;
+            if (widthPx >= MIN_PIXEL_SIZE && heightPx >= MIN_PIXEL_SIZE) {
+              const next = parseImageHighlights(image).concat([normalized]);
+              const applied = writeImageHighlights(image, next);
+              if (workspace?.image) {
+                if (applied.length) workspace.image.setAttribute(IMAGE_HIGHLIGHT_ATTR, JSON.stringify(applied));
+                else workspace.image.removeAttribute(IMAGE_HIGHLIGHT_ATTR);
+              }
+              notifyImageOcclusionChange(image);
+              refreshBoxes();
+              triggerEditorChange();
+              if (typeof onGeometryChange === 'function') onGeometryChange();
+            }
+          }
+        }
+        highlightDrawing = null;
+      }
+
+      function handleHighlightPointerMove(event){
+        if (!highlightDrawing) return;
+        event.preventDefault();
+        updateHighlightDrawing(event);
+      }
+
+      function handleHighlightPointerUp(event){
+        if (!highlightDrawing) return;
+        event.preventDefault();
+        updateHighlightDrawing(event);
+        finishHighlightDrawing(false);
+      }
+
+      function handleHighlightPointerCancel(){
+        finishHighlightDrawing(true);
+      }
+
+      function handleTextboxPointerDown(event){
+        if (!active || activeWorkspaceTool !== 'text') return;
+        if (event.button !== 0) return;
+        const surface = event.currentTarget;
+        if (!(surface instanceof HTMLElement)) return;
+        if (event.target !== surface) return;
+        event.preventDefault();
+        const rect = surface.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
+        const startX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+        const startY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+        const element = document.createElement('div');
+        element.className = 'image-textbox is-drawing';
+        surface.appendChild(element);
+        textboxDrawing = {
+          surface,
+          rect,
+          element,
+          startX,
+          startY,
+          box: {
+            id: ensureAnnotationId('txt', {}),
+            x: startX,
+            y: startY,
+            width: 0,
+            height: 0,
+            text: ''
+          }
+        };
+        updateTextboxDrawing(event);
+        window.addEventListener('pointermove', handleTextboxPointerMove);
+        window.addEventListener('pointerup', handleTextboxPointerUp);
+        window.addEventListener('pointercancel', handleTextboxPointerCancel);
+      }
+
+      function updateTextboxDrawing(event){
+        if (!textboxDrawing) return;
+        const { rect, startX, startY, box, element } = textboxDrawing;
+        const currentX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+        const currentY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+        const minX = Math.min(startX, currentX);
+        const minY = Math.min(startY, currentY);
+        const width = Math.abs(currentX - startX);
+        const height = Math.abs(currentY - startY);
+        box.x = minX;
+        box.y = minY;
+        box.width = width;
+        box.height = height;
+        applyOcclusionBoxGeometry(element, box);
+      }
+
+      function finishTextboxDrawing(cancelled){
+        if (!textboxDrawing) return;
+        const { element, box, rect } = textboxDrawing;
+        window.removeEventListener('pointermove', handleTextboxPointerMove);
+        window.removeEventListener('pointerup', handleTextboxPointerUp);
+        window.removeEventListener('pointercancel', handleTextboxPointerCancel);
+        element.remove();
+        let createdId = null;
+        if (!cancelled) {
+          const normalized = normalizeTextbox(box);
+          if (normalized) {
+            const widthPx = normalized.width * rect.width;
+            const heightPx = normalized.height * rect.height;
+            if (widthPx >= MIN_PIXEL_SIZE && heightPx >= MIN_PIXEL_SIZE) {
+              const next = parseImageTextboxes(image).concat([normalized]);
+              const applied = writeImageTextboxes(image, next);
+              createdId = normalized.id;
+              if (workspace?.image) {
+                if (applied.length) workspace.image.setAttribute(IMAGE_TEXTBOX_ATTR, JSON.stringify(applied));
+                else workspace.image.removeAttribute(IMAGE_TEXTBOX_ATTR);
+              }
+              notifyImageOcclusionChange(image);
+              refreshBoxes();
+              triggerEditorChange();
+              if (typeof onGeometryChange === 'function') onGeometryChange();
+            }
+          }
+        }
+        const focusId = createdId;
+        if (focusId) {
+          requestAnimationFrame(() => focusWorkspaceTextbox(focusId));
+        }
+        textboxDrawing = null;
+      }
+
+      function handleTextboxPointerMove(event){
+        if (!textboxDrawing) return;
+        event.preventDefault();
+        updateTextboxDrawing(event);
+      }
+
+      function handleTextboxPointerUp(event){
+        if (!textboxDrawing) return;
+        event.preventDefault();
+        updateTextboxDrawing(event);
+        finishTextboxDrawing(false);
+      }
+
+      function handleTextboxPointerCancel(){
+        finishTextboxDrawing(true);
+      }
+
+      function focusWorkspaceTextbox(id){
+        if (!workspace) return;
+        const element = workspace.textboxElements?.get(id);
+        if (!element) return;
+        const content = element.querySelector('.image-textbox-content');
+        if (!(content instanceof HTMLElement)) return;
+        content.focus();
+        placeCaretAtEnd(content);
+      }
+
+      function placeCaretAtEnd(node){
+        if (!node) return;
+        const selection = window.getSelection();
+        if (!selection) return;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+
       function activate(){
         if (active) return;
         active = true;
@@ -1087,6 +1798,12 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         layer.setAttribute('aria-hidden', 'false');
         const workspaceInstance = getWorkspace();
         workspaceInstance.attach();
+        if (typeof workspaceInstance.setTool === 'function') {
+          workspaceInstance.setTool(activeWorkspaceTool);
+        }
+        if (typeof workspaceInstance.updateHighlightSwatch === 'function') {
+          workspaceInstance.updateHighlightSwatch();
+        }
         workspaceInstance.layer.classList.add('is-active');
         workspaceInstance.layer.setAttribute('aria-hidden', 'false');
         refreshBoxes();
@@ -1198,7 +1915,10 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
     return {
       image,
       update,
-      destroy
+      destroy,
+      openWorkspace(){
+        occlusionEditor.activate();
+      }
     };
   }
 
@@ -1218,12 +1938,24 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
       const overlayEl = document.createElement('div');
       overlayEl.className = 'rich-editor-occlusion-display';
       overlayEl.setAttribute('aria-hidden', 'true');
+
+      const highlightLayer = document.createElement('div');
+      highlightLayer.className = 'image-annotation-layer image-highlight-layer';
+      overlayEl.appendChild(highlightLayer);
+
+      const textLayer = document.createElement('div');
+      textLayer.className = 'image-annotation-layer image-text-layer';
+      overlayEl.appendChild(textLayer);
+
       const layer = document.createElement('div');
       layer.className = 'image-occlusion-layer';
       overlayEl.appendChild(layer);
+
       wrapper.appendChild(overlayEl);
 
       const boxElements = new Map();
+      const highlightElements = new Map();
+      const textboxElements = new Map();
       const revealStates = new Map();
       let suppressed = false;
 
@@ -1293,17 +2025,89 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             revealStates.delete(id);
           }
         });
-        overlayEl.classList.toggle('is-hidden', boxElements.size === 0);
+      }
+
+      function updateHighlights(){
+        if (suppressed) return;
+        const highlights = parseImageHighlights(image);
+        const seen = new Set();
+        highlights.forEach(box => {
+          let element = highlightElements.get(box.id);
+          if (!element) {
+            element = document.createElement('div');
+            element.className = 'image-highlight-box';
+            element.dataset.id = box.id;
+            highlightLayer.appendChild(element);
+            highlightElements.set(box.id, element);
+          }
+          element.style.borderColor = box.color;
+          element.style.backgroundColor = highlightColorToRgba(box.color, 0.35);
+          applyOcclusionBoxGeometry(element, box);
+          seen.add(box.id);
+        });
+        highlightElements.forEach((element, id) => {
+          if (!seen.has(id)) {
+            element.remove();
+            highlightElements.delete(id);
+          }
+        });
+        highlightLayer.classList.toggle('is-hidden', highlightElements.size === 0);
+      }
+
+      function updateTextboxes(){
+        if (suppressed) return;
+        const textboxes = parseImageTextboxes(image);
+        const seen = new Set();
+        textboxes.forEach(box => {
+          let element = textboxElements.get(box.id);
+          if (!element) {
+            element = document.createElement('div');
+            element.className = 'image-textbox';
+            element.dataset.id = box.id;
+            const content = document.createElement('div');
+            content.className = 'image-textbox-content';
+            content.setAttribute('aria-hidden', 'true');
+            element.appendChild(content);
+            textLayer.appendChild(element);
+            textboxElements.set(box.id, element);
+          }
+          const content = element.querySelector('.image-textbox-content');
+          if (content && (content.textContent || '') !== (box.text || '')) {
+            content.textContent = box.text || '';
+          }
+          applyOcclusionBoxGeometry(element, box);
+          seen.add(box.id);
+        });
+        textboxElements.forEach((element, id) => {
+          if (!seen.has(id)) {
+            element.remove();
+            textboxElements.delete(id);
+          }
+        });
+        textLayer.classList.toggle('is-hidden', textboxElements.size === 0);
+      }
+
+      function updateVisibility(){
+        const hasOcclusions = boxElements.size > 0;
+        const hasHighlights = highlightElements.size > 0;
+        const hasTextboxes = textboxElements.size > 0;
+        overlayEl.classList.toggle('is-hidden', !hasOcclusions && !hasHighlights && !hasTextboxes);
       }
 
       function update(){
         updatePosition();
         updateOcclusions();
+        updateHighlights();
+        updateTextboxes();
+        updateVisibility();
       }
 
       function refresh(){
         revealStates.clear();
         updateOcclusions();
+        updateHighlights();
+        updateTextboxes();
+        updateVisibility();
       }
 
       function setSuppressed(value){
@@ -1336,6 +2140,8 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         setSuppressed,
         destroy(){
           boxElements.clear();
+          highlightElements.clear();
+          textboxElements.clear();
           revealStates.clear();
           overlayEl.remove();
           image.removeEventListener('load', handleImageChange);
@@ -1346,7 +2152,10 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
     function ensureOverlay(image){
       if (!(image instanceof HTMLImageElement)) return null;
-      if (!parseImageOcclusions(image).length) {
+      const hasOcclusions = parseImageOcclusions(image).length > 0;
+      const hasHighlights = parseImageHighlights(image).length > 0;
+      const hasTextboxes = parseImageTextboxes(image).length > 0;
+      if (!hasOcclusions && !hasHighlights && !hasTextboxes) {
         removeOverlay(image);
         return null;
       }
@@ -1386,7 +2195,10 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
       const images = Array.from(editable.querySelectorAll('img'));
       const valid = new Set();
       images.forEach(image => {
-        if (parseImageOcclusions(image).length) {
+        const hasOcclusions = parseImageOcclusions(image).length > 0;
+        const hasHighlights = parseImageHighlights(image).length > 0;
+        const hasTextboxes = parseImageTextboxes(image).length > 0;
+        if (hasOcclusions || hasHighlights || hasTextboxes) {
           valid.add(image);
           ensureOverlay(image);
         }
@@ -1399,10 +2211,17 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
     const mutationObserver = new MutationObserver(mutations => {
       let needsSync = false;
       for (const mutation of mutations) {
-        if (mutation.type === 'attributes' && mutation.attributeName === IMAGE_OCCLUSION_ATTR) {
+        if (mutation.type === 'attributes' && (
+          mutation.attributeName === IMAGE_OCCLUSION_ATTR ||
+          mutation.attributeName === IMAGE_HIGHLIGHT_ATTR ||
+          mutation.attributeName === IMAGE_TEXTBOX_ATTR
+        )) {
           const target = mutation.target;
           if (target instanceof HTMLImageElement) {
-            if (parseImageOcclusions(target).length) {
+            const hasOcclusions = parseImageOcclusions(target).length > 0;
+            const hasHighlights = parseImageHighlights(target).length > 0;
+            const hasTextboxes = parseImageTextboxes(target).length > 0;
+            if (hasOcclusions || hasHighlights || hasTextboxes) {
               ensureOverlay(target);
             } else {
               removeOverlay(target);
@@ -1415,12 +2234,12 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
       if (needsSync) sync();
     });
 
-    mutationObserver.observe(editable, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: [IMAGE_OCCLUSION_ATTR]
-    });
+      mutationObserver.observe(editable, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: [IMAGE_OCCLUSION_ATTR, IMAGE_HIGHLIGHT_ATTR, IMAGE_TEXTBOX_ATTR]
+      });
 
     const onScroll = () => {
       overlays.forEach(overlay => overlay.update());
@@ -2213,6 +3032,18 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
     if (target instanceof HTMLImageElement) {
       event.preventDefault();
       beginImageEditing(target);
+      if (activeImageEditor && typeof activeImageEditor.openWorkspace === 'function') {
+        requestAnimationFrame(() => activeImageEditor?.openWorkspace?.());
+      }
+    }
+  });
+
+  editable.addEventListener('click', (event) => {
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+    const target = path.find(node => node instanceof HTMLImageElement) || event.target;
+    if (target instanceof HTMLImageElement) {
+      event.preventDefault();
+      beginImageEditing(target);
     }
   });
 
@@ -2297,11 +3128,21 @@ function openImageLightbox(image){
   cloned.classList.add('image-lightbox-img');
   frame.appendChild(cloned);
 
+  const highlightLayer = document.createElement('div');
+  highlightLayer.className = 'image-annotation-layer image-highlight-layer';
+  frame.appendChild(highlightLayer);
+
+  const textLayer = document.createElement('div');
+  textLayer.className = 'image-annotation-layer image-text-layer';
+  frame.appendChild(textLayer);
+
   const layer = document.createElement('div');
   layer.className = 'image-lightbox-occlusions image-occlusion-layer';
   frame.appendChild(layer);
 
   const boxElements = new Map();
+  const highlightElements = new Map();
+  const textboxElements = new Map();
   const revealStates = new Map();
 
   function toggleReveal(element){
@@ -2354,6 +3195,64 @@ function openImageLightbox(image){
     layer.classList.toggle('is-hidden', boxElements.size === 0);
   }
 
+  function updateHighlights(){
+    const highlights = parseImageHighlights(cloned);
+    const seen = new Set();
+    highlights.forEach(box => {
+      let element = highlightElements.get(box.id);
+      if (!element) {
+        element = document.createElement('div');
+        element.className = 'image-highlight-box';
+        element.dataset.id = box.id;
+        highlightLayer.appendChild(element);
+        highlightElements.set(box.id, element);
+      }
+      element.style.borderColor = box.color;
+      element.style.backgroundColor = highlightColorToRgba(box.color, 0.35);
+      applyOcclusionBoxGeometry(element, box);
+      seen.add(box.id);
+    });
+    highlightElements.forEach((element, id) => {
+      if (!seen.has(id)) {
+        element.remove();
+        highlightElements.delete(id);
+      }
+    });
+    highlightLayer.classList.toggle('is-hidden', highlightElements.size === 0);
+  }
+
+  function updateTextboxes(){
+    const textboxes = parseImageTextboxes(cloned);
+    const seen = new Set();
+    textboxes.forEach(box => {
+      let element = textboxElements.get(box.id);
+      if (!element) {
+        element = document.createElement('div');
+        element.className = 'image-textbox';
+        element.dataset.id = box.id;
+        const content = document.createElement('div');
+        content.className = 'image-textbox-content';
+        content.setAttribute('aria-hidden', 'true');
+        element.appendChild(content);
+        textLayer.appendChild(element);
+        textboxElements.set(box.id, element);
+      }
+      const content = element.querySelector('.image-textbox-content');
+      if (content && (content.textContent || '') !== (box.text || '')) {
+        content.textContent = box.text || '';
+      }
+      applyOcclusionBoxGeometry(element, box);
+      seen.add(box.id);
+    });
+    textboxElements.forEach((element, id) => {
+      if (!seen.has(id)) {
+        element.remove();
+        textboxElements.delete(id);
+      }
+    });
+    textLayer.classList.toggle('is-hidden', textboxElements.size === 0);
+  }
+
   function updateLayout(){
     const frameRect = frame.getBoundingClientRect();
     const rect = cloned.getBoundingClientRect();
@@ -2361,11 +3260,21 @@ function openImageLightbox(image){
     layer.style.height = `${rect.height}px`;
     layer.style.left = `${rect.left - frameRect.left}px`;
     layer.style.top = `${rect.top - frameRect.top}px`;
+    highlightLayer.style.width = `${rect.width}px`;
+    highlightLayer.style.height = `${rect.height}px`;
+    highlightLayer.style.left = `${rect.left - frameRect.left}px`;
+    highlightLayer.style.top = `${rect.top - frameRect.top}px`;
+    textLayer.style.width = `${rect.width}px`;
+    textLayer.style.height = `${rect.height}px`;
+    textLayer.style.left = `${rect.left - frameRect.left}px`;
+    textLayer.style.top = `${rect.top - frameRect.top}px`;
   }
 
   function updateAll(){
     updateLayout();
     updateBoxes();
+    updateHighlights();
+    updateTextboxes();
   }
 
   const onKeyDown = (event) => {
@@ -2418,12 +3327,20 @@ function createRichContentImageManager(container, options = {}){
     const overlayEl = document.createElement('div');
     overlayEl.className = 'rich-content-occlusion-overlay';
     overlayEl.setAttribute('aria-hidden', 'true');
+    const highlightLayer = document.createElement('div');
+    highlightLayer.className = 'image-annotation-layer image-highlight-layer';
+    overlayEl.appendChild(highlightLayer);
+    const textLayer = document.createElement('div');
+    textLayer.className = 'image-annotation-layer image-text-layer';
+    overlayEl.appendChild(textLayer);
     const layer = document.createElement('div');
     layer.className = 'image-occlusion-layer';
     overlayEl.appendChild(layer);
     container.appendChild(overlayEl);
 
     const boxElements = new Map();
+    const highlightElements = new Map();
+    const textboxElements = new Map();
     const revealStates = new Map();
 
     function toggleReveal(element){
@@ -2447,7 +3364,7 @@ function createRichContentImageManager(container, options = {}){
       overlayEl.style.top = `${rect.top - containerRect.top}px`;
     }
 
-    function updateBoxes(){
+    function updateOcclusions(){
       const occlusions = parseImageOcclusions(image);
       const seen = new Set();
       occlusions.forEach(box => {
@@ -2486,22 +3403,94 @@ function createRichContentImageManager(container, options = {}){
           revealStates.delete(id);
         }
       });
-      overlayEl.classList.toggle('is-hidden', boxElements.size === 0);
+    }
+
+    function updateHighlights(){
+      const highlights = parseImageHighlights(image);
+      const seen = new Set();
+      highlights.forEach(box => {
+        let element = highlightElements.get(box.id);
+        if (!element) {
+          element = document.createElement('div');
+          element.className = 'image-highlight-box';
+          element.dataset.id = box.id;
+          highlightLayer.appendChild(element);
+          highlightElements.set(box.id, element);
+        }
+        element.style.borderColor = box.color;
+        element.style.backgroundColor = highlightColorToRgba(box.color, 0.35);
+        applyOcclusionBoxGeometry(element, box);
+        seen.add(box.id);
+      });
+      highlightElements.forEach((element, id) => {
+        if (!seen.has(id)) {
+          element.remove();
+          highlightElements.delete(id);
+        }
+      });
+      highlightLayer.classList.toggle('is-hidden', highlightElements.size === 0);
+    }
+
+    function updateTextboxes(){
+      const textboxes = parseImageTextboxes(image);
+      const seen = new Set();
+      textboxes.forEach(box => {
+        let element = textboxElements.get(box.id);
+        if (!element) {
+          element = document.createElement('div');
+          element.className = 'image-textbox';
+          element.dataset.id = box.id;
+          const content = document.createElement('div');
+          content.className = 'image-textbox-content';
+          content.setAttribute('aria-hidden', 'true');
+          element.appendChild(content);
+          textLayer.appendChild(element);
+          textboxElements.set(box.id, element);
+        }
+        const content = element.querySelector('.image-textbox-content');
+        if (content && (content.textContent || '') !== (box.text || '')) {
+          content.textContent = box.text || '';
+        }
+        applyOcclusionBoxGeometry(element, box);
+        seen.add(box.id);
+      });
+      textboxElements.forEach((element, id) => {
+        if (!seen.has(id)) {
+          element.remove();
+          textboxElements.delete(id);
+        }
+      });
+      textLayer.classList.toggle('is-hidden', textboxElements.size === 0);
+    }
+
+    function updateVisibility(){
+      const hasOcclusions = boxElements.size > 0;
+      const hasHighlights = highlightElements.size > 0;
+      const hasTextboxes = textboxElements.size > 0;
+      overlayEl.classList.toggle('is-hidden', !hasOcclusions && !hasHighlights && !hasTextboxes);
     }
 
     function update(){
       updatePosition();
-      updateBoxes();
+      updateOcclusions();
+      updateHighlights();
+      updateTextboxes();
+      updateVisibility();
     }
 
     const handleChange = () => {
       revealStates.clear();
-      updateBoxes();
+      updateOcclusions();
+      updateHighlights();
+      updateTextboxes();
+      updateVisibility();
       updatePosition();
     };
 
     function destroy(){
       boxElements.clear();
+      highlightElements.clear();
+      textboxElements.clear();
       revealStates.clear();
       overlayEl.remove();
       image.removeEventListener('load', update);
@@ -2523,11 +3512,14 @@ function createRichContentImageManager(container, options = {}){
         event.preventDefault();
         openImageLightbox(image);
       };
-      image.addEventListener('click', handler);
+      image.addEventListener('dblclick', handler);
       clickHandlers.set(image, handler);
       image.classList.add('rich-content-image-interactive');
     }
-    if (parseImageOcclusions(image).length) {
+    const hasOcclusions = parseImageOcclusions(image).length > 0;
+    const hasHighlights = parseImageHighlights(image).length > 0;
+    const hasTextboxes = parseImageTextboxes(image).length > 0;
+    if (hasOcclusions || hasHighlights || hasTextboxes) {
       const overlay = createDisplayOverlay(image);
       overlays.set(image, overlay);
       if (resizeObserver) {
@@ -2570,7 +3562,7 @@ function createRichContentImageManager(container, options = {}){
       });
       overlays.clear();
       clickHandlers.forEach((handler, image) => {
-        image.removeEventListener('click', handler);
+        image.removeEventListener('dblclick', handler);
         image.classList.remove('rich-content-image-interactive');
       });
       clickHandlers.clear();
