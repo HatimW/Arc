@@ -982,6 +982,11 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         frame.className = 'image-occlusion-workspace-frame';
         workspaceOverlay.appendChild(frame);
 
+        const dragHandle = document.createElement('div');
+        dragHandle.className = 'image-occlusion-workspace-drag-handle';
+        dragHandle.setAttribute('aria-hidden', 'true');
+        frame.appendChild(dragHandle);
+
         const closeBtn = document.createElement('button');
         closeBtn.type = 'button';
         closeBtn.className = 'image-occlusion-workspace-close';
@@ -989,9 +994,13 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         closeBtn.innerHTML = '✕';
         frame.appendChild(closeBtn);
 
+        const layout = document.createElement('div');
+        layout.className = 'image-occlusion-workspace-layout';
+        frame.appendChild(layout);
+
         const canvas = document.createElement('div');
         canvas.className = 'image-occlusion-workspace-canvas';
-        frame.appendChild(canvas);
+        layout.appendChild(canvas);
 
         const editingImage = image.cloneNode(true);
         editingImage.removeAttribute('width');
@@ -1002,13 +1011,11 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         const workspaceHighlightLayer = document.createElement('div');
         workspaceHighlightLayer.className = 'image-annotation-layer image-highlight-layer';
         workspaceHighlightLayer.setAttribute('aria-hidden', 'true');
-        workspaceHighlightLayer.classList.add('is-interactive');
         canvas.appendChild(workspaceHighlightLayer);
 
         const workspaceTextLayer = document.createElement('div');
         workspaceTextLayer.className = 'image-annotation-layer image-text-layer';
         workspaceTextLayer.setAttribute('aria-hidden', 'true');
-        workspaceTextLayer.classList.add('is-interactive');
         canvas.appendChild(workspaceTextLayer);
 
         const workspaceLayer = document.createElement('div');
@@ -1016,14 +1023,18 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         workspaceLayer.setAttribute('aria-hidden', 'true');
         canvas.appendChild(workspaceLayer);
 
-        const hint = document.createElement('div');
-        hint.className = 'image-occlusion-workspace-hint';
-        hint.textContent = 'Use the toolbar to occlude, highlight, or add text. Drag to draw and click occlusions to toggle.';
-        frame.appendChild(hint);
+        const sidebar = document.createElement('aside');
+        sidebar.className = 'image-occlusion-workspace-sidebar';
+        layout.appendChild(sidebar);
 
         const tools = document.createElement('div');
         tools.className = 'image-occlusion-workspace-tools';
-        frame.appendChild(tools);
+        sidebar.appendChild(tools);
+
+        const hint = document.createElement('div');
+        hint.className = 'image-occlusion-workspace-hint';
+        hint.textContent = 'Use the toolbar to occlude, highlight, or add text. Drag to draw and click occlusions to toggle.';
+        sidebar.appendChild(hint);
 
         const occlusionToolBtn = document.createElement('button');
         occlusionToolBtn.type = 'button';
@@ -1058,12 +1069,104 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         const workspaceBoxes = new Map();
         const workspaceHighlights = new Map();
         const workspaceTextboxes = new Map();
+        let workspacePosition = { left: null, top: null };
+        let workspaceDragPointerId = null;
+        let workspaceDragOffsetX = 0;
+        let workspaceDragOffsetY = 0;
 
         function refreshHighlightSwatch(){
           const color = getCurrentHighlightColor();
           highlightSwatch.style.backgroundColor = highlightColorToRgba(color, 0.65);
           highlightSwatch.style.borderColor = color;
         }
+
+        function applyWorkspaceWindowLayout(){
+          const viewportWidth = window.innerWidth || 1280;
+          const viewportHeight = window.innerHeight || 720;
+          const margin = 64;
+          const maxWidth = Math.max(520, viewportWidth - margin);
+          const maxHeight = Math.max(400, viewportHeight - margin);
+          const targetWidth = Math.min(
+            Math.max(720, viewportWidth * 0.78),
+            maxWidth,
+            1320
+          );
+          const targetHeight = Math.min(
+            Math.max(520, viewportHeight * 0.78),
+            maxHeight,
+            960
+          );
+          frame.style.width = `${Math.round(targetWidth)}px`;
+          frame.style.height = `${Math.round(targetHeight)}px`;
+        }
+
+        function setWorkspaceWindowPosition(left, top){
+          const width = frame.offsetWidth || 0;
+          const height = frame.offsetHeight || 0;
+          const margin = 32;
+          const minLeft = margin;
+          const minTop = margin;
+          const maxLeft = Math.max(minLeft, window.innerWidth - width - margin);
+          const maxTop = Math.max(minTop, window.innerHeight - height - margin);
+          const boundedLeft = Math.min(Math.max(left, minLeft), maxLeft);
+          const boundedTop = Math.min(Math.max(top, minTop), maxTop);
+          frame.style.left = `${Math.round(boundedLeft)}px`;
+          frame.style.top = `${Math.round(boundedTop)}px`;
+          workspacePosition = {
+            left: Math.round(boundedLeft),
+            top: Math.round(boundedTop)
+          };
+        }
+
+        function centerWorkspaceWindow(){
+          const width = frame.offsetWidth || 0;
+          const height = frame.offsetHeight || 0;
+          const left = (window.innerWidth - width) / 2;
+          const top = (window.innerHeight - height) / 2;
+          setWorkspaceWindowPosition(left, top);
+        }
+
+        function refreshWorkspaceWindow({ forceCenter = false } = {}){
+          applyWorkspaceWindowLayout();
+          if (forceCenter || workspacePosition.left == null || workspacePosition.top == null) {
+            centerWorkspaceWindow();
+          } else {
+            setWorkspaceWindowPosition(workspacePosition.left, workspacePosition.top);
+          }
+        }
+
+        function startWorkspaceDrag(event){
+          if (event.button !== 0) return;
+          event.preventDefault();
+          const rect = frame.getBoundingClientRect();
+          workspaceDragPointerId = event.pointerId;
+          workspaceDragOffsetX = event.clientX - rect.left;
+          workspaceDragOffsetY = event.clientY - rect.top;
+          frame.setPointerCapture(workspaceDragPointerId);
+        }
+
+        function handleWorkspaceDrag(event){
+          if (workspaceDragPointerId == null || event.pointerId !== workspaceDragPointerId) return;
+          event.preventDefault();
+          setWorkspaceWindowPosition(event.clientX - workspaceDragOffsetX, event.clientY - workspaceDragOffsetY);
+        }
+
+        function stopWorkspaceDrag(event){
+          if (workspaceDragPointerId == null || event.pointerId !== workspaceDragPointerId) return;
+          event.preventDefault();
+          frame.releasePointerCapture(workspaceDragPointerId);
+          workspaceDragPointerId = null;
+          if (workspacePosition.left == null || workspacePosition.top == null) {
+            centerWorkspaceWindow();
+          } else {
+            setWorkspaceWindowPosition(workspacePosition.left, workspacePosition.top);
+          }
+        }
+
+        dragHandle.addEventListener('pointerdown', startWorkspaceDrag);
+        frame.addEventListener('pointermove', handleWorkspaceDrag);
+        frame.addEventListener('pointerup', stopWorkspaceDrag);
+        frame.addEventListener('pointercancel', stopWorkspaceDrag);
 
         function applyToolState(tool){
           const mapping = new Map([
@@ -1078,6 +1181,17 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
           });
           workspaceOverlay.dataset.tool = tool;
+          const isOcclusion = tool === 'occlusion';
+          const isHighlight = tool === 'highlight';
+          const isText = tool === 'text';
+          workspaceLayer.classList.toggle('is-active', isOcclusion);
+          workspaceLayer.setAttribute('aria-hidden', isOcclusion ? 'false' : 'true');
+          workspaceHighlightLayer.classList.toggle('is-interactive', isHighlight);
+          workspaceHighlightLayer.setAttribute('aria-hidden', isHighlight ? 'false' : 'true');
+          workspaceHighlightLayer.dataset.active = isHighlight ? 'true' : 'false';
+          workspaceTextLayer.classList.toggle('is-interactive', isText);
+          workspaceTextLayer.setAttribute('aria-hidden', isText ? 'false' : 'true');
+          workspaceTextLayer.dataset.active = isText ? 'true' : 'false';
         }
 
         occlusionToolBtn.addEventListener('click', () => setWorkspaceTool('occlusion'));
@@ -1096,6 +1210,11 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             event.preventDefault();
             deactivate();
           }
+        };
+
+        const handleResize = () => {
+          refreshWorkspaceWindow();
+          refreshBoxes();
         };
 
         const handleClickOutside = (event) => {
@@ -1134,9 +1253,11 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             if (!document.body.contains(workspaceOverlay)) {
               document.body.appendChild(workspaceOverlay);
             }
+            refreshWorkspaceWindow({ forceCenter: true });
             workspaceOverlay.setAttribute('aria-hidden', 'false');
             requestAnimationFrame(() => workspaceOverlay.classList.add('is-visible'));
             window.addEventListener('keydown', onKeyDown);
+            window.addEventListener('resize', handleResize);
           },
           detach(){
             workspaceOverlay.classList.remove('is-visible');
@@ -1145,11 +1266,16 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
               workspaceOverlay.parentNode.removeChild(workspaceOverlay);
             }
             window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('resize', handleResize);
           },
           destroy(){
             workspaceLayer.removeEventListener('pointerdown', handlePointerDown);
             workspaceHighlightLayer.removeEventListener('pointerdown', handleHighlightPointerDown);
             workspaceTextLayer.removeEventListener('pointerdown', handleTextboxPointerDown);
+            dragHandle.removeEventListener('pointerdown', startWorkspaceDrag);
+            frame.removeEventListener('pointermove', handleWorkspaceDrag);
+            frame.removeEventListener('pointerup', stopWorkspaceDrag);
+            frame.removeEventListener('pointercancel', stopWorkspaceDrag);
             closeBtn.removeEventListener('click', handleClose);
             workspaceOverlay.removeEventListener('click', handleClickOutside);
             workspaceBoxes.clear();
@@ -1466,6 +1592,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
       function handlePointerDown(event){
         if (!active) return;
+        if (activeWorkspaceTool !== 'occlusion') return;
         if (event.button !== 0) return;
         const surface = event.currentTarget;
         if (!(surface instanceof HTMLElement)) return;
@@ -1794,8 +1921,6 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         overlay.classList.add('is-occluding');
         occlusionToggle.dataset.active = 'true';
         occlusionToggle.setAttribute('aria-pressed', 'true');
-        layer.classList.add('is-active');
-        layer.setAttribute('aria-hidden', 'false');
         const workspaceInstance = getWorkspace();
         workspaceInstance.attach();
         if (typeof workspaceInstance.setTool === 'function') {
@@ -1804,8 +1929,6 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         if (typeof workspaceInstance.updateHighlightSwatch === 'function') {
           workspaceInstance.updateHighlightSwatch();
         }
-        workspaceInstance.layer.classList.add('is-active');
-        workspaceInstance.layer.setAttribute('aria-hidden', 'false');
         refreshBoxes();
       }
 
@@ -1820,6 +1943,12 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         if (workspace) {
           workspace.layer.classList.remove('is-active');
           workspace.layer.setAttribute('aria-hidden', 'true');
+          workspace.highlightLayer.classList.remove('is-interactive');
+          workspace.highlightLayer.setAttribute('aria-hidden', 'true');
+          workspace.highlightLayer.dataset.active = 'false';
+          workspace.textLayer.classList.remove('is-interactive');
+          workspace.textLayer.setAttribute('aria-hidden', 'true');
+          workspace.textLayer.dataset.active = 'false';
           workspace.detach();
         }
         revealStates.clear();
@@ -3106,8 +3235,6 @@ function openImageLightbox(image){
   overlay.className = 'image-lightbox';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.dataset.tool = 'occlusion';
-
   const backdrop = document.createElement('div');
   backdrop.className = 'image-lightbox-backdrop';
   overlay.appendChild(backdrop);
@@ -3116,9 +3243,10 @@ function openImageLightbox(image){
   frame.className = 'image-lightbox-frame';
   overlay.appendChild(frame);
 
-  const layout = document.createElement('div');
-  layout.className = 'image-lightbox-layout';
-  frame.appendChild(layout);
+  const dragHandle = document.createElement('div');
+  dragHandle.className = 'image-lightbox-drag-handle';
+  dragHandle.setAttribute('aria-hidden', 'true');
+  frame.appendChild(dragHandle);
 
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
@@ -3129,12 +3257,15 @@ function openImageLightbox(image){
 
   const surface = document.createElement('div');
   surface.className = 'image-lightbox-surface';
-  layout.appendChild(surface);
+  frame.appendChild(surface);
 
   const cloned = image.cloneNode(true);
   cloned.removeAttribute('width');
   cloned.removeAttribute('height');
   cloned.classList.add('image-lightbox-img');
+  cloned.style.width = '100%';
+  cloned.style.height = '100%';
+  cloned.style.objectFit = 'contain';
   surface.appendChild(cloned);
 
   const highlightLayer = document.createElement('div');
@@ -3152,53 +3283,105 @@ function openImageLightbox(image){
   layer.hidden = true;
   surface.appendChild(layer);
 
-  const tools = document.createElement('div');
-  tools.className = 'image-lightbox-tools';
-  tools.setAttribute('role', 'toolbar');
-  tools.setAttribute('aria-label', 'Image annotation tools');
-  layout.appendChild(tools);
-
-  const toolButtons = new Map();
-  let activeTool = 'occlusion';
-
-  const toolDefinitions = [
-    { id: 'occlusion', label: 'Occlusions', icon: '👁' },
-    { id: 'highlight', label: 'Highlights', icon: '🖍' },
-    { id: 'text', label: 'Text boxes', icon: '📝' }
-  ];
-
-  for (const def of toolDefinitions) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'image-lightbox-tool';
-    button.dataset.tool = def.id;
-    button.setAttribute('aria-label', def.label);
-    button.setAttribute('aria-pressed', 'false');
-    button.textContent = def.icon;
-    button.title = def.label;
-    button.addEventListener('click', () => {
-      setActiveTool(def.id);
-    });
-    tools.appendChild(button);
-    toolButtons.set(def.id, button);
-  }
-
   const boxElements = new Map();
   const highlightElements = new Map();
   const textboxElements = new Map();
   const revealStates = new Map();
 
-  function setActiveTool(tool){
-    if (!toolButtons.has(tool)) return;
-    activeTool = tool;
-    overlay.dataset.tool = tool;
-    toolButtons.forEach((button, id) => {
-      const isActive = id === tool;
-      button.classList.toggle('is-active', isActive);
-      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-    applyToolVisibility();
+  let framePosition = { left: null, top: null };
+  let dragPointerId = null;
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+
+  function setFramePosition(left, top){
+    const width = frame.offsetWidth || 0;
+    const height = frame.offsetHeight || 0;
+    const margin = 24;
+    const minLeft = margin;
+    const minTop = margin;
+    const maxLeft = Math.max(minLeft, window.innerWidth - width - margin);
+    const maxTop = Math.max(minTop, window.innerHeight - height - margin);
+    const boundedLeft = Math.min(Math.max(left, minLeft), maxLeft);
+    const boundedTop = Math.min(Math.max(top, minTop), maxTop);
+    frame.style.left = `${Math.round(boundedLeft)}px`;
+    frame.style.top = `${Math.round(boundedTop)}px`;
+    framePosition = {
+      left: Math.round(boundedLeft),
+      top: Math.round(boundedTop)
+    };
   }
+
+  function centerFrame(){
+    const width = frame.offsetWidth || 0;
+    const height = frame.offsetHeight || 0;
+    const left = (window.innerWidth - width) / 2;
+    const top = (window.innerHeight - height) / 2;
+    setFramePosition(left, top);
+  }
+
+  function applyFrameLayout(){
+    const viewportWidth = window.innerWidth || 1280;
+    const viewportHeight = window.innerHeight || 720;
+    const margin = 48;
+    const maxWidth = Math.max(360, viewportWidth - margin);
+    const maxHeight = Math.max(280, viewportHeight - margin);
+    const targetWidth = Math.min(
+      Math.max(560, viewportWidth * 0.82),
+      maxWidth,
+      1280
+    );
+    const targetHeight = Math.min(
+      Math.max(420, viewportHeight * 0.82),
+      maxHeight,
+      900
+    );
+    frame.style.width = `${Math.round(targetWidth)}px`;
+    frame.style.height = `${Math.round(targetHeight)}px`;
+    surface.style.width = '100%';
+    surface.style.height = '100%';
+  }
+
+  function refreshLayout({ forceCenter = false } = {}){
+    applyFrameLayout();
+    if (forceCenter || framePosition.left == null || framePosition.top == null) {
+      centerFrame();
+    } else {
+      setFramePosition(framePosition.left, framePosition.top);
+    }
+  }
+
+  function startDrag(event){
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const rect = frame.getBoundingClientRect();
+    dragPointerId = event.pointerId;
+    dragOffsetX = event.clientX - rect.left;
+    dragOffsetY = event.clientY - rect.top;
+    frame.setPointerCapture(dragPointerId);
+  }
+
+  function handleDrag(event){
+    if (dragPointerId == null || event.pointerId !== dragPointerId) return;
+    event.preventDefault();
+    setFramePosition(event.clientX - dragOffsetX, event.clientY - dragOffsetY);
+  }
+
+  function stopDrag(event){
+    if (dragPointerId == null || event.pointerId !== dragPointerId) return;
+    event.preventDefault();
+    frame.releasePointerCapture(dragPointerId);
+    dragPointerId = null;
+    if (framePosition.left == null || framePosition.top == null) {
+      centerFrame();
+    } else {
+      setFramePosition(framePosition.left, framePosition.top);
+    }
+  }
+
+  dragHandle.addEventListener('pointerdown', startDrag);
+  frame.addEventListener('pointermove', handleDrag);
+  frame.addEventListener('pointerup', stopDrag);
+  frame.addEventListener('pointercancel', stopDrag);
 
   function toggleReveal(element){
     const id = element?.dataset?.id;
@@ -3247,7 +3430,8 @@ function openImageLightbox(image){
         revealStates.delete(id);
       }
     });
-    applyToolVisibility();
+    layer.hidden = boxElements.size === 0;
+    layer.classList.toggle('is-active', boxElements.size > 0);
   }
 
   function updateHighlights(){
@@ -3273,7 +3457,7 @@ function openImageLightbox(image){
         highlightElements.delete(id);
       }
     });
-    applyToolVisibility();
+    highlightLayer.hidden = highlightElements.size === 0;
   }
 
   function updateTextboxes(){
@@ -3305,28 +3489,13 @@ function openImageLightbox(image){
         textboxElements.delete(id);
       }
     });
-    applyToolVisibility();
-  }
-
-  function updateLayout(){
-    // the surface tracks the image size via CSS; overlays simply cover it
+    textLayer.hidden = textboxElements.size === 0;
   }
 
   function updateAll(){
-    updateLayout();
     updateBoxes();
     updateHighlights();
     updateTextboxes();
-  }
-
-  function applyToolVisibility(){
-    const showOcclusions = activeTool === 'occlusion' && boxElements.size > 0;
-    const showHighlights = activeTool === 'highlight' && highlightElements.size > 0;
-    const showTextboxes = activeTool === 'text' && textboxElements.size > 0;
-    layer.hidden = !showOcclusions;
-    highlightLayer.hidden = !showHighlights;
-    textLayer.hidden = !showTextboxes;
-    layer.classList.toggle('is-active', showOcclusions);
   }
 
   const onKeyDown = (event) => {
@@ -3336,7 +3505,10 @@ function openImageLightbox(image){
     }
   };
 
-  const onResize = () => updateAll();
+  const onResize = () => {
+    refreshLayout();
+    updateAll();
+  };
 
   closeBtn.addEventListener('click', () => closeImageLightbox());
   overlay.addEventListener('click', (event) => {
@@ -3352,7 +3524,7 @@ function openImageLightbox(image){
 
   document.body.appendChild(overlay);
   requestAnimationFrame(() => {
-    setActiveTool(activeTool);
+    refreshLayout({ forceCenter: true });
     updateAll();
   });
 
