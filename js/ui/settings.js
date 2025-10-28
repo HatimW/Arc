@@ -1253,7 +1253,7 @@ export async function renderSettings(root) {
 
   const importInput = document.createElement('input');
   importInput.type = 'file';
-  importInput.accept = 'application/json';
+  importInput.accept = 'application/json,.json,.arc';
   importInput.style.display = 'none';
   importInput.addEventListener('change', async () => {
     const file = importInput.files[0];

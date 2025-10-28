@@ -1,7 +1,7 @@
 import { openDB } from './idb.js';
 import { buildTokens, buildSearchMeta } from '../search.js';
 import { lectureKey, normalizeLectureRecord } from './lecture-schema.js';
-import { deepClone } from '../utils.js';
+import { uid, deepClone } from '../utils.js';
 
 const MAP_CONFIG_KEY = 'map-config';
 const TRANSACTION_STORES = [
@@ -19,6 +19,78 @@ function prom(req){
     req.onsuccess = ()=> resolve(req.result);
     req.onerror = ()=> reject(req.error);
   });
+}
+
+function coerceBlockId(value) {
+  if (value == null) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const trimmed = value.trim();
+    const maybeNumber = Number(trimmed);
+    if (Number.isFinite(maybeNumber) && String(maybeNumber) === trimmed) {
+      return maybeNumber;
+    }
+    return trimmed;
+  }
+  return null;
+}
+
+function normalizeBlockRecord(record, fallback = {}) {
+  if (!record || typeof record !== 'object') return null;
+  const copy = deepClone(record);
+  const fallbackId = fallback.blockId ?? fallback.id ?? fallback.block ?? null;
+  const normalizedId = coerceBlockId(copy.blockId ?? fallbackId);
+  if (normalizedId == null) return null;
+  copy.blockId = normalizedId;
+  if (Array.isArray(copy.lectures)) delete copy.lectures;
+  return copy;
+}
+
+function normalizeLectureReference(ref) {
+  if (!ref || typeof ref !== 'object') return null;
+  const blockId = coerceBlockId(ref.blockId ?? ref.block ?? null);
+  const lectureIdRaw = ref.id ?? ref.lectureId ?? ref.key ?? null;
+  if (lectureIdRaw == null) return null;
+  const lectureIdNumber = Number(lectureIdRaw);
+  const lectureId = Number.isFinite(lectureIdNumber) && `${lectureIdNumber}` === `${lectureIdRaw}`
+    ? lectureIdNumber
+    : lectureIdRaw;
+  return {
+    blockId,
+    id: lectureId,
+    name: typeof ref.name === 'string' ? ref.name : '',
+    week: ref.week ?? ref.weekNumber ?? null
+  };
+}
+
+function normalizeItemRecord(item) {
+  if (!item || typeof item !== 'object') return null;
+  const copy = deepClone(item);
+  if (copy.id == null || copy.id === '') {
+    copy.id = copy.uid || uid();
+  }
+  copy.kind = typeof copy.kind === 'string' && copy.kind ? copy.kind : 'concept';
+  copy.blocks = Array.isArray(copy.blocks)
+    ? Array.from(new Set(
+        copy.blocks
+          .map(coerceBlockId)
+          .filter(id => id != null)
+      ))
+    : [];
+  copy.weeks = Array.isArray(copy.weeks)
+    ? Array.from(new Set(
+        copy.weeks
+          .map(week => {
+            const num = Number(week);
+            return Number.isFinite(num) ? num : null;
+          })
+          .filter(value => value != null)
+      ))
+    : [];
+  copy.lectures = Array.isArray(copy.lectures)
+    ? copy.lectures.map(normalizeLectureReference).filter(Boolean)
+    : [];
+  return copy;
 }
 
 export async function exportJSON(){
@@ -74,6 +146,9 @@ export async function exportJSON(){
 
 export async function importJSON(dbDump){
   try {
+    if (!dbDump || typeof dbDump !== 'object') {
+      throw new Error('File is not a valid Arc export.');
+    }
     const db = await openDB();
     const tx = db.transaction(TRANSACTION_STORES,'readwrite');
     const items = tx.objectStore('items');
@@ -112,8 +187,13 @@ export async function importJSON(dbDump){
     const lectureRecords = new Map();
     const addLectureRecord = (record, { preferExisting = false } = {}) => {
       if (!record || typeof record !== 'object') return;
-      const blockId = record.blockId ?? record.block ?? null;
-      const lectureId = record.id ?? record.lectureId ?? null;
+      const blockId = coerceBlockId(record.blockId ?? record.block ?? null);
+      const lectureIdRaw = record.id ?? record.lectureId ?? null;
+      if (lectureIdRaw == null) return;
+      const lectureIdNumber = Number(lectureIdRaw);
+      const lectureId = Number.isFinite(lectureIdNumber) && `${lectureIdNumber}` === `${lectureIdRaw}`
+        ? lectureIdNumber
+        : lectureIdRaw;
       if (blockId == null || lectureId == null) return;
       const key = record.key || lectureKey(blockId, lectureId);
       if (!key) return;
@@ -133,9 +213,11 @@ export async function importJSON(dbDump){
       for (const b of dbDump.blocks) {
         if (!b || typeof b !== 'object') continue;
         const { lectures: legacyLectures, ...rest } = b;
-        await prom(blocks.put(rest));
+        const blockRecord = normalizeBlockRecord(rest, b);
+        if (!blockRecord) continue;
+        await prom(blocks.put(blockRecord));
         if (!Array.isArray(legacyLectures) || legacyLectures.length === 0) continue;
-        const blockId = rest?.blockId;
+        const blockId = blockRecord?.blockId;
         if (blockId == null) continue;
         for (const legacy of legacyLectures) {
           const normalized = normalizeLectureRecord(blockId, legacy, migrationTimestamp);
@@ -159,10 +241,11 @@ export async function importJSON(dbDump){
 
     if (Array.isArray(dbDump?.items)) {
       for (const it of dbDump.items) {
-        if (!it || typeof it !== 'object') continue;
-        it.tokens = buildTokens(it);
-        it.searchMeta = buildSearchMeta(it);
-        await prom(items.put(it));
+        const normalizedItem = normalizeItemRecord(it);
+        if (!normalizedItem) continue;
+        normalizedItem.tokens = buildTokens(normalizedItem);
+        normalizedItem.searchMeta = buildSearchMeta(normalizedItem);
+        await prom(items.put(normalizedItem));
       }
     }
     if (Array.isArray(dbDump?.exams)) {
@@ -190,7 +273,9 @@ export async function importJSON(dbDump){
     }
     return { ok:true, message:'Import complete' };
   } catch (e) {
-    return { ok:false, message:e.message };
+    console.error('Import failed', e);
+    const detail = e?.message ? `Import failed: ${e.message}` : 'Import failed';
+    return { ok:false, message: detail };
   }
 }
 
