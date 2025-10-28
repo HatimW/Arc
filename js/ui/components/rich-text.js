@@ -3106,6 +3106,7 @@ function openImageLightbox(image){
   overlay.className = 'image-lightbox';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
+  overlay.dataset.tool = 'occlusion';
 
   const backdrop = document.createElement('div');
   backdrop.className = 'image-lightbox-backdrop';
@@ -3115,6 +3116,10 @@ function openImageLightbox(image){
   frame.className = 'image-lightbox-frame';
   overlay.appendChild(frame);
 
+  const layout = document.createElement('div');
+  layout.className = 'image-lightbox-layout';
+  frame.appendChild(layout);
+
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
   closeBtn.className = 'image-lightbox-close';
@@ -3122,28 +3127,78 @@ function openImageLightbox(image){
   closeBtn.innerHTML = '✕';
   frame.appendChild(closeBtn);
 
+  const surface = document.createElement('div');
+  surface.className = 'image-lightbox-surface';
+  layout.appendChild(surface);
+
   const cloned = image.cloneNode(true);
   cloned.removeAttribute('width');
   cloned.removeAttribute('height');
   cloned.classList.add('image-lightbox-img');
-  frame.appendChild(cloned);
+  surface.appendChild(cloned);
 
   const highlightLayer = document.createElement('div');
   highlightLayer.className = 'image-annotation-layer image-highlight-layer';
-  frame.appendChild(highlightLayer);
+  highlightLayer.hidden = true;
+  surface.appendChild(highlightLayer);
 
   const textLayer = document.createElement('div');
   textLayer.className = 'image-annotation-layer image-text-layer';
-  frame.appendChild(textLayer);
+  textLayer.hidden = true;
+  surface.appendChild(textLayer);
 
   const layer = document.createElement('div');
   layer.className = 'image-lightbox-occlusions image-occlusion-layer';
-  frame.appendChild(layer);
+  layer.hidden = true;
+  surface.appendChild(layer);
+
+  const tools = document.createElement('div');
+  tools.className = 'image-lightbox-tools';
+  tools.setAttribute('role', 'toolbar');
+  tools.setAttribute('aria-label', 'Image annotation tools');
+  layout.appendChild(tools);
+
+  const toolButtons = new Map();
+  let activeTool = 'occlusion';
+
+  const toolDefinitions = [
+    { id: 'occlusion', label: 'Occlusions', icon: '👁' },
+    { id: 'highlight', label: 'Highlights', icon: '🖍' },
+    { id: 'text', label: 'Text boxes', icon: '📝' }
+  ];
+
+  for (const def of toolDefinitions) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'image-lightbox-tool';
+    button.dataset.tool = def.id;
+    button.setAttribute('aria-label', def.label);
+    button.setAttribute('aria-pressed', 'false');
+    button.textContent = def.icon;
+    button.title = def.label;
+    button.addEventListener('click', () => {
+      setActiveTool(def.id);
+    });
+    tools.appendChild(button);
+    toolButtons.set(def.id, button);
+  }
 
   const boxElements = new Map();
   const highlightElements = new Map();
   const textboxElements = new Map();
   const revealStates = new Map();
+
+  function setActiveTool(tool){
+    if (!toolButtons.has(tool)) return;
+    activeTool = tool;
+    overlay.dataset.tool = tool;
+    toolButtons.forEach((button, id) => {
+      const isActive = id === tool;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+    applyToolVisibility();
+  }
 
   function toggleReveal(element){
     const id = element?.dataset?.id;
@@ -3192,7 +3247,7 @@ function openImageLightbox(image){
         revealStates.delete(id);
       }
     });
-    layer.classList.toggle('is-hidden', boxElements.size === 0);
+    applyToolVisibility();
   }
 
   function updateHighlights(){
@@ -3218,7 +3273,7 @@ function openImageLightbox(image){
         highlightElements.delete(id);
       }
     });
-    highlightLayer.classList.toggle('is-hidden', highlightElements.size === 0);
+    applyToolVisibility();
   }
 
   function updateTextboxes(){
@@ -3250,24 +3305,11 @@ function openImageLightbox(image){
         textboxElements.delete(id);
       }
     });
-    textLayer.classList.toggle('is-hidden', textboxElements.size === 0);
+    applyToolVisibility();
   }
 
   function updateLayout(){
-    const frameRect = frame.getBoundingClientRect();
-    const rect = cloned.getBoundingClientRect();
-    layer.style.width = `${rect.width}px`;
-    layer.style.height = `${rect.height}px`;
-    layer.style.left = `${rect.left - frameRect.left}px`;
-    layer.style.top = `${rect.top - frameRect.top}px`;
-    highlightLayer.style.width = `${rect.width}px`;
-    highlightLayer.style.height = `${rect.height}px`;
-    highlightLayer.style.left = `${rect.left - frameRect.left}px`;
-    highlightLayer.style.top = `${rect.top - frameRect.top}px`;
-    textLayer.style.width = `${rect.width}px`;
-    textLayer.style.height = `${rect.height}px`;
-    textLayer.style.left = `${rect.left - frameRect.left}px`;
-    textLayer.style.top = `${rect.top - frameRect.top}px`;
+    // the surface tracks the image size via CSS; overlays simply cover it
   }
 
   function updateAll(){
@@ -3275,6 +3317,16 @@ function openImageLightbox(image){
     updateBoxes();
     updateHighlights();
     updateTextboxes();
+  }
+
+  function applyToolVisibility(){
+    const showOcclusions = activeTool === 'occlusion' && boxElements.size > 0;
+    const showHighlights = activeTool === 'highlight' && highlightElements.size > 0;
+    const showTextboxes = activeTool === 'text' && textboxElements.size > 0;
+    layer.hidden = !showOcclusions;
+    highlightLayer.hidden = !showHighlights;
+    textLayer.hidden = !showTextboxes;
+    layer.classList.toggle('is-active', showOcclusions);
   }
 
   const onKeyDown = (event) => {
@@ -3299,7 +3351,10 @@ function openImageLightbox(image){
   cloned.addEventListener('load', () => updateAll());
 
   document.body.appendChild(overlay);
-  requestAnimationFrame(() => updateAll());
+  requestAnimationFrame(() => {
+    setActiveTool(activeTool);
+    updateAll();
+  });
 
   activeImageLightbox = {
     element: overlay,
