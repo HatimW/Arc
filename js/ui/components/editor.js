@@ -50,17 +50,17 @@ export async function openEditor(kind, onSave, existing = null) {
   let status;
   let statusFadeTimer = null;
   let autoSaveTimer = null;
+  let idleSaveHandle = null;
   const AUTOSAVE_DELAY = 2000;
+  const runWhenIdle = typeof requestIdleCallback === 'function' ? requestIdleCallback : null;
+  const cancelIdle = typeof cancelIdleCallback === 'function' ? cancelIdleCallback : null;
 
   const win = createFloatingWindow({
     title: `${existing ? 'Edit' : 'Add'} ${titleMap[kind] || kind}`,
     width: 660,
     onBeforeClose: async (reason) => {
       if (reason === 'saved') return true;
-      if (autoSaveTimer) {
-        clearTimeout(autoSaveTimer);
-        autoSaveTimer = null;
-      }
+      cancelAutoSave();
       if (!isDirty) return true;
       if (reason !== 'close') return true;
       const shouldSave = await confirmModal('Save changes before closing?');
@@ -97,18 +97,34 @@ export async function openEditor(kind, onSave, existing = null) {
       clearTimeout(autoSaveTimer);
       autoSaveTimer = null;
     }
+    if (idleSaveHandle != null && cancelIdle) {
+      cancelIdle(idleSaveHandle);
+      idleSaveHandle = null;
+    }
   };
 
   const queueAutoSave = () => {
     cancelAutoSave();
     if (!isDirty) return;
     if (!nameInput.value.trim()) return;
+    if (!hasLectureSelection()) return;
     autoSaveTimer = setTimeout(() => {
       autoSaveTimer = null;
       if (!isDirty) return;
-      persist({ silent: true }).catch(err => {
-        console.error('Autosave failed', err);
-      });
+      if (!hasLectureSelection()) return;
+      const attemptSave = () => {
+        persist({ silent: true }).catch(err => {
+          console.error('Autosave failed', err);
+        });
+      };
+      if (runWhenIdle) {
+        idleSaveHandle = runWhenIdle(() => {
+          idleSaveHandle = null;
+          attemptSave();
+        }, { timeout: AUTOSAVE_DELAY });
+      } else {
+        attemptSave();
+      }
     }, AUTOSAVE_DELAY);
   };
 
@@ -250,6 +266,11 @@ export async function openEditor(kind, onSave, existing = null) {
   const lectSet = new Set();
   const lectureBlockCounts = new Map();
 
+  function hasLectureSelection() {
+    if (lectSet.size > 0) return true;
+    return Array.isArray(existing?.lectures) && existing.lectures.length > 0;
+  }
+
   function incrementBlockCount(blockId) {
     if (!blockId) return;
     const key = String(blockId);
@@ -306,6 +327,30 @@ export async function openEditor(kind, onSave, existing = null) {
   const blockBrowser = document.createElement('div');
   blockBrowser.className = 'editor-curriculum-browser';
   blockWrap.appendChild(blockBrowser);
+
+  const runNextFrame = typeof requestAnimationFrame === 'function'
+    ? (cb) => requestAnimationFrame(cb)
+    : (cb) => setTimeout(cb, 16);
+
+  let scheduledRender = null;
+  function scheduleRender({ chips = false, blocks = false, weeks = false, lectures = false } = {}) {
+    if (!scheduledRender) {
+      scheduledRender = { chips, blocks, weeks, lectures };
+      runNextFrame(() => {
+        const payload = scheduledRender;
+        scheduledRender = null;
+        if (payload.chips) renderBlockChips();
+        if (payload.blocks) renderBlockList();
+        if (payload.weeks) renderWeekList();
+        if (payload.lectures) renderLectureList();
+      });
+      return;
+    }
+    if (chips) scheduledRender.chips = true;
+    if (blocks) scheduledRender.blocks = true;
+    if (weeks) scheduledRender.weeks = true;
+    if (lectures) scheduledRender.lectures = true;
+  }
 
   const blockColumn = document.createElement('div');
   blockColumn.className = 'editor-curriculum-column editor-block-column';
@@ -415,7 +460,7 @@ export async function openEditor(kind, onSave, existing = null) {
             manualWeeks.delete(weekNum);
             markDirty();
             renderManualWeekTags();
-            renderWeekList();
+            scheduleRender({ weeks: true, lectures: true });
           });
           chip.appendChild(removeBtn);
           manualWeekList.appendChild(chip);
@@ -511,8 +556,7 @@ export async function openEditor(kind, onSave, existing = null) {
       chip.addEventListener('click', () => {
         blockSet.delete(blockId);
         markDirty();
-        renderBlockChips();
-        renderBlockList();
+        scheduleRender({ chips: true, blocks: true, weeks: true, lectures: true });
       });
       blockChipRow.appendChild(chip);
     });
@@ -559,9 +603,7 @@ export async function openEditor(kind, onSave, existing = null) {
         activeBlockId = blockId;
         activeWeekKey = null;
         ensureActiveWeek();
-        renderBlockList();
-        renderWeekList();
-        renderLectureList();
+        scheduleRender({ blocks: true, weeks: true, lectures: true });
       });
 
       row.appendChild(button);
@@ -624,8 +666,7 @@ export async function openEditor(kind, onSave, existing = null) {
       btn.appendChild(meta);
       btn.addEventListener('click', () => {
         activeWeekKey = group.key;
-        renderWeekList();
-        renderLectureList();
+        scheduleRender({ weeks: true, lectures: true });
       });
       weekListEl.appendChild(btn);
     });
@@ -692,10 +733,7 @@ export async function openEditor(kind, onSave, existing = null) {
           incrementBlockCount(blockId);
         }
         markDirty();
-        renderBlockChips();
-        renderBlockList();
-        renderWeekList();
-        renderLectureList();
+        scheduleRender({ chips: true, blocks: true, weeks: true, lectures: true });
       });
       lectureListEl.appendChild(btn);
     });

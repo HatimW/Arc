@@ -569,6 +569,45 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
     return clamped > 0 ? clamped : null;
   }
 
+  function dataUrlToBlob(dataUrl) {
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) return null;
+    const parts = dataUrl.split(',');
+    if (parts.length < 2) return null;
+    const meta = parts[0];
+    const base64 = parts.slice(1).join(',');
+    const mimeMatch = meta.match(/data:([^;]+)/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+    try {
+      const binary = atob(base64);
+      const len = binary.length;
+      const buffer = new Uint8Array(len);
+      for (let i = 0; i < len; i += 1) {
+        buffer[i] = binary.charCodeAt(i);
+      }
+      return new Blob([buffer], { type: mime });
+    } catch (err) {
+      console.warn('Failed to convert image for clipboard', err);
+      return null;
+    }
+  }
+
+  async function resolveImageBlob(image) {
+    if (!(image instanceof HTMLImageElement)) return null;
+    const src = image.getAttribute('src') || '';
+    if (!src) return null;
+    if (src.startsWith('data:')) {
+      return dataUrlToBlob(src);
+    }
+    try {
+      const response = await fetch(src);
+      if (!response.ok) return null;
+      return await response.blob();
+    } catch (err) {
+      console.warn('Failed to read image for clipboard', err);
+      return null;
+    }
+  }
+
   async function insertImageFile(file, targetImage = null) {
     if (!(file instanceof File)) return;
     try {
@@ -677,6 +716,42 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
     }
     event.preventDefault();
     insertPlainText(text || '');
+  });
+
+  editable.addEventListener('copy', async (event) => {
+    try {
+      if (!event.clipboardData) return;
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      const range = selection.getRangeAt(0);
+      if (!editable.contains(range.startContainer) || !editable.contains(range.endContainer)) {
+        return;
+      }
+      const fragment = range.cloneContents();
+      if (!fragment || fragment.childNodes.length === 0) return;
+      const container = document.createElement('div');
+      container.appendChild(fragment);
+      const images = Array.from(container.querySelectorAll('img'));
+      if (!images.length) return;
+      event.preventDefault();
+      const plain = selection.toString();
+      event.clipboardData.setData('text/plain', plain || '');
+      event.clipboardData.setData('text/html', container.innerHTML);
+      if (navigator.clipboard?.write && typeof ClipboardItem === 'function') {
+        const blob = await resolveImageBlob(images[0]);
+        if (blob) {
+          try {
+            await navigator.clipboard.write([
+              new ClipboardItem({ [blob.type || 'image/png']: blob })
+            ]);
+          } catch (err) {
+            console.warn('Failed to write image to clipboard', err);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to process copy event', err);
+    }
   });
 
   occlusionDisplayManager = createEditorOcclusionDisplayManager(wrapper, editable, beginImageEditing);
@@ -3267,6 +3342,11 @@ function openImageLightbox(image){
   cloned.style.height = '100%';
   cloned.style.objectFit = 'contain';
   surface.appendChild(cloned);
+  cloned.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeImageLightbox();
+  });
 
   const highlightLayer = document.createElement('div');
   highlightLayer.className = 'image-annotation-layer image-highlight-layer';
