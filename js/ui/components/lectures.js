@@ -30,6 +30,20 @@ function findLectureScrollContainer(element) {
   return doc;
 }
 
+function shallowArrayEqual(a, b) {
+  const arrA = Array.isArray(a) ? a : [];
+  const arrB = Array.isArray(b) ? b : [];
+  if (arrA.length !== arrB.length) {
+    return false;
+  }
+  for (let i = 0; i < arrA.length; i += 1) {
+    if (arrA[i] !== arrB[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function ensureLectureState() {
   if (!state.lectures) {
     setLecturesState({});
@@ -63,12 +77,37 @@ function captureLectureViewState() {
       const weekValue = details.dataset?.weekValue ?? '';
       return `${String(blockKey)}::${String(weekValue)}`;
     });
-  setLecturesState({
-    openBlocks,
-    openWeeks,
-    openSnapshot: Date.now(),
-    scrollTop: findLectureScrollContainer(container)?.scrollTop ?? window.scrollY
-  });
+  const scrollContainer = findLectureScrollContainer(container);
+  let rawScrollTop = 0;
+  if (scrollContainer && typeof scrollContainer.scrollTop === 'number') {
+    rawScrollTop = scrollContainer.scrollTop;
+  } else if (typeof window !== 'undefined') {
+    rawScrollTop = window.scrollY ?? window.pageYOffset ?? 0;
+  }
+  const normalizedScrollTop =
+    Number.isFinite(rawScrollTop) && rawScrollTop > 0 ? Math.max(0, Math.round(rawScrollTop)) : 0;
+
+  const lectureState = ensureLectureState();
+  const openBlocksChanged = !shallowArrayEqual(lectureState.openBlocks, openBlocks);
+  const openWeeksChanged = !shallowArrayEqual(lectureState.openWeeks, openWeeks);
+  const previousScroll = Number(lectureState.scrollTop) || 0;
+  const scrollChanged = Math.abs(normalizedScrollTop - previousScroll) > 1;
+
+  if (!openBlocksChanged && !openWeeksChanged && !scrollChanged) {
+    return;
+  }
+
+  const patch = { openSnapshot: Date.now() };
+  if (openBlocksChanged) {
+    patch.openBlocks = openBlocks;
+  }
+  if (openWeeksChanged) {
+    patch.openWeeks = openWeeks;
+  }
+  if (scrollChanged) {
+    patch.scrollTop = normalizedScrollTop;
+  }
+  setLecturesState(patch);
 }
 
 function collectLectures(catalog) {
@@ -1255,6 +1294,7 @@ function renderLectureTable(
 
   const groupsContainer = document.createElement('div');
   groupsContainer.className = 'lectures-groups';
+  const blockFragment = document.createDocumentFragment();
 
   const sortedGroups = Array.from(blockGroups.values()).sort((a, b) => {
     const ao = orderMap.has(a.blockId) ? orderMap.get(a.blockId) : orderMap.get(String(a.blockId)) ?? Number.POSITIVE_INFINITY;
@@ -1322,6 +1362,7 @@ function renderLectureTable(
 
     const weekWrapper = document.createElement('div');
     weekWrapper.className = 'lectures-week-groups';
+    const weekFragment = document.createDocumentFragment();
 
     const sortedWeeks = Array.from(group.weeks.entries()).sort((aEntry, bEntry) => {
       const [aKey] = aEntry;
@@ -1417,6 +1458,7 @@ function renderLectureTable(
       const list = document.createElement('div');
       list.className = 'lectures-week-list';
 
+      const rowsFragment = document.createDocumentFragment();
       const headerRow = document.createElement('div');
       headerRow.className = 'lecture-row lecture-row-header';
       [
@@ -1429,7 +1471,7 @@ function renderLectureTable(
         cell.textContent = column.label;
         headerRow.appendChild(cell);
       });
-      list.appendChild(headerRow);
+      rowsFragment.appendChild(headerRow);
 
       sortLecturesForDisplay(weekLectures, sortConfig).forEach(entry => {
         const row = renderLectureWeekRow(
@@ -1441,18 +1483,21 @@ function renderLectureTable(
           lecture => onExportLecture?.(lecture, group.block),
           now
         );
-        list.appendChild(row);
+        rowsFragment.appendChild(row);
       });
 
+      list.appendChild(rowsFragment);
       weekBody.appendChild(list);
       weekDetails.appendChild(weekBody);
-      weekWrapper.appendChild(weekDetails);
+      weekFragment.appendChild(weekDetails);
     });
 
+    weekWrapper.appendChild(weekFragment);
     blockDetails.appendChild(weekWrapper);
-    groupsContainer.appendChild(blockDetails);
+    blockFragment.appendChild(blockDetails);
   });
 
+  groupsContainer.appendChild(blockFragment);
   card.appendChild(groupsContainer);
   return card;
 }
@@ -2772,10 +2817,8 @@ export async function renderLectures(root, redraw) {
   }
   }
 
-  root.innerHTML = '';
   const layout = document.createElement('div');
   layout.className = 'lectures-view';
-  root.appendChild(layout);
 
   const toolbar = buildToolbar(
     blocks,
@@ -2785,8 +2828,6 @@ export async function renderLectures(root, redraw) {
     defaultPassPlan,
     handleImportBundle
   );
-  layout.appendChild(toolbar);
-
   const table = renderLectureTable(
     blocks,
     filtered,
@@ -2799,9 +2840,19 @@ export async function renderLectures(root, redraw) {
     (blockInfo, weekValue) => handleExportWeekBundle(blockInfo, weekValue),
     blockInfo => handleExportBlockBundle(blockInfo)
   );
-  layout.appendChild(table);
+  const layoutFragment = document.createDocumentFragment();
+  layoutFragment.appendChild(toolbar);
+  layoutFragment.appendChild(table);
+  layout.appendChild(layoutFragment);
 
-  const scroller = findLectureScrollContainer(root);
+  if (typeof root.replaceChildren === 'function') {
+    root.replaceChildren(layout);
+  } else {
+    root.innerHTML = '';
+    root.appendChild(layout);
+  }
+
+  const scroller = findLectureScrollContainer(layout);
   requestAnimationFrame(() => {
     const target = Number(filters?.scrollTop);
     if (Number.isFinite(target) && target > 0) {
