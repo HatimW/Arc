@@ -11328,10 +11328,21 @@ button.question-map__item[data-change-direction="returned"] {
   gap: 0.85rem;
   padding: 0.9rem 1.2rem;
   border-radius: var(--radius-lg);
-  border: 1px solid color-mix(in srgb, var(--border) 55%, rgba(148, 163, 184, 0.12));
+  border: 1px solid rgba(148, 163, 184, 0.35);
   background: linear-gradient(160deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.78));
   box-shadow: 0 22px 48px rgba(15, 23, 42, 0.34);
-  backdrop-filter: blur(14px);
+}
+
+@supports (border: 1px solid color-mix(in srgb, var(--border) 55%, rgba(148, 163, 184, 0.12))) {
+  .lectures-toolbar {
+    border: 1px solid color-mix(in srgb, var(--border) 55%, rgba(148, 163, 184, 0.12));
+  }
+}
+
+@supports ((-webkit-backdrop-filter: blur(14px)) or (backdrop-filter: blur(14px))) {
+  .lectures-toolbar {
+    backdrop-filter: blur(14px);
+  }
 }
 
 .lectures-toolbar-filters {
@@ -11390,7 +11401,7 @@ button.question-map__item[data-change-direction="returned"] {
 .lectures-toolbar .input {
   min-height: 40px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border: 1px solid rgba(148, 163, 184, 0.3);
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.72));
   padding: 0.45rem 1rem;
   font-size: 0.85rem;
@@ -11400,11 +11411,24 @@ button.question-map__item[data-change-direction="returned"] {
   appearance: none;
 }
 
+@supports (border: 1px solid color-mix(in srgb, var(--border) 75%, transparent)) {
+  .lectures-toolbar .input {
+    border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  }
+}
+
 .lectures-toolbar .input:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: rgba(56, 189, 248, 0.45);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
   background: rgba(19, 28, 44, 0.92);
+}
+
+@supports (border-color: color-mix(in srgb, var(--accent) 55%, transparent)) {
+  .lectures-toolbar .input:focus {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
 }
 
 .lectures-toolbar .input::placeholder {
@@ -11437,12 +11461,18 @@ button.question-map__item[data-change-direction="returned"] {
   border-radius: 999px;
   padding: 0.4rem 1.1rem;
   background: rgba(148, 163, 184, 0.16);
-  border: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  border: 1px solid rgba(148, 163, 184, 0.28);
   color: var(--text);
   font-size: 0.8rem;
   line-height: 1.1;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
   transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+@supports (border: 1px solid color-mix(in srgb, var(--border) 68%, transparent)) {
+  .lectures-sort-direction {
+    border: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  }
 }
 
 .lectures-sort-direction::after {
@@ -11492,7 +11522,7 @@ button.question-map__item[data-change-direction="returned"] {
 }
 
 .lectures-block-group {
-  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border: 1px solid rgba(30, 41, 59, 0.65);
   border-radius: var(--radius-lg);
   background: linear-gradient(170deg, rgba(13, 20, 32, 0.94), rgba(9, 14, 24, 0.82));
   box-shadow: 0 20px 48px rgba(2, 6, 23, 0.38);
@@ -11500,8 +11530,21 @@ button.question-map__item[data-change-direction="returned"] {
 }
 
 .lectures-block-group.has-accent {
-  border-color: color-mix(in srgb, var(--block-accent) 32%, var(--border));
-  box-shadow: 0 26px 56px color-mix(in srgb, var(--block-accent) 20%, transparent);
+  border-color: rgba(56, 189, 248, 0.28);
+  box-shadow: 0 26px 56px rgba(15, 23, 42, 0.28);
+}
+
+@supports (border: 1px solid color-mix(in srgb, var(--border) 85%, transparent)) {
+  .lectures-block-group {
+    border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  }
+}
+
+@supports (border-color: color-mix(in srgb, var(--block-accent) 32%, var(--border))) {
+  .lectures-block-group.has-accent {
+    border-color: color-mix(in srgb, var(--block-accent) 32%, var(--border));
+    box-shadow: 0 26px 56px color-mix(in srgb, var(--block-accent) 20%, transparent);
+  }
 }
 
 .lectures-block-summary {
@@ -11511,8 +11554,14 @@ button.question-map__item[data-change-direction="returned"] {
   gap: 0.75rem;
   padding: 1rem 1.25rem;
   background: rgba(148, 163, 184, 0.12);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
   cursor: pointer;
+}
+
+@supports (border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent)) {
+  .lectures-block-summary {
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  }
 }
 
 .lectures-block-summary::marker {
@@ -11538,11 +11587,17 @@ button.question-map__item[data-change-direction="returned"] {
 }
 
 .lectures-week-group {
-  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border: 1px solid rgba(30, 41, 59, 0.55);
   border-radius: var(--radius);
   background: rgba(10, 16, 26, 0.82);
   box-shadow: 0 14px 32px rgba(2, 6, 23, 0.28);
   overflow: hidden;
+}
+
+@supports (border: 1px solid color-mix(in srgb, var(--border) 80%, transparent)) {
+  .lectures-week-group {
+    border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  }
 }
 
 .lectures-week-summary {
@@ -11552,8 +11607,14 @@ button.question-map__item[data-change-direction="returned"] {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   background: rgba(148, 163, 184, 0.08);
-  border-bottom: 1px solid color-mix(in srgb, var(--surface-3) 85%, transparent);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
   cursor: pointer;
+}
+
+@supports (border-bottom: 1px solid color-mix(in srgb, var(--surface-3) 85%, transparent)) {
+  .lectures-week-summary {
+    border-bottom: 1px solid color-mix(in srgb, var(--surface-3) 85%, transparent);
+  }
 }
 
 .lectures-week-summary::marker {
@@ -11590,9 +11651,15 @@ button.question-map__item[data-change-direction="returned"] {
   gap: 1rem;
   align-items: stretch;
   padding: 0.9rem 1rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--surface-3) 88%, transparent);
+  border-bottom: 1px solid rgba(30, 41, 59, 0.45);
   font-size: 0.9rem;
   background: rgba(8, 12, 22, 0.78);
+}
+
+@supports (border-bottom: 1px solid color-mix(in srgb, var(--surface-3) 88%, transparent)) {
+  .lecture-row {
+    border-bottom: 1px solid color-mix(in srgb, var(--surface-3) 88%, transparent);
+  }
 }
 
 .lecture-row:last-child {
@@ -11605,13 +11672,30 @@ button.question-map__item[data-change-direction="returned"] {
 
 .lecture-row-header {
   padding: 0.75rem 1rem;
-  background: color-mix(in srgb, rgba(11, 18, 30, 0.9) 82%, rgba(45, 64, 89, 0.4));
-  backdrop-filter: blur(10px);
+  background: rgba(11, 18, 30, 0.92);
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: color-mix(in srgb, var(--text-muted) 80%, white 12%);
+  color: rgba(226, 232, 240, 0.76);
   font-weight: 600;
+}
+
+@supports (background: color-mix(in srgb, rgba(11, 18, 30, 0.9) 82%, rgba(45, 64, 89, 0.4))) {
+  .lecture-row-header {
+    background: color-mix(in srgb, rgba(11, 18, 30, 0.9) 82%, rgba(45, 64, 89, 0.4));
+  }
+}
+
+@supports (color: color-mix(in srgb, var(--text-muted) 80%, white 12%)) {
+  .lecture-row-header {
+    color: color-mix(in srgb, var(--text-muted) 80%, white 12%);
+  }
+}
+
+@supports ((-webkit-backdrop-filter: blur(10px)) or (backdrop-filter: blur(10px))) {
+  .lecture-row-header {
+    backdrop-filter: blur(10px);
+  }
 }
 
 .lecture-row-header .lecture-col {

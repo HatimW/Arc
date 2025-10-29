@@ -235,33 +235,68 @@ export async function importJSON(dbDump){
       ? dbDump.settingsEntries.filter(entry => entry && typeof entry === 'object' && entry.id && entry.id !== 'app')
       : [];
 
+    const skipped = {
+      settings: 0,
+      blocks: 0,
+      lectures: 0,
+      items: 0,
+      exams: 0,
+      examSessions: 0,
+      studySessions: 0
+    };
+
     if (dbDump?.settings && typeof dbDump.settings === 'object') {
-      await prom(settings.put({ ...dbDump.settings, id:'app' }));
+      try {
+        await prom(settings.put({ ...dbDump.settings, id:'app' }));
+      } catch (err) {
+        skipped.settings += 1;
+        console.warn('Failed to import primary settings entry', err);
+      }
     } else {
-      await prom(settings.put({ id:'app', dailyCount:20, theme:'dark' }));
+      try {
+        await prom(settings.put({ id:'app', dailyCount:20, theme:'dark' }));
+      } catch (err) {
+        skipped.settings += 1;
+        console.warn('Failed to persist default settings during import', err);
+      }
     }
     if (dbDump?.mapConfig && typeof dbDump.mapConfig === 'object') {
-      await prom(settings.put({ id: MAP_CONFIG_KEY, config: dbDump.mapConfig }));
+      try {
+        await prom(settings.put({ id: MAP_CONFIG_KEY, config: dbDump.mapConfig }));
+      } catch (err) {
+        skipped.settings += 1;
+        console.warn('Failed to import saved map configuration', err);
+      }
     }
     for (const entry of additionalSettings) {
-      await prom(settings.put(entry));
+      try {
+        await prom(settings.put(entry));
+      } catch (err) {
+        skipped.settings += 1;
+        console.warn('Failed to import secondary settings entry', err, entry);
+      }
     }
     const lectureRecords = new Map();
     const addLectureRecord = (record, { preferExisting = false } = {}) => {
-      if (!record || typeof record !== 'object') return;
-      const blockId = coerceBlockId(record.blockId ?? record.block ?? null);
-      const lectureIdRaw = record.id ?? record.lectureId ?? null;
-      if (lectureIdRaw == null) return;
-      const lectureIdNumber = Number(lectureIdRaw);
-      const lectureId = Number.isFinite(lectureIdNumber) && `${lectureIdNumber}` === `${lectureIdRaw}`
-        ? lectureIdNumber
-        : lectureIdRaw;
-      if (blockId == null || lectureId == null) return;
-      const key = record.key || lectureKey(blockId, lectureId);
-      if (!key) return;
-      if (preferExisting && lectureRecords.has(key)) return;
-      const payload = deepClone({ ...record, key, blockId, id: lectureId });
-      lectureRecords.set(key, payload);
+      try {
+        if (!record || typeof record !== 'object') return;
+        const blockId = coerceBlockId(record.blockId ?? record.block ?? null);
+        const lectureIdRaw = record.id ?? record.lectureId ?? null;
+        if (lectureIdRaw == null) return;
+        const lectureIdNumber = Number(lectureIdRaw);
+        const lectureId = Number.isFinite(lectureIdNumber) && `${lectureIdNumber}` === `${lectureIdRaw}`
+          ? lectureIdNumber
+          : lectureIdRaw;
+        if (blockId == null || lectureId == null) return;
+        const key = record.key || lectureKey(blockId, lectureId);
+        if (!key) return;
+        if (preferExisting && lectureRecords.has(key)) return;
+        const payload = deepClone({ ...record, key, blockId, id: lectureId });
+        lectureRecords.set(key, payload);
+      } catch (err) {
+        skipped.lectures += 1;
+        console.warn('Skipping lecture during import due to serialization error', err, record);
+      }
     };
 
     if (Array.isArray(dbDump?.lectures)) {
@@ -273,62 +308,97 @@ export async function importJSON(dbDump){
     const migrationTimestamp = Date.now();
     if (Array.isArray(dbDump?.blocks)) {
       for (const b of dbDump.blocks) {
-        if (!b || typeof b !== 'object') continue;
-        const { lectures: legacyLectures, ...rest } = b;
-        const blockRecord = normalizeBlockRecord(rest, b);
-        if (!blockRecord) continue;
-        await prom(blocks.put(blockRecord));
-        if (!Array.isArray(legacyLectures) || legacyLectures.length === 0) continue;
-        const blockId = blockRecord?.blockId;
-        if (blockId == null) continue;
-        for (const legacy of legacyLectures) {
-          const normalized = normalizeLectureRecord(blockId, legacy, migrationTimestamp);
-          if (!normalized) continue;
-          if (typeof legacy?.createdAt === 'number' && Number.isFinite(legacy.createdAt)) {
-            normalized.createdAt = legacy.createdAt;
+        try {
+          if (!b || typeof b !== 'object') continue;
+          const { lectures: legacyLectures, ...rest } = b;
+          const blockRecord = normalizeBlockRecord(rest, b);
+          if (!blockRecord) continue;
+          await prom(blocks.put(blockRecord));
+          if (!Array.isArray(legacyLectures) || legacyLectures.length === 0) continue;
+          const blockId = blockRecord?.blockId;
+          if (blockId == null) continue;
+          for (const legacy of legacyLectures) {
+            try {
+              const normalized = normalizeLectureRecord(blockId, legacy, migrationTimestamp);
+              if (!normalized) continue;
+              if (typeof legacy?.createdAt === 'number' && Number.isFinite(legacy.createdAt)) {
+                normalized.createdAt = legacy.createdAt;
+              }
+              if (typeof legacy?.updatedAt === 'number' && Number.isFinite(legacy.updatedAt)) {
+                normalized.updatedAt = legacy.updatedAt;
+              }
+              addLectureRecord(normalized, { preferExisting: true });
+            } catch (err) {
+              skipped.lectures += 1;
+              console.warn('Skipping legacy lecture while importing block', err, legacy);
+            }
           }
-          if (typeof legacy?.updatedAt === 'number' && Number.isFinite(legacy.updatedAt)) {
-            normalized.updatedAt = legacy.updatedAt;
-          }
-          addLectureRecord(normalized, { preferExisting: true });
+        } catch (err) {
+          skipped.blocks += 1;
+          console.warn('Skipping block during import', err, b);
         }
       }
     }
 
     if (lectureRecords.size) {
       for (const lecture of lectureRecords.values()) {
-        await prom(lectures.put(lecture));
+        try {
+          await prom(lectures.put(lecture));
+        } catch (err) {
+          skipped.lectures += 1;
+          console.warn('Failed to persist lecture during import', err, lecture);
+        }
       }
     }
 
     if (Array.isArray(dbDump?.items)) {
       for (const it of dbDump.items) {
-        const normalizedItem = normalizeItemRecord(it);
-        if (!normalizedItem) continue;
-        normalizedItem.tokens = buildTokens(normalizedItem);
-        normalizedItem.searchMeta = buildSearchMeta(normalizedItem);
-        await prom(items.put(normalizedItem));
+        try {
+          const normalizedItem = normalizeItemRecord(it);
+          if (!normalizedItem) continue;
+          normalizedItem.tokens = buildTokens(normalizedItem);
+          normalizedItem.searchMeta = buildSearchMeta(normalizedItem);
+          await prom(items.put(normalizedItem));
+        } catch (err) {
+          skipped.items += 1;
+          console.warn('Skipping item during import', err, it);
+        }
       }
     }
     if (Array.isArray(dbDump?.exams)) {
       for (const ex of dbDump.exams) {
-        const normalizedExam = normalizeExamRecord(ex);
-        if (!normalizedExam) continue;
-        await prom(exams.put(normalizedExam));
+        try {
+          const normalizedExam = normalizeExamRecord(ex);
+          if (!normalizedExam) continue;
+          await prom(exams.put(normalizedExam));
+        } catch (err) {
+          skipped.exams += 1;
+          console.warn('Skipping exam during import', err, ex);
+        }
       }
     }
     if (Array.isArray(dbDump?.examSessions)) {
       for (const session of dbDump.examSessions) {
-        const normalizedSession = normalizeExamSessionRecord(session);
-        if (!normalizedSession) continue;
-        await prom(examSessions.put(normalizedSession));
+        try {
+          const normalizedSession = normalizeExamSessionRecord(session);
+          if (!normalizedSession) continue;
+          await prom(examSessions.put(normalizedSession));
+        } catch (err) {
+          skipped.examSessions += 1;
+          console.warn('Skipping exam session during import', err, session);
+        }
       }
     }
     if (Array.isArray(dbDump?.studySessions)) {
       for (const session of dbDump.studySessions) {
-        const normalizedStudySession = normalizeStudySessionRecord(session);
-        if (!normalizedStudySession) continue;
-        await prom(studySessions.put(normalizedStudySession));
+        try {
+          const normalizedStudySession = normalizeStudySessionRecord(session);
+          if (!normalizedStudySession) continue;
+          await prom(studySessions.put(normalizedStudySession));
+        } catch (err) {
+          skipped.studySessions += 1;
+          console.warn('Skipping study session during import', err, session);
+        }
       }
     }
 
@@ -336,7 +406,26 @@ export async function importJSON(dbDump){
     if (db && typeof db.close === 'function') {
       try { db.close(); } catch (_) {}
     }
-    return { ok:true, message:'Import complete' };
+    const skippedMessages = [];
+    const labelMap = {
+      settings: ['settings entry', 'settings entries'],
+      blocks: ['block', 'blocks'],
+      lectures: ['lecture', 'lectures'],
+      items: ['item', 'items'],
+      exams: ['exam', 'exams'],
+      examSessions: ['exam session', 'exam sessions'],
+      studySessions: ['study session', 'study sessions']
+    };
+    for (const [key, [singular, plural]] of Object.entries(labelMap)) {
+      const count = skipped[key];
+      if (count > 0) {
+        skippedMessages.push(`${count} ${count === 1 ? singular : plural}`);
+      }
+    }
+    const message = skippedMessages.length
+      ? `Import complete (skipped ${skippedMessages.join(', ')})`
+      : 'Import complete';
+    return { ok:true, message };
   } catch (e) {
     console.error('Import failed', e);
     const detail = e?.message ? `Import failed: ${e.message}` : 'Import failed';
