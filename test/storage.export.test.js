@@ -120,3 +120,47 @@ test('importJSON prefers explicit lecture dumps over legacy arrays', async () =>
 
   await resetDatabase();
 });
+
+test('importJSON ignores invalid exam and study session records', async () => {
+  await resetDatabase();
+  const dump = {
+    exams: [
+      { title: 'Missing id' },
+      { id: 'exam-1', title: 'Valid exam' }
+    ],
+    examSessions: [
+      { score: 75 },
+      { examId: 'exam-1', progress: { correct: 10 } }
+    ],
+    studySessions: [
+      { session: { idx: 0 } },
+      { mode: 'study', session: { idx: 2 }, cohort: [{ id: 'item-1' }], metadata: { foo: 'bar' } }
+    ]
+  };
+
+  const result = await importJSON(dump);
+  assert.equal(result.ok, true, 'import should succeed when invalid entries are present');
+
+  const db = await openDB();
+
+  const examsStore = db.transaction('exams', 'readonly').objectStore('exams');
+  const exams = await requestToPromise(examsStore.getAll());
+  assert.equal(exams.length, 1, 'only valid exams should be stored');
+  assert.equal(exams[0].id, 'exam-1');
+
+  const examSessionsStore = db.transaction('exam_sessions', 'readonly').objectStore('exam_sessions');
+  const examSessions = await requestToPromise(examSessionsStore.getAll());
+  assert.equal(examSessions.length, 1, 'invalid exam sessions should be ignored');
+  assert.equal(examSessions[0].examId, 'exam-1');
+
+  const studySessionsStore = db.transaction('study_sessions', 'readonly').objectStore('study_sessions');
+  const studySessions = await requestToPromise(studySessionsStore.getAll());
+  assert.equal(studySessions.length, 1, 'study session without mode should be skipped');
+  assert.equal(studySessions[0].mode, 'study');
+  assert.deepEqual(studySessions[0].session, { idx: 2, mode: 'study' });
+  assert.deepEqual(studySessions[0].cohort, [{ id: 'item-1' }]);
+  assert.deepEqual(studySessions[0].metadata, { foo: 'bar' });
+
+  db.close();
+  await resetDatabase();
+});

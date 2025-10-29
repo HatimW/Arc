@@ -93,6 +93,68 @@ function normalizeItemRecord(item) {
   return copy;
 }
 
+function normalizeExamRecord(record) {
+  if (!record || typeof record !== 'object') return null;
+  const id = record.id ?? record.examId ?? null;
+  if (id == null || id === '') return null;
+  return deepClone({ ...record, id });
+}
+
+function coerceExamId(value) {
+  if (value == null) return null;
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeExamSessionRecord(record) {
+  if (!record || typeof record !== 'object') return null;
+  const examId = coerceExamId(record.examId ?? record.id ?? null);
+  if (examId == null) return null;
+  const copy = deepClone(record);
+  copy.examId = examId;
+  if (!Number.isFinite(copy.updatedAt)) {
+    copy.updatedAt = Date.now();
+  }
+  return copy;
+}
+
+function normalizeStudySessionRecord(record) {
+  if (!record || typeof record !== 'object') return null;
+  const mode = typeof record.mode === 'string' && record.mode.trim()
+    ? record.mode.trim()
+    : null;
+  if (!mode) return null;
+  const session = record.session && typeof record.session === 'object' && !Array.isArray(record.session)
+    ? deepClone(record.session)
+    : {};
+  if (mode === 'review') {
+    session.mode = 'review';
+  } else if (typeof session.mode !== 'string' || session.mode !== 'review') {
+    session.mode = 'study';
+  }
+  const cohort = Array.isArray(record.cohort)
+    ? record.cohort
+        .map(entry => (entry === null || entry === undefined ? null : deepClone(entry)))
+        .filter(entry => entry !== null)
+    : [];
+  const metadata = record.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
+    ? deepClone(record.metadata)
+    : {};
+  const normalized = {
+    mode,
+    updatedAt: Number.isFinite(record.updatedAt) ? record.updatedAt : Date.now(),
+    session,
+    cohort,
+    metadata
+  };
+  return normalized;
+}
+
 export async function exportJSON(){
   const db = await openDB();
   const tx = db.transaction(TRANSACTION_STORES);
@@ -250,20 +312,23 @@ export async function importJSON(dbDump){
     }
     if (Array.isArray(dbDump?.exams)) {
       for (const ex of dbDump.exams) {
-        if (!ex || typeof ex !== 'object') continue;
-        await prom(exams.put(ex));
+        const normalizedExam = normalizeExamRecord(ex);
+        if (!normalizedExam) continue;
+        await prom(exams.put(normalizedExam));
       }
     }
     if (Array.isArray(dbDump?.examSessions)) {
       for (const session of dbDump.examSessions) {
-        if (!session || typeof session !== 'object') continue;
-        await prom(examSessions.put(session));
+        const normalizedSession = normalizeExamSessionRecord(session);
+        if (!normalizedSession) continue;
+        await prom(examSessions.put(normalizedSession));
       }
     }
     if (Array.isArray(dbDump?.studySessions)) {
       for (const session of dbDump.studySessions) {
-        if (!session || typeof session !== 'object') continue;
-        await prom(studySessions.put(session));
+        const normalizedStudySession = normalizeStudySessionRecord(session);
+        if (!normalizedStudySession) continue;
+        await prom(studySessions.put(normalizedStudySession));
       }
     }
 
