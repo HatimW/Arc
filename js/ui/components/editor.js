@@ -54,10 +54,62 @@ export async function openEditor(kind, onSave, existing = null) {
   const AUTOSAVE_DELAY = 2000;
   const runWhenIdle = typeof requestIdleCallback === 'function' ? requestIdleCallback : null;
   const cancelIdle = typeof cancelIdleCallback === 'function' ? cancelIdleCallback : null;
+  const editorCleanups = new Set();
+
+  function registerCleanup(fn) {
+    if (typeof fn !== 'function') {
+      return () => {};
+    }
+    editorCleanups.add(fn);
+    return () => {
+      editorCleanups.delete(fn);
+    };
+  }
+
+  function runEditorCleanups() {
+    editorCleanups.forEach(fn => {
+      try {
+        fn();
+      } catch (err) {
+        console.error('Failed to cleanup editor resources', err);
+      }
+    });
+    editorCleanups.clear();
+  }
+
+  function trackEditorInstance(editor) {
+    if (!editor || typeof editor.destroy !== 'function') {
+      return () => {};
+    }
+    let disposed = false;
+    const cleanup = () => {
+      if (disposed) return;
+      disposed = true;
+      try {
+        editor.destroy();
+      } catch (err) {
+        console.error('Failed to destroy rich text editor', err);
+      }
+    };
+    const unregister = registerCleanup(cleanup);
+    return () => {
+      if (disposed) return;
+      unregister();
+      cleanup();
+    };
+  }
 
   const win = createFloatingWindow({
     title: `${existing ? 'Edit' : 'Add'} ${titleMap[kind] || kind}`,
     width: 660,
+    onClose: () => {
+      cancelAutoSave();
+      if (statusFadeTimer) {
+        clearTimeout(statusFadeTimer);
+        statusFadeTimer = null;
+      }
+      runEditorCleanups();
+    },
     onBeforeClose: async (reason) => {
       if (reason === 'saved') return true;
       cancelAutoSave();
@@ -160,6 +212,7 @@ export async function openEditor(kind, onSave, existing = null) {
       onChange: markDirty,
       ariaLabelledBy: labelId
     });
+    trackEditorInstance(editor);
     const inp = editor.element;
     fieldInputs[field] = editor;
     fieldWrap.appendChild(inp);
@@ -206,22 +259,25 @@ export async function openEditor(kind, onSave, existing = null) {
     removeBtn.className = 'icon-btn ghost';
     removeBtn.title = 'Remove section';
     removeBtn.textContent = '✕';
-    removeBtn.addEventListener('click', () => {
-      extraControls.delete(id);
-      row.remove();
-      markDirty();
-    });
     titleRow.appendChild(removeBtn);
     row.appendChild(titleRow);
 
     const editor = createRichTextEditor({ value: data.body || '', onChange: markDirty });
+    const disposeEditor = trackEditorInstance(editor);
     row.appendChild(editor.element);
     extrasList.appendChild(row);
-    extraControls.set(id, { id, titleInput, editor });
+    extraControls.set(id, { id, titleInput, editor, dispose: disposeEditor });
 
     titleInput.addEventListener('input', markDirty);
     row.addEventListener('input', markDirty);
     if (!extra) markDirty();
+
+    removeBtn.addEventListener('click', () => {
+      extraControls.delete(id);
+      disposeEditor();
+      row.remove();
+      markDirty();
+    });
   }
 
   addExtraBtn.addEventListener('click', () => addExtra());

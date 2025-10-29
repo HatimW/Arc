@@ -2464,6 +2464,38 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
       suppress(image, suppressed){
         const overlay = overlays.get(image);
         if (overlay) overlay.setSuppressed(suppressed);
+      },
+      destroy(){
+        try {
+          mutationObserver.disconnect();
+        } catch (err) {
+          // ignore observer teardown issues
+        }
+        document.removeEventListener('scroll', onScroll, true);
+        editable.removeEventListener('scroll', onScroll);
+        window.removeEventListener('resize', onScroll);
+        overlays.forEach((overlay, image) => {
+          try {
+            overlay.destroy();
+          } catch (err) {
+            console.warn('Failed to destroy occlusion overlay', err);
+          }
+          if (resizeObserver) {
+            try {
+              resizeObserver.unobserve(image);
+            } catch (err) {
+              // ignore
+            }
+          }
+        });
+        overlays.clear();
+        if (resizeObserver) {
+          try {
+            resizeObserver.disconnect();
+          } catch (err) {
+            // ignore
+          }
+        }
       }
     };
   }
@@ -3288,6 +3320,14 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
     },
     focus(){
       focusEditor();
+    },
+    destroy(){
+      document.removeEventListener('selectionchange', selectionHandler);
+      destroyActiveImageEditor();
+      if (occlusionDisplayManager && typeof occlusionDisplayManager.destroy === 'function') {
+        occlusionDisplayManager.destroy();
+      }
+      occlusionDisplayManager = null;
     }
   };
 }

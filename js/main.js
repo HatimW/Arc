@@ -14,6 +14,7 @@ import { renderBlockBoard } from './ui/components/block-board.js';
 import { renderExams, renderExamRunner } from './ui/components/exams.js';
 import { renderMap } from './ui/components/map.js';
 import { createEntryAddControl } from './ui/components/entry-controls.js';
+import './ui/performance.js';
 import { createAppShell } from './app-shell.js';
 
 const { renderApp, tabs, resolveListKind } = createAppShell({

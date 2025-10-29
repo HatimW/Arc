@@ -2,6 +2,7 @@ import { state, setCardsState } from '../../state.js';
 import { renderRichText } from './rich-text.js';
 import { openEditor } from './editor.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
+import { reportListComplexity, getPerformanceMode } from '../performance.js';
 
 const UNASSIGNED_BLOCK_KEY = '__unassigned__';
 const MISC_LECTURE_KEY = '__misc__';
@@ -159,6 +160,13 @@ export async function renderCards(container, items, onChange) {
   const sortedItems = Array.isArray(items)
     ? items.slice().sort(compareByCreation)
     : [];
+
+  reportListComplexity('cards', { items: sortedItems.length, weight: 1.1 });
+  const perfMode = getPerformanceMode();
+  const MAX_EAGER_QUEUE = perfMode === 'conservative' ? 2 : perfMode === 'balanced' ? 4 : 6;
+  const GRID_CHUNK_BUDGET = perfMode === 'conservative' ? 3 : perfMode === 'balanced' ? 5 : 6;
+  const GRID_FRAME_BUDGET = perfMode === 'conservative' ? 9 : perfMode === 'balanced' ? 12 : 14;
+  const OBSERVER_ROOT_MARGIN = perfMode === 'conservative' ? '120px 0px' : perfMode === 'balanced' ? '160px 0px' : '200px 0px';
 
   const { blocks: blockDefs } = await loadBlockCatalog();
   const blockLookup = new Map(blockDefs.map(def => [def.blockId, def]));
@@ -378,7 +386,7 @@ export async function renderCards(container, items, onChange) {
 
   function requestEagerGrid(grid) {
     if (!grid || eagerGridSet.has(grid)) return;
-    if (eagerGridQueue.length >= 6) return;
+    if (eagerGridQueue.length >= MAX_EAGER_QUEUE) return;
     eagerGridQueue.push(grid);
     eagerGridSet.add(grid);
     if (eagerGridFlushHandle) return;
@@ -402,7 +410,7 @@ export async function renderCards(container, items, onChange) {
           startGridRender(entry.target);
         }
       });
-    }, { rootMargin: '200px 0px' })
+    }, { rootMargin: OBSERVER_ROOT_MARGIN })
     : null;
 
   function scheduleGridPump() {
@@ -431,7 +439,7 @@ export async function renderCards(container, items, onChange) {
     const frag = document.createDocumentFragment();
     const chunkStart = getTime();
     let elapsed = 0;
-    while (index < entries.length && elapsed < 6) {
+    while (index < entries.length && elapsed < GRID_CHUNK_BUDGET) {
       const { block, week, lecture } = entries[index++];
       frag.appendChild(createDeckTile(block, week, lecture));
       elapsed = getTime() - chunkStart;
@@ -457,7 +465,7 @@ export async function renderCards(container, items, onChange) {
       if (grid.dataset.rendered === 'true') {
         activeGrids.delete(grid);
       }
-      if (getTime() - frameStart > 14) break;
+      if (getTime() - frameStart > GRID_FRAME_BUDGET) break;
     }
     if (activeGrids.size) {
       scheduleGridPump();

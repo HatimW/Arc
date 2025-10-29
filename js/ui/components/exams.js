@@ -2373,9 +2373,49 @@ function openExamEditor(existing, render) {
   let dirty = false;
   const markDirty = () => { dirty = true; };
 
+  const cleanupTasks = new Set();
+
+  function registerCleanup(fn) {
+    if (typeof fn !== 'function') {
+      return () => {};
+    }
+    cleanupTasks.add(fn);
+    return () => {
+      cleanupTasks.delete(fn);
+    };
+  }
+
+  function runAllCleanups() {
+    cleanupTasks.forEach(fn => {
+      try {
+        fn();
+      } catch (err) {
+        console.error('Failed to cleanup exam editor resources', err);
+      }
+    });
+    cleanupTasks.clear();
+  }
+
+  let questionDisposers = [];
+
+  function disposeQuestions() {
+    questionDisposers.forEach(dispose => {
+      try {
+        dispose();
+      } catch (err) {
+        console.error('Failed to dispose exam question editors', err);
+      }
+    });
+    questionDisposers = [];
+  }
+
   const floating = createFloatingWindow({
     title: existing ? 'Edit Exam' : 'Create Exam',
     width: 980,
+    onClose: () => {
+      disposeQuestions();
+      runAllCleanups();
+    },
     onBeforeClose: async (reason) => {
       if (reason === 'saved') return true;
       if (!dirty) return true;
@@ -2482,6 +2522,7 @@ function openExamEditor(existing, render) {
   form.appendChild(questionSection);
 
   function renderQuestions() {
+    disposeQuestions();
     questionSection.innerHTML = '';
     if (!exam.questions.length) {
       const empty = document.createElement('p');
@@ -2496,6 +2537,41 @@ function openExamEditor(existing, render) {
     exam.questions.forEach((question, idx) => {
       const card = document.createElement('div');
       card.className = 'exam-question-editor';
+
+      const localDisposers = new Set();
+      const optionDisposers = new Set();
+
+      function trackEditor(editor) {
+        if (!editor || typeof editor.destroy !== 'function') {
+          return () => {};
+        }
+        let disposed = false;
+        const cleanup = () => {
+          if (disposed) return;
+          disposed = true;
+          try {
+            editor.destroy();
+          } catch (err) {
+            console.error('Failed to destroy exam editor instance', err);
+          }
+        };
+        const unregister = registerCleanup(cleanup);
+        const dispose = () => {
+          if (disposed) return;
+          unregister();
+          cleanup();
+          localDisposers.delete(dispose);
+        };
+        localDisposers.add(dispose);
+        return dispose;
+      }
+
+      function cleanupOptionEditors() {
+        for (const dispose of Array.from(optionDisposers)) {
+          optionDisposers.delete(dispose);
+          dispose();
+        }
+      }
 
       const header = document.createElement('div');
       header.className = 'exam-question-editor-header';
@@ -2529,6 +2605,7 @@ function openExamEditor(existing, render) {
           markDirty();
         }
       });
+      trackEditor(stemEditor);
       stemEditor.element.classList.add('exam-rich-input');
       stemField.appendChild(stemEditor.element);
       card.appendChild(stemField);
@@ -2623,6 +2700,7 @@ function openExamEditor(existing, render) {
           markDirty();
         }
       });
+      trackEditor(explanationEditor);
       explanationEditor.element.classList.add('exam-rich-input');
       explanationField.appendChild(explanationEditor.element);
       card.appendChild(explanationField);
@@ -2631,6 +2709,7 @@ function openExamEditor(existing, render) {
       optionsWrap.className = 'exam-option-editor-list';
 
       function renderOptions() {
+        cleanupOptionEditors();
         optionsWrap.innerHTML = '';
         question.options.forEach((opt, optIdx) => {
           const row = document.createElement('div');
@@ -2654,6 +2733,8 @@ function openExamEditor(existing, render) {
               markDirty();
             }
           });
+          const disposeOptionEditor = trackEditor(editor);
+          optionDisposers.add(disposeOptionEditor);
           editor.element.classList.add('exam-option-rich');
           row.appendChild(editor.element);
 
@@ -2693,6 +2774,16 @@ function openExamEditor(existing, render) {
       card.appendChild(addOption);
 
       fragment.appendChild(card);
+
+      const disposeLocal = () => {
+        cleanupOptionEditors();
+        for (const dispose of Array.from(localDisposers)) {
+          localDisposers.delete(dispose);
+          dispose();
+        }
+      };
+
+      questionDisposers.push(disposeLocal);
     });
 
     questionSection.appendChild(fragment);
