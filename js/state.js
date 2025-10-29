@@ -35,6 +35,20 @@ const DEFAULT_EXAM_LAYOUT = {
 
 const preferences = loadUIPreferences();
 
+function arrayShallowEqual(a, b) {
+  const arrA = Array.isArray(a) ? a : [];
+  const arrB = Array.isArray(b) ? b : [];
+  if (arrA.length !== arrB.length) {
+    return false;
+  }
+  for (let i = 0; i < arrA.length; i += 1) {
+    if (arrA[i] !== arrB[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function sanitizeEntryFilters(value) {
   if (!value || typeof value !== 'object') return {};
   const next = {};
@@ -226,7 +240,12 @@ export function setQuery(value) {
 }
 export function setFilters(patch) {
   if (!patch) return;
-  const next = { ...state.filters };
+  const current = state.filters && typeof state.filters === 'object'
+    ? state.filters
+    : { ...DEFAULT_ENTRY_FILTERS };
+  const next = { ...current };
+  let changed = false;
+
   if (Array.isArray(patch.types)) {
     const unique = Array.from(
       new Set(
@@ -236,26 +255,55 @@ export function setFilters(patch) {
       )
     );
     if (unique.length) {
-      next.types = unique;
+      if (!arrayShallowEqual(current.types, unique)) {
+        next.types = unique;
+        changed = true;
+      }
     }
   }
+
   if (Object.prototype.hasOwnProperty.call(patch, 'block')) {
-    next.block = String(patch.block ?? '');
+    const value = String(patch.block ?? '');
+    if ((current.block ?? '') !== value) {
+      next.block = value;
+      changed = true;
+    }
   }
+
   if (Object.prototype.hasOwnProperty.call(patch, 'week')) {
     const raw = patch.week;
+    let normalized;
     if (raw === '' || raw === null || typeof raw === 'undefined') {
-      next.week = '';
+      normalized = '';
     } else if (Number.isFinite(Number(raw))) {
-      next.week = String(Number(raw));
+      normalized = String(Number(raw));
+    }
+    if (typeof normalized !== 'undefined' && (current.week ?? '') !== normalized) {
+      next.week = normalized;
+      changed = true;
     }
   }
+
   if (Object.prototype.hasOwnProperty.call(patch, 'onlyFav')) {
-    next.onlyFav = Boolean(patch.onlyFav);
+    const value = Boolean(patch.onlyFav);
+    if (Boolean(current.onlyFav) !== value) {
+      next.onlyFav = value;
+      changed = true;
+    }
   }
+
   if (Object.prototype.hasOwnProperty.call(patch, 'sort')) {
-    next.sort = String(patch.sort ?? '');
+    const value = String(patch.sort ?? '');
+    if ((current.sort ?? '') !== value) {
+      next.sort = value;
+      changed = true;
+    }
   }
+
+  if (!changed) {
+    return;
+  }
+
   state.filters = next;
   updateUIPreferences({ filters: sanitizeEntryFilters(next) });
 }
@@ -326,41 +374,71 @@ export function setLecturesState(patch) {
   if (!state.lectures) {
     state.lectures = { ...DEFAULT_LECTURE_STATE };
   }
-  const next = { ...state.lectures };
+  const current = state.lectures;
+  const next = { ...current };
+  let changed = false;
   const stringKeys = ['query', 'blockId', 'week', 'status', 'tag'];
   stringKeys.forEach(key => {
     if (Object.prototype.hasOwnProperty.call(patch, key)) {
-      next[key] = String(patch[key] ?? '');
+      const value = String(patch[key] ?? '');
+      if ((current?.[key] ?? '') !== value) {
+        next[key] = value;
+        changed = true;
+      }
     }
   });
   if (Object.prototype.hasOwnProperty.call(patch, 'sort')) {
     const value = patch.sort;
+    let normalized = current?.sort ?? '';
     if (typeof value === 'string') {
-      next.sort = value;
+      normalized = value;
     } else if (value && typeof value === 'object') {
       const field =
         typeof value.field === 'string' && value.field.trim() ? value.field.trim() : 'position';
       const direction = value.direction === 'desc' ? 'desc' : 'asc';
-      next.sort = `${field}-${direction}`;
+      normalized = `${field}-${direction}`;
+    }
+    if ((current?.sort ?? '') !== normalized) {
+      next.sort = normalized;
+      changed = true;
     }
   }
   if (Array.isArray(patch.openBlocks)) {
-    next.openBlocks = Array.from(
+    const unique = Array.from(
       new Set(patch.openBlocks.map(block => String(block ?? '')))
     );
+    if (!arrayShallowEqual(current?.openBlocks, unique)) {
+      next.openBlocks = unique;
+      changed = true;
+    }
   }
   if (Array.isArray(patch.openWeeks)) {
-    next.openWeeks = Array.from(
+    const unique = Array.from(
       new Set(patch.openWeeks.map(week => String(week ?? '')))
     );
+    if (!arrayShallowEqual(current?.openWeeks, unique)) {
+      next.openWeeks = unique;
+      changed = true;
+    }
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'openSnapshot')) {
     const stamp = Number(patch.openSnapshot);
-    next.openSnapshot = Number.isFinite(stamp) ? stamp : 0;
+    const normalized = Number.isFinite(stamp) ? stamp : 0;
+    if ((current?.openSnapshot ?? 0) !== normalized) {
+      next.openSnapshot = normalized;
+      changed = true;
+    }
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'scrollTop')) {
     const top = Number(patch.scrollTop);
-    next.scrollTop = Number.isFinite(top) && top > 0 ? Math.max(0, Math.round(top)) : 0;
+    const normalized = Number.isFinite(top) && top > 0 ? Math.max(0, Math.round(top)) : 0;
+    if ((current?.scrollTop ?? 0) !== normalized) {
+      next.scrollTop = normalized;
+      changed = true;
+    }
+  }
+  if (!changed) {
+    return;
   }
   state.lectures = next;
   updateUIPreferences({ lectures: sanitizeLectureState(next, { forPersist: true }) });
@@ -397,40 +475,77 @@ export function setExamAttemptExpanded(examId, expanded){
 }
 export function setExamLayout(patch) {
   if (!patch) return;
-  const current = state.examLayout ? { ...state.examLayout } : { ...DEFAULT_EXAM_LAYOUT };
+  const current = state.examLayout && typeof state.examLayout === 'object'
+    ? state.examLayout
+    : { ...DEFAULT_EXAM_LAYOUT };
+  const next = { ...current };
+  let changed = false;
   if (patch.mode === 'row' || patch.mode === 'grid') {
-    current.mode = patch.mode;
+    if (current.mode !== patch.mode) {
+      next.mode = patch.mode;
+      changed = true;
+    }
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'detailsVisible')) {
-    current.detailsVisible = Boolean(patch.detailsVisible);
+    const value = Boolean(patch.detailsVisible);
+    if (Boolean(current.detailsVisible) !== value) {
+      next.detailsVisible = value;
+      changed = true;
+    }
   }
-  state.examLayout = current;
-  updateUIPreferences({ examLayout: sanitizeExamLayout(current) });
+  if (!changed) {
+    return;
+  }
+  state.examLayout = next;
+  updateUIPreferences({ examLayout: sanitizeExamLayout(next) });
 }
 export function setBlockMode(patch){ Object.assign(state.blockMode, patch); }
 export function resetBlockMode(){ state.blockMode = { section:"", assignments:{}, reveal:{}, order:{} }; }
 export function setEntryLayout(patch) {
   if (!patch) return;
-  const layout = state.entryLayout;
+  const current = state.entryLayout && typeof state.entryLayout === 'object'
+    ? state.entryLayout
+    : { ...DEFAULT_ENTRY_LAYOUT };
+  const next = { ...current };
+  let changed = false;
   if (Object.prototype.hasOwnProperty.call(patch, 'columns')) {
     const cols = Number(patch.columns);
     if (!Number.isNaN(cols)) {
-      layout.columns = Math.max(1, Math.min(6, Math.round(cols)));
+      const normalized = Math.max(1, Math.min(6, Math.round(cols)));
+      if (current.columns !== normalized) {
+        next.columns = normalized;
+        changed = true;
+      }
     }
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'scale')) {
     const scl = Number(patch.scale);
     if (!Number.isNaN(scl)) {
-      layout.scale = Math.max(0.6, Math.min(1.4, scl));
+      const normalized = Math.max(0.6, Math.min(1.4, scl));
+      if (current.scale !== normalized) {
+        next.scale = normalized;
+        changed = true;
+      }
     }
   }
   if (patch.mode === 'list' || patch.mode === 'grid') {
-    layout.mode = patch.mode;
+    if (current.mode !== patch.mode) {
+      next.mode = patch.mode;
+      changed = true;
+    }
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'controlsVisible')) {
-    layout.controlsVisible = Boolean(patch.controlsVisible);
+    const value = Boolean(patch.controlsVisible);
+    if (Boolean(current.controlsVisible) !== value) {
+      next.controlsVisible = value;
+      changed = true;
+    }
   }
-  updateUIPreferences({ entryLayout: sanitizeEntryLayout(layout) });
+  if (!changed) {
+    return;
+  }
+  state.entryLayout = next;
+  updateUIPreferences({ entryLayout: sanitizeEntryLayout(next) });
 }
 
 export function setStudySelectedMode(mode) {
