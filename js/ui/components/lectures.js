@@ -18,6 +18,7 @@ import {
 } from '../../lectures/scheduler.js';
 import { LECTURE_PASS_ACTIONS } from '../../lectures/actions.js';
 import { passColorForOrder, setPassColorPalette } from './pass-colors.js';
+import { reportListComplexity } from '../performance.js';
 
 function findLectureScrollContainer(element) {
   if (element && typeof element.closest === 'function') {
@@ -154,6 +155,14 @@ function downloadJson(data, filename) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function isElementLike(node) {
+  if (!node || typeof node !== 'object') return false;
+  if (typeof Element !== 'undefined' && node instanceof Element) {
+    return true;
+  }
+  return node.nodeType === 1;
 }
 
 function describeWeekValue(value) {
@@ -615,7 +624,10 @@ function createPassChipDisplay(info, now = Date.now(), options = {}) {
   applyCompletionState(isInitiallyComplete);
 
   let busy = false;
-  toggleButton.addEventListener('click', async () => {
+  toggleButton.addEventListener('click', async event => {
+    if (event && typeof event.stopPropagation === 'function') {
+      event.stopPropagation();
+    }
     if (typeof onToggle !== 'function') return;
     if (busy) return;
     const desired = !toggleButton.classList.contains('is-active');
@@ -634,7 +646,15 @@ function createPassChipDisplay(info, now = Date.now(), options = {}) {
   });
 
   chip.addEventListener('click', event => {
-    if (event.target instanceof Element && event.target.closest('.lecture-pass-chip-toggle')) {
+    const target = event?.target || null;
+    const toggleTarget =
+      (isElementLike(target) && typeof target.closest === 'function'
+        ? target.closest('.lecture-pass-chip-toggle')
+        : null) ||
+      (isElementLike(target?.parentElement) && typeof target.parentElement.closest === 'function'
+        ? target.parentElement.closest('.lecture-pass-chip-toggle')
+        : null);
+    if (toggleTarget) {
       return;
     }
     if (typeof onOpen === 'function') {
@@ -2729,6 +2749,15 @@ export async function renderLectures(root, redraw) {
   const allLectures = collectLectures(catalog);
   const lectureLists = catalog.lectureLists || {};
   const filtered = applyFilters(allLectures, filters);
+  const totalPasses = filtered.reduce((sum, lecture) => {
+    const passes = Array.isArray(lecture?.passPlan?.passes)
+      ? lecture.passPlan.passes.length
+      : Array.isArray(lecture?.passes)
+        ? lecture.passes.length
+        : 0;
+    return sum + passes;
+  }, 0);
+  reportListComplexity('lectures', { items: filtered.length, extras: Math.round(totalPasses * 0.75) });
   const defaultPassPlan = plannerDefaultsToPassPlan(settings?.plannerDefaults);
   const requestRedraw = () => {
     captureLectureViewState();

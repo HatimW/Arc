@@ -6,6 +6,7 @@ import { openEditor } from './editor.js';
 import { confirmModal } from './confirm.js';
 import { openLinker } from './linker.js';
 import { renderRichText } from './rich-text.js';
+import { reportListComplexity, getPerformanceMode } from '../performance.js';
 
 const kindColors = { disease: 'var(--purple)', drug: 'var(--green)', concept: 'var(--blue)' };
 const fieldDefs = {
@@ -308,8 +309,11 @@ export async function renderCardList(container, itemSource, kind, onChange){
   const sortedAllWeeks = Array.from(allWeeks).sort((a, b) => a - b);
   const groups = new Map();
 
+  let totalItems = 0;
+
   function addItem(it) {
     if (!it) return;
+    totalItems += 1;
     let block = '_';
     let week = '_';
     if (Array.isArray(it.lectures) && it.lectures.length) {
@@ -374,6 +378,9 @@ export async function renderCardList(container, itemSource, kind, onChange){
     const bo = orderMap.has(b) ? orderMap.get(b) : Infinity;
     return ao - bo;
   });
+  reportListComplexity('cardlist', { items: totalItems, columns: state.entryLayout?.columns || 1 });
+  const perfMode = getPerformanceMode();
+  const LIST_CHUNK_SIZE = perfMode === 'conservative' ? 48 : perfMode === 'balanced' ? 120 : 200;
   const layoutState = state.entryLayout;
 
   const toolbar = document.createElement('div');
@@ -784,14 +791,14 @@ export async function renderCardList(container, itemSource, kind, onChange){
       const rows = wkMap.get(w) || [];
       function renderChunk(start = 0) {
         if (!rows.length) return;
-        const slice = rows.slice(start, start + 200);
+        const slice = rows.slice(start, start + LIST_CHUNK_SIZE);
         if (!slice.length) return;
         const fragment = document.createDocumentFragment();
         slice.forEach(it => {
           fragment.appendChild(createItemCard(it, onChange));
         });
         list.appendChild(fragment);
-        if (start + 200 < rows.length) requestAnimationFrame(() => renderChunk(start + 200));
+        if (start + LIST_CHUNK_SIZE < rows.length) requestAnimationFrame(() => renderChunk(start + LIST_CHUNK_SIZE));
       }
       renderChunk();
       weekSec.appendChild(list);

@@ -37,6 +37,26 @@
   --pill-shadow: 0 18px 32px rgba(2, 6, 23, 0.42);
 }
 
+body[data-performance-mode='balanced'] {
+  --shadow-lg: 0 20px 48px rgba(2, 6, 23, 0.42);
+}
+
+body[data-performance-mode='conservative'] {
+  --shadow-lg: 0 12px 28px rgba(2, 6, 23, 0.52);
+}
+
+body[data-performance-mode='balanced'] * {
+  transition-duration: 0.18s !important;
+}
+
+body[data-performance-mode='conservative'] *,
+body[data-performance-mode='conservative'] *::before,
+body[data-performance-mode='conservative'] *::after {
+  transition-duration: 0.14s !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -1343,6 +1363,17 @@ input[type="checkbox"]:checked::after {
   backdrop-filter: blur(20px) saturate(120%);
 }
 
+body[data-performance-mode='balanced'] .floating-window {
+  backdrop-filter: blur(14px) saturate(115%);
+  -webkit-backdrop-filter: blur(14px) saturate(115%);
+  box-shadow: 0 24px 50px rgba(2, 6, 23, 0.42);
+}
+
+body[data-performance-mode='conservative'] .floating-window {
+  background: linear-gradient(168deg, rgba(13, 20, 36, 0.98), rgba(6, 10, 22, 0.97));
+  box-shadow: 0 16px 32px rgba(2, 6, 23, 0.48);
+}
+
 .floating-window.review-entry-window {
   background: color-mix(in srgb, rgba(15, 23, 42, 0.95) 90%, rgba(56, 189, 248, 0.08));
   border-color: rgba(148, 163, 184, 0.26);
@@ -1367,6 +1398,15 @@ input[type="checkbox"]:checked::after {
   background: linear-gradient(155deg, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.72));
   border-bottom: 1px solid rgba(148, 163, 184, 0.28);
   backdrop-filter: blur(12px);
+}
+
+body[data-performance-mode='balanced'] .floating-header {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+body[data-performance-mode='conservative'] .floating-header {
+  background: linear-gradient(155deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.84));
 }
 
 .floating-title {
@@ -3960,9 +4000,23 @@ button.builder-pill.builder-pill-outline {
   transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
+body[data-performance-mode='balanced'] .item-card {
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.38);
+}
+
+body[data-performance-mode='conservative'] .item-card {
+  background: linear-gradient(155deg, rgba(14, 22, 36, 0.92), rgba(8, 13, 23, 0.97));
+  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.46);
+}
+
 .item-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 20px 48px rgba(2, 6, 23, 0.5);
+}
+
+body[data-performance-mode='conservative'] .item-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.48);
 }
 
 .item-card.expanded {
@@ -4717,6 +4771,15 @@ button.builder-pill.builder-pill-outline {
   box-shadow: 0 28px 62px rgba(2, 6, 23, 0.45);
 }
 
+body[data-performance-mode='balanced'] .cards-empty {
+  box-shadow: 0 22px 52px rgba(2, 6, 23, 0.42);
+}
+
+body[data-performance-mode='conservative'] .cards-empty {
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.82), rgba(2, 6, 23, 0.9));
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.5);
+}
+
 .cards-empty h3 {
   margin: 0 0 8px;
   font-size: clamp(1.35rem, 1.1vw + 1rem, 1.8rem);
@@ -4737,6 +4800,15 @@ button.builder-pill.builder-pill-outline {
   box-shadow: 0 24px 50px rgba(2, 6, 23, 0.4);
 }
 
+body[data-performance-mode='balanced'] .card-block-section {
+  box-shadow: 0 20px 44px rgba(2, 6, 23, 0.38);
+}
+
+body[data-performance-mode='conservative'] .card-block-section {
+  background: linear-gradient(160deg, rgba(10, 16, 30, 0.95), rgba(3, 6, 20, 0.92));
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.46);
+}
+
 .card-block-section::before {
   content: '';
   position: absolute;
@@ -4744,6 +4816,14 @@ button.builder-pill.builder-pill-outline {
   background: radial-gradient(circle at top left, color-mix(in srgb, var(--block-accent) 35%, transparent), transparent 60%);
   opacity: 0.9;
   pointer-events: none;
+}
+
+body[data-performance-mode='balanced'] .card-block-section::before {
+  opacity: 0.7;
+}
+
+body[data-performance-mode='conservative'] .card-block-section::before {
+  opacity: 0.45;
 }
 
 .card-block-header {
@@ -11909,13 +11989,17 @@ button.question-map__item[data-change-direction="returned"] {
   padding: 0.6rem 0.85rem;
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--chip-accent) 38%, rgba(148, 163, 184, 0.22));
-  background: linear-gradient(155deg, color-mix(in srgb, var(--chip-accent) 28%, rgba(15, 23, 42, 0.95)), rgba(15, 23, 42, 0.82));
-  box-shadow: 0 18px 32px color-mix(in srgb, var(--chip-accent) 18%, rgba(15, 23, 42, 0.32));
+  background-color: rgba(15, 23, 42, 0.88);
+  background-image: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--chip-accent) 24%, rgba(15, 23, 42, 0.95)),
+    rgba(15, 23, 42, 0.85)
+  );
+  box-shadow: 0 12px 22px color-mix(in srgb, var(--chip-accent) 14%, rgba(15, 23, 42, 0.3));
   color: rgba(241, 245, 249, 0.95);
   scroll-snap-align: start;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease, filter 0.2s ease;
-  backdrop-filter: blur(10px);
 }
 
 .lecture-pass-chip-status {

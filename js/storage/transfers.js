@@ -58,6 +58,58 @@ function buildLectureKey(blockId, lectureId) {
   return `${blockId}|${lectureId}`;
 }
 
+function readLegacyField(source, key) {
+  if (!source || typeof source !== 'object') return undefined;
+  if (Object.prototype.hasOwnProperty.call(source, key)) {
+    return source[key];
+  }
+  if (source.data && typeof source.data === 'object' && Object.prototype.hasOwnProperty.call(source.data, key)) {
+    return source.data[key];
+  }
+  if (source.payload && typeof source.payload === 'object' && Object.prototype.hasOwnProperty.call(source.payload, key)) {
+    return source.payload[key];
+  }
+  return undefined;
+}
+
+function normalizeScopeValue(rawScope, lectures) {
+  if (typeof rawScope === 'string') {
+    const normalized = rawScope.trim().toLowerCase();
+    if (normalized === 'block' || normalized === 'blocks') {
+      return 'block';
+    }
+    if (normalized === 'week' || normalized === 'weeks') {
+      return 'week';
+    }
+    if (normalized === 'lecture' || normalized === 'lectures') {
+      return 'lecture';
+    }
+    if ((normalized === 'all' || normalized === 'full') && Array.isArray(lectures) && lectures.length > 1) {
+      return 'block';
+    }
+  }
+  return 'lecture';
+}
+
+function normalizeTransferMap(rawMap) {
+  if (!rawMap || typeof rawMap !== 'object' || !Array.isArray(rawMap.tabs)) {
+    return { tabs: [] };
+  }
+  return {
+    tabs: rawMap.tabs.map(tab => ({
+      name: tab?.name || 'Imported map',
+      includeLinked: tab?.includeLinked !== false,
+      manualMode: Boolean(tab?.manualMode),
+      manualIds: Array.isArray(tab?.manualIds) ? tab.manualIds.filter(Boolean) : [],
+      layout: tab?.layout && typeof tab.layout === 'object' ? { ...tab.layout } : {},
+      layoutSeeded: tab?.layoutSeeded === true,
+      filter: tab?.filter && typeof tab.filter === 'object'
+        ? { ...tab.filter }
+        : { blockId: '', week: '', lectureKey: '' }
+    }))
+  };
+}
+
 function collectLectureKeys(lectures) {
   const keys = new Set();
   lectures.forEach(lecture => {
@@ -265,35 +317,51 @@ function normalizeTransferPayload(bundle) {
   if (!bundle || typeof bundle !== 'object') {
     throw new Error('Invalid transfer payload');
   }
-  if (bundle.version !== TRANSFER_VERSION) {
+  const version = Number(bundle.version);
+  if (Number.isFinite(version) && version > TRANSFER_VERSION) {
     throw new Error('Unsupported transfer version');
   }
-  const scope = bundle.scope === 'block' || bundle.scope === 'week' ? bundle.scope : 'lecture';
-  const block = sanitizeBlock(bundle.block || {});
-  const lectures = Array.isArray(bundle.lectures) ? bundle.lectures.map(ensureLectureDefaults).filter(Boolean) : [];
-  const items = Array.isArray(bundle.items)
-    ? bundle.items.map(item => {
+
+  const rawLectures = readLegacyField(bundle, 'lectures');
+  const lectureList = Array.isArray(rawLectures) ? rawLectures : [];
+  const lectures = lectureList.map(ensureLectureDefaults).filter(Boolean);
+
+  const rawScope = readLegacyField(bundle, 'scope');
+  const scope = normalizeScopeValue(rawScope, lectureList);
+
+  const rawBlock = readLegacyField(bundle, 'block') ?? readLegacyField(bundle, 'blockInfo') ?? {};
+  let block = sanitizeBlock(rawBlock) || null;
+  if (!block) {
+    block = { blockId: null, title: '', color: null, weeks: null, startDate: null, endDate: null };
+  }
+  if (!block.blockId) {
+    const fallbackLecture = lectures.find(lecture => lecture?.blockId != null) || null;
+    if (fallbackLecture && fallbackLecture.blockId != null) {
+      block.blockId = fallbackLecture.blockId;
+    }
+  }
+  lectures.forEach(lecture => {
+    if (!lecture.blockId && block.blockId != null) {
+      lecture.blockId = block.blockId;
+    }
+  });
+  if (!block.blockId) {
+    throw new Error('Transfer missing block information');
+  }
+
+  const rawItems = readLegacyField(bundle, 'items');
+  const items = Array.isArray(rawItems)
+    ? rawItems.map(item => {
         const cleaned = cleanItem({ ...deepClone(item) });
         delete cleaned.tokens;
         delete cleaned.searchMeta;
         return cleaned;
       })
     : [];
-  const map = bundle.map && typeof bundle.map === 'object' && Array.isArray(bundle.map.tabs)
-    ? {
-        tabs: bundle.map.tabs.map(tab => ({
-          name: tab.name || 'Imported map',
-          includeLinked: tab.includeLinked !== false,
-          manualMode: Boolean(tab.manualMode),
-          manualIds: Array.isArray(tab.manualIds) ? tab.manualIds.filter(Boolean) : [],
-          layout: tab.layout && typeof tab.layout === 'object' ? { ...tab.layout } : {},
-          layoutSeeded: tab.layoutSeeded === true,
-          filter: tab.filter && typeof tab.filter === 'object'
-            ? { ...tab.filter }
-            : { blockId: '', week: '', lectureKey: '' }
-        }))
-      }
-    : { tabs: [] };
+
+  const rawMap = readLegacyField(bundle, 'map');
+  const map = normalizeTransferMap(rawMap);
+
   return { scope, block, lectures, items, map };
 }
 

@@ -1,3 +1,5 @@
+import { registerWindowPresence } from '../performance.js';
+
 const windows = new Set();
 let zIndexCounter = 2000;
 let dock;
@@ -62,6 +64,14 @@ function setupDragging(win, header){
 
 export function createFloatingWindow({ title, width = 520, onClose, onBeforeClose } = {}){
   ensureDock();
+  const releaseWindow = registerWindowPresence();
+  let releasedWindow = false;
+
+  function finalizeRelease(){
+    if (releasedWindow) return;
+    releasedWindow = true;
+    releaseWindow();
+  }
   const win = document.createElement('div');
   win.className = 'floating-window';
   win.style.width = typeof width === 'number' ? `${width}px` : width;
@@ -254,6 +264,7 @@ export function createFloatingWindow({ title, width = 520, onClose, onBeforeClos
     destroyDockButton();
     windows.delete(win);
     if (win.parentElement) win.parentElement.removeChild(win);
+    finalizeRelease();
     if (typeof onClose === 'function') onClose(reason);
     return true;
   }
