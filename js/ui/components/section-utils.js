@@ -1,4 +1,4 @@
-import { sectionDefsForKind } from './sections.js';
+import { sectionDefsForKind, noteSectionUsage } from './sections.js';
 import { hasRichTextContent } from './rich-text.js';
 
 export const EXTRA_SECTION_PREFIX = 'extra:';
@@ -87,10 +87,14 @@ export function sectionsForItem(item, allowedKeys = null) {
   const allowSet = allowedKeys ? new Set(allowedKeys) : null;
   const sections = defs
     .filter(def => (!allowSet || allowSet.has(def.key)) && hasSectionContent(item, def.key))
-    .map(def => ({ key: def.key, label: def.label, content: item?.[def.key] || '' }));
+    .map(def => {
+      noteSectionUsage(item?.id ?? null, def.key);
+      return { key: def.key, label: def.label, content: item?.[def.key] || '' };
+    });
 
   normalizeExtras(item).forEach(extra => {
     if (!hasRichContent(extra.body)) return;
+    noteSectionUsage(item?.id ?? null, extra.key);
     sections.push({
       key: extra.key,
       label: extra.title || 'Additional Notes',
