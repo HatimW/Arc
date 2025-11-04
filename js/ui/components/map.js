@@ -4,6 +4,86 @@ import { uid, deepClone } from '../../utils.js';
 import { showPopup } from './popup.js';
 import { openEditor } from './editor.js';
 import { createFloatingWindow } from './window-manager.js';
+import { noteTabRender } from './sections.js';
+
+function createMutationScheduler(label = 'map') {
+  const logError = err => {
+    console.error(`[${label}] Failed to apply DOM mutation`, err);
+  };
+  if (typeof requestAnimationFrame !== 'function') {
+    return task => {
+      if (typeof task !== 'function') return;
+      try {
+        task();
+      } catch (err) {
+        logError(err);
+      }
+    };
+  }
+  let queue = [];
+  let raf = 0;
+  const flush = () => {
+    raf = 0;
+    const tasks = queue;
+    queue = [];
+    for (const task of tasks) {
+      try {
+        task();
+      } catch (err) {
+        logError(err);
+      }
+    }
+  };
+  return task => {
+    if (typeof task !== 'function') return;
+    queue.push(task);
+    if (!raf) {
+      raf = requestAnimationFrame(flush);
+    }
+  };
+}
+
+function debounceFrame(fn, wait = 120) {
+  let timer = 0;
+  let lastArgs;
+  return (...args) => {
+    lastArgs = args;
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      timer = 0;
+      const execute = () => {
+        try {
+          fn(...lastArgs);
+        } catch (err) {
+          console.error('[map] Failed to execute debounced handler', err);
+        }
+      };
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(execute);
+      } else {
+        execute();
+      }
+    }, wait);
+  };
+}
+
+const scheduleDomMutation = createMutationScheduler('map');
+
+function runMutation(task, options = {}) {
+  if (typeof task !== 'function') return;
+  const immediate = options.immediate === true;
+  if (immediate) {
+    try {
+      task();
+    } catch (err) {
+      console.error('[map] Failed to apply DOM mutation', err);
+    }
+    return;
+  }
+  scheduleDomMutation(task);
+}
 
 const TOOL = {
   NAVIGATE: 'navigate',
@@ -2438,13 +2518,18 @@ function parseLectureFilterKey(rawKey, fallbackBlock = '') {
 
 function setAreaInteracting(active) {
   if (!mapState.root) return;
-  mapState.root.classList.toggle('map-area-interacting', Boolean(active));
+  runMutation(() => {
+    mapState.root.classList.toggle('map-area-interacting', Boolean(active));
+  }, { immediate: !mapState.root.isConnected });
 }
 
 export async function renderMap(root) {
   if (mapState.root && mapState.root !== root) {
-    mapState.root.classList.remove('map-area-interacting');
+    runMutation(() => {
+      mapState.root?.classList.remove('map-area-interacting');
+    }, { immediate: true });
   }
+  noteTabRender('map');
   mapState.root = root;
   closeLineMenu();
   await flushViewStatePersist();
@@ -2631,11 +2716,13 @@ export async function renderMap(root) {
   const applyMenuState = () => {
     const open = Boolean(mapState.menuPinned) || menuHoverOpen;
     mapState.menuOpen = open;
-    menu.classList.toggle('open', open);
-    menu.classList.toggle('pinned', Boolean(mapState.menuPinned));
-    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    toggle.setAttribute('aria-pressed', mapState.menuPinned ? 'true' : 'false');
-    toggle.setAttribute('aria-label', open ? 'Hide map controls' : 'Open map controls');
+    runMutation(() => {
+      menu.classList.toggle('open', open);
+      menu.classList.toggle('pinned', Boolean(mapState.menuPinned));
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      toggle.setAttribute('aria-pressed', mapState.menuPinned ? 'true' : 'false');
+      toggle.setAttribute('aria-label', open ? 'Hide map controls' : 'Open map controls');
+    });
   };
 
   const openMenu = ({ pinned = false } = {}) => {
@@ -3534,15 +3621,21 @@ function ensureListeners() {
   window.addEventListener('pointercancel', handlePointerUp);
   mapState.listenersAttached = true;
   if (!window._mapResizeAttached) {
-    window.addEventListener('resize', () => {
+    const handleResize = debounceFrame(() => {
       invalidateSvgRect();
       adjustScale();
-    });
+    }, 140);
+    window.addEventListener('resize', handleResize);
     window._mapResizeAttached = true;
+    window._mapResizeHandler = handleResize;
   }
   if (!window._mapToolboxResizeAttached) {
-    window.addEventListener('resize', ensureToolboxWithinBounds);
+    const handleToolboxResize = debounceFrame(() => {
+      ensureToolboxWithinBounds();
+    }, 140);
+    window.addEventListener('resize', handleToolboxResize);
     window._mapToolboxResizeAttached = true;
+    window._mapToolboxResizeHandler = handleToolboxResize;
   }
 }
 
@@ -4770,14 +4863,16 @@ function updateNodeGeometry(id, entry = mapState.elements.get(id)) {
 function updateSelectionHighlight() {
   const ids = mapState.previewSelection || mapState.selectionIds;
   const set = new Set(ids);
-  mapState.elements.forEach(({ circle, label }, id) => {
-    if (set.has(id)) {
-      circle.classList.add('selected');
-      label.classList.add('selected');
-    } else {
-      circle.classList.remove('selected');
-      label.classList.remove('selected');
-    }
+  runMutation(() => {
+    mapState.elements.forEach(({ circle, label }, id) => {
+      if (set.has(id)) {
+        circle.classList.add('selected');
+        label.classList.add('selected');
+      } else {
+        circle.classList.remove('selected');
+        label.classList.remove('selected');
+      }
+    });
   });
 }
 
@@ -5218,14 +5313,16 @@ function normalizeLinkEntry(targetId, info = {}) {
 }
 
 function updatePendingHighlight() {
-  mapState.elements.forEach(({ circle, label }, id) => {
-    if (mapState.pendingLink === id) {
-      circle.classList.add('pending');
-      label.classList.add('pending');
-    } else {
-      circle.classList.remove('pending');
-      label.classList.remove('pending');
-    }
+  runMutation(() => {
+    mapState.elements.forEach(({ circle, label }, id) => {
+      if (mapState.pendingLink === id) {
+        circle.classList.add('pending');
+        label.classList.add('pending');
+      } else {
+        circle.classList.remove('pending');
+        label.classList.remove('pending');
+      }
+    });
   });
 }
 
@@ -5777,8 +5874,10 @@ function ensureToolboxWithinBounds() {
   const x = clamp(mapState.toolboxPos.x, 0, maxX);
   const y = clamp(mapState.toolboxPos.y, 0, maxY);
   mapState.toolboxPos = { x, y };
-  box.style.left = `${x}px`;
-  box.style.top = `${y}px`;
+  runMutation(() => {
+    box.style.left = `${x}px`;
+    box.style.top = `${y}px`;
+  });
 }
 
 function determineBaseCursor() {
@@ -5802,15 +5901,18 @@ function refreshCursor(options = {}) {
   const { keepOverride = false } = options;
   const base = determineBaseCursor();
   mapState.baseCursor = base;
+  let nextCursor = base;
   if (mapState.cursorOverride) {
     const overrideStyle = CURSOR_STYLE[mapState.cursorOverride];
     if (keepOverride && overrideStyle) {
-      mapState.svg.style.cursor = overrideStyle;
-      return;
+      nextCursor = overrideStyle;
+    } else {
+      mapState.cursorOverride = null;
     }
-    mapState.cursorOverride = null;
   }
-  mapState.svg.style.cursor = base;
+  runMutation(() => {
+    mapState.svg.style.cursor = nextCursor;
+  });
 }
 
 function applyCursorOverride(kind) {

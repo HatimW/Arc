@@ -3,6 +3,7 @@ import { renderRichText } from './rich-text.js';
 import { openEditor } from './editor.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
 import { reportListComplexity, getPerformanceMode } from '../performance.js';
+import { noteTabRender } from './sections.js';
 
 const UNASSIGNED_BLOCK_KEY = '__unassigned__';
 const MISC_LECTURE_KEY = '__misc__';
@@ -95,6 +96,40 @@ function ensureExtras(item) {
   return [];
 }
 
+function createMutationScheduler() {
+  if (typeof requestAnimationFrame !== 'function') {
+    return task => {
+      if (typeof task !== 'function') return;
+      try {
+        task();
+      } catch (err) {
+        console.error('[cards] Failed to apply DOM mutation', err);
+      }
+    };
+  }
+  let queue = [];
+  let raf = 0;
+  const flush = () => {
+    raf = 0;
+    const tasks = queue;
+    queue = [];
+    for (const task of tasks) {
+      try {
+        task();
+      } catch (err) {
+        console.error('[cards] Failed to apply DOM mutation', err);
+      }
+    }
+  };
+  return task => {
+    if (typeof task !== 'function') return;
+    queue.push(task);
+    if (!raf) {
+      raf = requestAnimationFrame(flush);
+    }
+  };
+}
+
 function getItemAccent(item) {
   if (item?.color) return item.color;
   if (item?.kind && KIND_COLORS[item.kind]) return KIND_COLORS[item.kind];
@@ -154,8 +189,24 @@ function getLectureAccent(cards) {
  * @param {Function} onChange
  */
 export async function renderCards(container, items, onChange) {
+  noteTabRender('cards');
   container.innerHTML = '';
   container.classList.add('cards-tab');
+
+  const scheduleDomMutation = createMutationScheduler();
+  const runMutation = (task, options = {}) => {
+    if (typeof task !== 'function') return;
+    const immediate = options.immediate === true;
+    if (immediate) {
+      try {
+        task();
+      } catch (err) {
+        console.error('[cards] Failed to apply DOM mutation', err);
+      }
+      return;
+    }
+    scheduleDomMutation(task);
+  };
 
   const sortedItems = Array.isArray(items)
     ? items.slice().sort(compareByCreation)
@@ -517,9 +568,11 @@ export async function renderCards(container, items, onChange) {
   let deckDirty = false;
 
   function closeDeck() {
-    overlay.dataset.active = 'false';
-    viewer.innerHTML = '';
-    viewer.className = 'deck-viewer';
+    runMutation(() => {
+      overlay.dataset.active = 'false';
+      viewer.innerHTML = '';
+      viewer.className = 'deck-viewer';
+    });
     if (activeKeyHandler) {
       document.removeEventListener('keydown', activeKeyHandler);
       activeKeyHandler = null;
@@ -540,8 +593,6 @@ export async function renderCards(container, items, onChange) {
 
   function openDeck(context, targetCardId = null) {
     const { block, week, lecture } = context;
-    overlay.dataset.active = 'true';
-    viewer.innerHTML = '';
     if (activeKeyHandler) {
       document.removeEventListener('keydown', activeKeyHandler);
       activeKeyHandler = null;
@@ -579,14 +630,14 @@ export async function renderCards(container, items, onChange) {
       return slide;
     }
 
-    viewer.className = 'deck-viewer deck-viewer-card';
+    const viewerContent = document.createDocumentFragment();
 
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'deck-close';
     closeBtn.innerHTML = '<span aria-hidden="true">×</span><span class="sr-only">Close deck</span>';
     closeBtn.addEventListener('click', closeDeck);
-    viewer.appendChild(closeBtn);
+    viewerContent.appendChild(closeBtn);
 
     const summary = document.createElement('div');
     summary.className = 'deck-card-summary';
@@ -605,7 +656,7 @@ export async function renderCards(container, items, onChange) {
     counter.className = 'deck-card-summary-counter';
     counter.textContent = `Card 1 of ${lecture.cards.length}`;
     summary.appendChild(counter);
-    viewer.appendChild(summary);
+    viewerContent.appendChild(summary);
 
     const stage = document.createElement('div');
     stage.className = 'deck-card-stage-full';
@@ -626,7 +677,7 @@ export async function renderCards(container, items, onChange) {
     stage.appendChild(prev);
     stage.appendChild(slideHolder);
     stage.appendChild(next);
-    viewer.appendChild(stage);
+    viewerContent.appendChild(stage);
 
     const relatedPanel = document.createElement('div');
     relatedPanel.className = 'deck-related-panel';
@@ -647,7 +698,7 @@ export async function renderCards(container, items, onChange) {
     relatedWrap.setAttribute('aria-hidden', 'true');
     toggle.setAttribute('aria-controls', relatedWrapId);
     relatedPanel.appendChild(relatedWrap);
-    viewer.appendChild(relatedPanel);
+    viewerContent.appendChild(relatedPanel);
 
     let idx = 0;
     if (targetCardId != null) {
@@ -659,59 +710,75 @@ export async function renderCards(container, items, onChange) {
 
 
 
-    function updateToggle(current) {
-      const linkCount = Array.isArray(current?.links) ? current.links.length : 0;
-      const hasLinks = linkCount > 0;
-      toggle.disabled = !hasLinks;
-      toggle.dataset.active = showRelated && hasLinks ? 'true' : 'false';
-      toggle.setAttribute('aria-expanded', showRelated && hasLinks ? 'true' : 'false');
-      toggle.textContent = hasLinks
-        ? `${showRelated ? 'Hide' : 'Show'} related (${linkCount})`
-        : 'No related cards';
+    function updateToggle(current, options = {}) {
+      const { schedule = true } = options;
+      const apply = () => {
+        const linkCount = Array.isArray(current?.links) ? current.links.length : 0;
+        const hasLinks = linkCount > 0;
+        toggle.disabled = !hasLinks;
+        toggle.dataset.active = showRelated && hasLinks ? 'true' : 'false';
+        toggle.setAttribute('aria-expanded', showRelated && hasLinks ? 'true' : 'false');
+        toggle.textContent = hasLinks
+          ? `${showRelated ? 'Hide' : 'Show'} related (${linkCount})`
+          : 'No related cards';
+      };
+      if (schedule) {
+        runMutation(apply);
+      } else {
+        apply();
+      }
     }
 
-    function renderRelated(current) {
-
-      relatedWrap.innerHTML = '';
-      if (!showRelated) {
-        relatedWrap.dataset.visible = 'false';
-        relatedWrap.setAttribute('aria-hidden', 'true');
-        toggle.dataset.active = 'false';
-        toggle.setAttribute('aria-expanded', 'false');
-        return;
-      }
-
-      const links = Array.isArray(current?.links) ? current.links : [];
-      links.forEach(link => {
-        const related = itemLookup.get(link.id);
-        if (related) {
-          relatedWrap.appendChild(createRelatedCard(related, baseContext));
+    function renderRelated(current, options = {}) {
+      const { schedule = true } = options;
+      const apply = () => {
+        relatedWrap.innerHTML = '';
+        if (!showRelated) {
+          relatedWrap.dataset.visible = 'false';
+          relatedWrap.setAttribute('aria-hidden', 'true');
+          toggle.dataset.active = 'false';
+          toggle.setAttribute('aria-expanded', 'false');
+          return;
         }
-      });
-      const visible = relatedWrap.children.length > 0;
-      relatedWrap.dataset.visible = visible ? 'true' : 'false';
-      relatedWrap.setAttribute('aria-hidden', visible ? 'false' : 'true');
-      if (!visible) {
-        toggle.dataset.active = 'false';
-        toggle.setAttribute('aria-expanded', 'false');
+
+        const links = Array.isArray(current?.links) ? current.links : [];
+        links.forEach(link => {
+          const related = itemLookup.get(link.id);
+          if (related) {
+            relatedWrap.appendChild(createRelatedCard(related, baseContext));
+          }
+        });
+        const visible = relatedWrap.children.length > 0;
+        relatedWrap.dataset.visible = visible ? 'true' : 'false';
+        relatedWrap.setAttribute('aria-hidden', visible ? 'false' : 'true');
+        if (!visible) {
+          toggle.dataset.active = 'false';
+          toggle.setAttribute('aria-expanded', 'false');
+        }
+      };
+      if (schedule) {
+        runMutation(apply);
+      } else {
+        apply();
       }
     }
 
     function renderCard() {
 
       const current = lecture.cards[idx];
-      slideHolder.innerHTML = '';
       const slide = acquireSlide(current);
-      slideHolder.appendChild(slide);
       const accent = getItemAccent(current);
-      viewer.style.setProperty('--deck-current-accent', accent);
-      counter.textContent = `Card ${idx + 1} of ${lecture.cards.length}`;
       const multiple = lecture.cards.length > 1;
-      prev.disabled = !multiple;
-      next.disabled = !multiple;
-      updateToggle(current);
-      renderRelated(current);
-
+      runMutation(() => {
+        slideHolder.innerHTML = '';
+        slideHolder.appendChild(slide);
+        viewer.style.setProperty('--deck-current-accent', accent);
+        counter.textContent = `Card ${idx + 1} of ${lecture.cards.length}`;
+        prev.disabled = !multiple;
+        next.disabled = !multiple;
+        updateToggle(current, { schedule: false });
+        renderRelated(current, { schedule: false });
+      });
     }
 
     prev.addEventListener('click', () => {
@@ -752,6 +819,12 @@ export async function renderCards(container, items, onChange) {
 
     renderCard();
     requestAnimationFrame(() => closeBtn.focus());
+
+    runMutation(() => {
+      viewer.className = 'deck-viewer deck-viewer-card';
+      viewer.replaceChildren(viewerContent);
+      overlay.dataset.active = 'true';
+    });
 
   }
 
@@ -947,8 +1020,10 @@ export async function renderCards(container, items, onChange) {
       section.appendChild(bodyWrap);
 
       headerBtn.addEventListener('click', () => {
-        const collapsed = section.classList.toggle('is-collapsed');
-        headerBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        runMutation(() => {
+          const collapsed = section.classList.toggle('is-collapsed');
+          headerBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        });
       });
 
       return section;
@@ -1128,12 +1203,14 @@ export async function renderCards(container, items, onChange) {
         frag.appendChild(weekSection);
 
         weekHeader.addEventListener('click', () => {
-          const collapsed = weekSection.classList.toggle('is-collapsed');
-          weekHeader.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-          setWeekCollapsedState(weekStateKey, collapsed);
-          if (!collapsed) {
-            ensureGridRendered(deckGrid);
-          }
+          runMutation(() => {
+            const collapsed = weekSection.classList.toggle('is-collapsed');
+            weekHeader.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            setWeekCollapsedState(weekStateKey, collapsed);
+            if (!collapsed) {
+              ensureGridRendered(deckGrid);
+            }
+          });
         });
       });
 
@@ -1155,13 +1232,15 @@ export async function renderCards(container, items, onChange) {
     }
 
     header.addEventListener('click', () => {
-      const collapsed = section.classList.toggle('is-collapsed');
-      header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      setBlockCollapsedState(blockKey, collapsed);
-      if (!collapsed) {
-        populateBody();
-        ensureVisibleWeekGrids();
-      }
+      runMutation(() => {
+        const collapsed = section.classList.toggle('is-collapsed');
+        header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        setBlockCollapsedState(blockKey, collapsed);
+        if (!collapsed) {
+          populateBody();
+          ensureVisibleWeekGrids();
+        }
+      });
     });
 
     return section;

@@ -4758,12 +4758,16 @@ body[data-performance-mode='conservative'] .item-card:hover {
   flex-direction: column;
   gap: var(--pad-lg);
   padding: var(--pad-lg);
+  contain: layout paint;
+  min-height: 0;
 }
 
 .card-catalog {
   display: flex;
   flex-direction: column;
   gap: var(--pad-lg);
+  contain: layout paint;
+  min-height: 0;
 }
 
 .cards-empty {
@@ -4981,6 +4985,7 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: clamp(18px, 2vw, 30px);
   align-items: stretch;
+  contain: layout paint;
 
 }
 
@@ -6030,12 +6035,15 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   height: 100%;
   padding: 0;
   overflow: hidden;
+  contain: layout paint;
+  min-height: 0;
 }
 
 .map-tabs {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  contain: layout paint;
 }
 
 .map-tabs-header {
@@ -6069,6 +6077,8 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 48px;
+  contain: layout paint;
 }
 
 .map-tab {
@@ -6765,6 +6775,7 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   flex: 1;
   min-height: 0;
   position: relative;
+  contain: layout paint;
 }
 
 .map-palette {
