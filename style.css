@@ -4347,11 +4347,40 @@ body[data-performance-mode='conservative'] .item-card:hover {
   min-height: 40px;
   box-shadow: 0 16px 32px rgba(15, 23, 42, 0.35);
   pointer-events: auto;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .image-textbox.is-drawing {
   opacity: 0.7;
+}
+
+.image-textbox-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.85);
+  border: 2px solid rgba(15, 23, 42, 0.9);
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.45);
+  pointer-events: auto;
+  cursor: grab;
+  z-index: 2;
+}
+
+.image-textbox-handle--move {
+  top: -12px;
+  left: -12px;
+  cursor: move;
+}
+
+.image-textbox-handle--resize {
+  bottom: -12px;
+  right: -12px;
+  cursor: se-resize;
+}
+
+.image-textbox-handle:active {
+  cursor: grabbing;
 }
 
 .image-textbox-content {
@@ -4385,7 +4414,7 @@ body[data-performance-mode='conservative'] .item-card:hover {
 .image-occlusion-workspace {
   position: fixed;
   inset: 0;
-  z-index: 2400;
+  z-index: 15000;
   padding: clamp(16px, 5vw, 40px);
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -4556,7 +4585,7 @@ body[data-performance-mode='conservative'] .item-card:hover {
 .image-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 16000;
+  z-index: 18000;
   display: flex;
   align-items: center;
   justify-content: center;
