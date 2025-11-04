@@ -177,7 +177,8 @@ export function createAppShell({
       const kind = resolveListKind();
       const listMeta = listTabConfig.find(cfg => cfg.kind === kind) || listTabConfig[0];
       const createTarget = listMeta?.kind || 'disease';
-      main.appendChild(createEntryAddControl(renderApp, createTarget));
+      const entryControl = await createEntryAddControl(renderApp, createTarget);
+      main.appendChild(entryControl);
 
       const content = document.createElement('div');
       content.className = 'tab-content';
@@ -211,7 +212,8 @@ export function createAppShell({
       const query = findItemsByFilter(filter);
       await renderCardList(listHost, query, kind, renderApp);
     } else if (state.tab === 'Block Board') {
-      main.appendChild(createEntryAddControl(renderApp, 'disease'));
+      const entryControl = await createEntryAddControl(renderApp, 'disease');
+      main.appendChild(entryControl);
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
@@ -222,7 +224,8 @@ export function createAppShell({
       main.appendChild(content);
       await renderLectures(content, renderApp);
     } else if (state.tab === 'Cards') {
-      main.appendChild(createEntryAddControl(renderApp, 'disease'));
+      const entryControl = await createEntryAddControl(renderApp, 'disease');
+      main.appendChild(entryControl);
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
@@ -231,20 +234,21 @@ export function createAppShell({
       const items = await query.toArray();
       await renderCards(content, items, renderApp);
     } else if (state.tab === 'Study') {
-      main.appendChild(createEntryAddControl(renderApp, 'disease'));
+      const entryControl = await createEntryAddControl(renderApp, 'disease');
+      main.appendChild(entryControl);
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
       if (state.flashSession) {
-        renderFlashcards(content, renderApp);
+        await renderFlashcards(content, renderApp);
       } else if (state.quizSession) {
-        renderQuiz(content, renderApp);
+        await renderQuiz(content, renderApp);
       } else {
         const activeStudy = state.subtab.Study === 'Blocks' ? 'Blocks' : (state.subtab.Study || 'Builder');
         if (activeStudy === 'Review') {
           await renderReview(content, renderApp);
         } else if (activeStudy === 'Blocks') {
-          renderBlockMode(content, renderApp);
+          await renderBlockMode(content, renderApp);
         } else {
           const wrap = document.createElement('div');
           await renderBuilder(wrap, renderApp);
@@ -252,17 +256,19 @@ export function createAppShell({
         }
       }
     } else if (state.tab === 'Exams') {
-      main.appendChild(createEntryAddControl(renderApp, 'disease'));
+      const entryControl = await createEntryAddControl(renderApp, 'disease');
+      main.appendChild(entryControl);
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
       if (state.examSession) {
-        renderExamRunner(content, renderApp);
+        await renderExamRunner(content, renderApp);
       } else {
         await renderExams(content, renderApp);
       }
     } else if (state.tab === 'Map') {
-      main.appendChild(createEntryAddControl(renderApp, 'disease'));
+      const entryControl = await createEntryAddControl(renderApp, 'disease');
+      main.appendChild(entryControl);
       const mapHost = document.createElement('div');
       mapHost.className = 'tab-content map-host';
       main.appendChild(mapHost);

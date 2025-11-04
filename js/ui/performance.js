@@ -3,6 +3,23 @@ const listComplexity = new Map();
 let windowCount = 0;
 let mode = '';
 
+const isElectronEnvironment = typeof navigator !== 'undefined'
+  && /Electron/i.test((navigator.userAgent || ''));
+const globalScope = typeof window !== 'undefined' ? window : undefined;
+const electronBridge = globalScope && globalScope.arc && globalScope.arc.performance
+  ? globalScope.arc.performance
+  : null;
+const electronState = {
+  available: Boolean(electronBridge),
+  settings: {
+    disableHardwareAcceleration: false,
+    backgroundThrottling: true
+  }
+};
+let lastRecomputeAt = 0;
+let recomputeTimer = null;
+const ELECTRON_RECOMPUTE_INTERVAL = 150;
+
 function detectBaseMode() {
   if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
     try {
@@ -14,8 +31,7 @@ function detectBaseMode() {
     }
   }
   if (typeof navigator !== 'undefined') {
-    const ua = navigator.userAgent || '';
-    if (/Electron/i.test(ua)) {
+    if (isElectronEnvironment) {
       return 'conservative';
     }
     const memory = Number(navigator.deviceMemory);
@@ -47,6 +63,35 @@ function withDocumentBody(fn) {
   document.addEventListener('DOMContentLoaded', handler);
 }
 
+function applyElectronSettings(settings) {
+  if (!settings || typeof settings !== 'object') return;
+  electronState.settings = {
+    disableHardwareAcceleration: Boolean(settings.disableHardwareAcceleration),
+    backgroundThrottling: settings.backgroundThrottling !== false
+  };
+  withDocumentBody(body => {
+    body.dataset.electronHardwareAcceleration = electronState.settings.disableHardwareAcceleration ? 'disabled' : 'enabled';
+    body.dataset.electronBackgroundThrottling = electronState.settings.backgroundThrottling ? 'on' : 'off';
+  });
+}
+
+if (electronBridge) {
+  if (typeof electronBridge.getSettings === 'function') {
+    electronBridge.getSettings()
+      .then(settings => {
+        if (settings) applyElectronSettings(settings);
+      })
+      .catch(err => {
+        console.warn('Failed to load electron performance settings', err);
+      });
+  }
+  if (typeof electronBridge.onSettingsChanged === 'function') {
+    electronBridge.onSettingsChanged(nextSettings => {
+      applyElectronSettings(nextSettings);
+    });
+  }
+}
+
 function applyMode(nextMode) {
   if (!nextMode) nextMode = 'standard';
   if (mode === nextMode) return;
@@ -76,7 +121,7 @@ function computeComplexityScore(options) {
   return Math.round((items * columns * weight) + extras);
 }
 
-function recomputeMode() {
+function recomputeModeImmediate() {
   const heaviestList = listComplexity.size
     ? Math.max(...listComplexity.values())
     : 0;
@@ -89,6 +134,26 @@ function recomputeMode() {
     nextMode = baseMode === 'standard' ? 'balanced' : baseMode;
   }
   applyMode(nextMode);
+}
+
+function scheduleRecompute() {
+  if (!isElectronEnvironment) {
+    recomputeModeImmediate();
+    return;
+  }
+  const now = Date.now();
+  if (now - lastRecomputeAt >= ELECTRON_RECOMPUTE_INTERVAL) {
+    lastRecomputeAt = now;
+    recomputeModeImmediate();
+    return;
+  }
+  if (recomputeTimer) return;
+  const delay = Math.max(16, ELECTRON_RECOMPUTE_INTERVAL - (now - lastRecomputeAt));
+  recomputeTimer = setTimeout(() => {
+    recomputeTimer = null;
+    lastRecomputeAt = Date.now();
+    recomputeModeImmediate();
+  }, delay);
 }
 
 applyMode(baseMode);
@@ -116,20 +181,43 @@ export function reportListComplexity(key, options) {
   } else {
     listComplexity.delete(key);
   }
-  recomputeMode();
+  scheduleRecompute();
   return getPerformanceMode();
 }
 
 export function registerWindowPresence() {
   windowCount += 1;
-  recomputeMode();
+  scheduleRecompute();
   let released = false;
   return () => {
     if (released) return;
     released = true;
     windowCount = Math.max(0, windowCount - 1);
-    recomputeMode();
+    scheduleRecompute();
   };
+}
+
+export function getElectronPerformanceSettings() {
+  return {
+    available: electronState.available,
+    ...electronState.settings
+  };
+}
+
+export async function configureElectronPerformance(options = {}) {
+  if (!electronBridge || typeof electronBridge.updateSettings !== 'function') {
+    return { success: false, reason: 'unavailable' };
+  }
+  try {
+    const result = await electronBridge.updateSettings(options);
+    if (result && result.settings) {
+      applyElectronSettings(result.settings);
+    }
+    return { success: true, ...result };
+  } catch (err) {
+    console.error('Failed to configure electron performance settings', err);
+    return { success: false, error: err };
+  }
 }
 
 export function forcePerformanceMode(nextMode) {

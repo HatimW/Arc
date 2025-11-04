@@ -1,21 +1,39 @@
 import { state, setTab, setSubtab, setQuery } from './state.js';
 import { initDB, findItemsByFilter } from './storage/storage.js';
 import { loadBlockCatalog } from './storage/block-catalog.js';
-import { renderSettings } from './ui/settings.js';
-import { renderCardList } from './ui/components/cardlist.js';
-import { renderCards } from './ui/components/cards.js';
-import { renderBuilder } from './ui/components/builder.js';
-import { renderLectures } from './ui/components/lectures.js';
-import { renderFlashcards } from './ui/components/flashcards.js';
-import { renderReview } from './ui/components/review.js';
-import { renderQuiz } from './ui/components/quiz.js';
-import { renderBlockMode } from './ui/components/block-mode.js';
-import { renderBlockBoard } from './ui/components/block-board.js';
-import { renderExams, renderExamRunner } from './ui/components/exams.js';
-import { renderMap } from './ui/components/map.js';
-import { createEntryAddControl } from './ui/components/entry-controls.js';
-import './ui/performance.js';
 import { createAppShell } from './app-shell.js';
+
+function createLazyRenderer(loader, exportName) {
+  let cachedPromise;
+  return async (...args) => {
+    if (!cachedPromise) {
+      cachedPromise = loader().then(mod => {
+        const resolved = exportName ? mod[exportName] : mod?.default;
+        if (typeof resolved !== 'function') {
+          throw new TypeError(`Expected ${exportName || 'default'} export to be a function`);
+        }
+        return resolved;
+      });
+    }
+    const fn = await cachedPromise;
+    return fn(...args);
+  };
+}
+
+const renderSettings = createLazyRenderer(() => import('./ui/settings.js'), 'renderSettings');
+const renderCardList = createLazyRenderer(() => import('./ui/components/cardlist.js'), 'renderCardList');
+const renderCards = createLazyRenderer(() => import('./ui/components/cards.js'), 'renderCards');
+const renderBuilder = createLazyRenderer(() => import('./ui/components/builder.js'), 'renderBuilder');
+const renderLectures = createLazyRenderer(() => import('./ui/components/lectures.js'), 'renderLectures');
+const renderFlashcards = createLazyRenderer(() => import('./ui/components/flashcards.js'), 'renderFlashcards');
+const renderReview = createLazyRenderer(() => import('./ui/components/review.js'), 'renderReview');
+const renderQuiz = createLazyRenderer(() => import('./ui/components/quiz.js'), 'renderQuiz');
+const renderBlockMode = createLazyRenderer(() => import('./ui/components/block-mode.js'), 'renderBlockMode');
+const renderBlockBoard = createLazyRenderer(() => import('./ui/components/block-board.js'), 'renderBlockBoard');
+const renderExams = createLazyRenderer(() => import('./ui/components/exams.js'), 'renderExams');
+const renderExamRunner = createLazyRenderer(() => import('./ui/components/exams.js'), 'renderExamRunner');
+const renderMap = createLazyRenderer(() => import('./ui/components/map.js'), 'renderMap');
+const createEntryAddControl = createLazyRenderer(() => import('./ui/components/entry-controls.js'), 'createEntryAddControl');
 
 const { renderApp, tabs, resolveListKind } = createAppShell({
   state,
@@ -41,13 +59,15 @@ const { renderApp, tabs, resolveListKind } = createAppShell({
 
 async function bootstrap() {
   try {
+    const performanceReady = import('./ui/performance.js');
     await initDB();
     try {
       await loadBlockCatalog();
     } catch (err) {
       console.warn('Failed to prime block catalog', err);
     }
-    renderApp();
+    await performanceReady;
+    await renderApp();
   } catch (err) {
     const root = document.getElementById('app');
     if (root) root.textContent = 'Failed to load app';
