@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+app.disableHardwareAcceleration();
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1280,

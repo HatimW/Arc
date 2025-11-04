@@ -16,11 +16,16 @@ function detectBaseMode() {
   if (typeof navigator !== 'undefined') {
     const ua = navigator.userAgent || '';
     if (/Electron/i.test(ua)) {
-      return 'balanced';
+      return 'conservative';
     }
     const memory = Number(navigator.deviceMemory);
-    if (Number.isFinite(memory) && memory > 0 && memory <= 4) {
-      return 'balanced';
+    if (Number.isFinite(memory) && memory > 0) {
+      if (memory <= 4) {
+        return 'conservative';
+      }
+      if (memory <= 8) {
+        return 'balanced';
+      }
     }
   }
   return 'standard';

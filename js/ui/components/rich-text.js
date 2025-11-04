@@ -292,12 +292,82 @@ function notifyImageOcclusionChange(image){
   }
 }
 
-function applyOcclusionBoxGeometry(element, box){
+function computeImageDisplayMetrics(image){
+  if (!(image instanceof HTMLImageElement)) return null;
+  const containerWidth = image.clientWidth || image.offsetWidth || 0;
+  const containerHeight = image.clientHeight || image.offsetHeight || 0;
+  const naturalWidth = image.naturalWidth || containerWidth;
+  const naturalHeight = image.naturalHeight || containerHeight;
+  if (containerWidth <= 0 || containerHeight <= 0 || naturalWidth <= 0 || naturalHeight <= 0) {
+    return {
+      offsetX: 0,
+      offsetY: 0,
+      width: containerWidth,
+      height: containerHeight
+    };
+  }
+  const containerRatio = containerWidth / containerHeight;
+  const imageRatio = naturalWidth / naturalHeight;
+  let drawnWidth = containerWidth;
+  let drawnHeight = containerHeight;
+  let offsetX = 0;
+  let offsetY = 0;
+  if (Math.abs(containerRatio - imageRatio) > 0.0001) {
+    if (containerRatio > imageRatio) {
+      drawnHeight = containerHeight;
+      drawnWidth = drawnHeight * imageRatio;
+      offsetX = (containerWidth - drawnWidth) / 2;
+    } else {
+      drawnWidth = containerWidth;
+      drawnHeight = drawnWidth / imageRatio;
+      offsetY = (containerHeight - drawnHeight) / 2;
+    }
+  }
+  return {
+    offsetX,
+    offsetY,
+    width: drawnWidth,
+    height: drawnHeight
+  };
+}
+
+function applyOcclusionBoxGeometry(element, box, image){
   if (!element || !box) return;
+  if (image instanceof HTMLImageElement) {
+    const metrics = computeImageDisplayMetrics(image);
+    if (metrics && metrics.width > 0 && metrics.height > 0) {
+      const left = metrics.offsetX + clamp(box.x, 0, 1) * metrics.width;
+      const top = metrics.offsetY + clamp(box.y, 0, 1) * metrics.height;
+      const width = clamp(box.width, 0, 1) * metrics.width;
+      const height = clamp(box.height, 0, 1) * metrics.height;
+      element.style.left = `${left}px`;
+      element.style.top = `${top}px`;
+      element.style.width = `${width}px`;
+      element.style.height = `${height}px`;
+      return;
+    }
+  }
   element.style.left = `${box.x * 100}%`;
   element.style.top = `${box.y * 100}%`;
   element.style.width = `${box.width * 100}%`;
   element.style.height = `${box.height * 100}%`;
+}
+
+function getImageContentRect(image){
+  if (!(image instanceof HTMLImageElement)) return null;
+  const rect = image.getBoundingClientRect();
+  const metrics = computeImageDisplayMetrics(image);
+  if (!metrics) return rect;
+  const left = rect.left + metrics.offsetX;
+  const top = rect.top + metrics.offsetY;
+  return {
+    left,
+    top,
+    width: metrics.width,
+    height: metrics.height,
+    right: left + metrics.width,
+    bottom: top + metrics.height
+  };
 }
 
 function setOcclusionRevealState(element, revealed){
@@ -1372,7 +1442,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         return workspace;
       }
 
-      function syncOcclusionLayer(targetLayer, targetBoxes){
+      function syncOcclusionLayer(targetLayer, targetBoxes, targetImage){
         if (!targetLayer) return;
         const occlusions = parseImageOcclusions(image);
         const seen = new Set();
@@ -1411,7 +1481,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             targetLayer.appendChild(element);
             targetBoxes.set(box.id, element);
           }
-          applyOcclusionBoxGeometry(element, box);
+          applyOcclusionBoxGeometry(element, box, targetImage || image);
           const revealed = revealStates.get(box.id) === true;
           setOcclusionRevealState(element, revealed);
           seen.add(box.id);
@@ -1426,7 +1496,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         targetLayer.classList.toggle('has-boxes', targetBoxes.size > 0);
       }
 
-      function syncHighlightLayer(targetLayer, targetHighlights, { interactive = false } = {}){
+      function syncHighlightLayer(targetLayer, targetHighlights, targetImage, { interactive = false } = {}){
         if (!targetLayer) return;
         const highlights = parseImageHighlights(image);
         const seen = new Set();
@@ -1465,7 +1535,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
           element.dataset.id = box.id;
           element.style.borderColor = box.color;
           element.style.backgroundColor = highlightColorToRgba(box.color, interactive ? 0.5 : 0.35);
-          applyOcclusionBoxGeometry(element, box);
+          applyOcclusionBoxGeometry(element, box, targetImage || image);
           seen.add(box.id);
         });
         targetHighlights.forEach((element, id) => {
@@ -1477,7 +1547,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         targetLayer.classList.toggle('has-annotations', targetHighlights.size > 0);
       }
 
-      function syncTextboxLayer(targetLayer, targetTextboxes, { interactive = false } = {}){
+      function syncTextboxLayer(targetLayer, targetTextboxes, targetImage, { interactive = false } = {}){
         if (!targetLayer) return;
         const textboxes = parseImageTextboxes(image);
         const seen = new Set();
@@ -1532,7 +1602,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
           if (contentEl && (contentEl.textContent || '') !== (box.text || '')) {
             contentEl.textContent = box.text || '';
           }
-          applyOcclusionBoxGeometry(element, box);
+          applyOcclusionBoxGeometry(element, box, targetImage || image);
           seen.add(box.id);
         });
         targetTextboxes.forEach((element, id) => {
@@ -1550,10 +1620,11 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         const textboxes = parseImageTextboxes(image);
         overlay.classList.toggle('has-occlusions', occlusions.length > 0);
         occlusionToggle.classList.toggle('has-occlusions', occlusions.length > 0);
-        syncOcclusionLayer(layer, boxElements);
-        syncHighlightLayer(highlightLayer, highlightElements, { interactive: false });
-        syncTextboxLayer(textLayer, textboxElements, { interactive: false });
+        syncOcclusionLayer(layer, boxElements, image);
+        syncHighlightLayer(highlightLayer, highlightElements, image, { interactive: false });
+        syncTextboxLayer(textLayer, textboxElements, image, { interactive: false });
         if (workspace) {
+          const workspaceImage = workspace.image instanceof HTMLImageElement ? workspace.image : null;
           if (workspace.image) {
             if (occlusions.length) {
               workspace.image.setAttribute(IMAGE_OCCLUSION_ATTR, JSON.stringify(occlusions));
@@ -1571,9 +1642,9 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
               workspace.image.removeAttribute(IMAGE_TEXTBOX_ATTR);
             }
           }
-          syncOcclusionLayer(workspace.layer, workspace.boxElements);
-          syncHighlightLayer(workspace.highlightLayer, workspace.highlightElements, { interactive: true });
-          syncTextboxLayer(workspace.textLayer, workspace.textboxElements, { interactive: true });
+          syncOcclusionLayer(workspace.layer, workspace.boxElements, workspaceImage || image);
+          syncHighlightLayer(workspace.highlightLayer, workspace.highlightElements, workspaceImage || image, { interactive: true });
+          syncTextboxLayer(workspace.textLayer, workspace.textboxElements, workspaceImage || image, { interactive: true });
         }
       }
 
@@ -1673,8 +1744,9 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         if (!(surface instanceof HTMLElement)) return;
         if (event.target !== surface) return;
         event.preventDefault();
-        const rect = surface.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return;
+        const targetImage = workspace?.image instanceof HTMLImageElement ? workspace.image : image;
+        const rect = getImageContentRect(targetImage) || surface.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
         const startX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
         const startY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
         const element = document.createElement('div');
@@ -1683,6 +1755,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         drawing = {
           surface,
           rect,
+          image: targetImage,
           element,
           startX,
           startY,
@@ -1702,7 +1775,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
       function updateDrawing(event){
         if (!drawing) return;
-        const { rect, startX, startY, box, element } = drawing;
+        const { rect, startX, startY, box, element, image: targetImage } = drawing;
         const currentX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
         const currentY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
         const minX = Math.min(startX, currentX);
@@ -1713,12 +1786,12 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         box.y = minY;
         box.width = width;
         box.height = height;
-        applyOcclusionBoxGeometry(element, box);
+        applyOcclusionBoxGeometry(element, box, targetImage);
       }
 
       function finishDrawing(cancelled){
         if (!drawing) return;
-        const { element, box, rect } = drawing;
+        const { element, box, rect, image: targetImage } = drawing;
         window.removeEventListener('pointermove', handlePointerMove);
         window.removeEventListener('pointerup', handlePointerUp);
         window.removeEventListener('pointercancel', handlePointerCancel);
@@ -1771,8 +1844,9 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         if (!(surface instanceof HTMLElement)) return;
         if (event.target !== surface) return;
         event.preventDefault();
-        const rect = surface.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return;
+        const targetImage = workspace?.image instanceof HTMLImageElement ? workspace.image : image;
+        const rect = getImageContentRect(targetImage) || surface.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
         const startX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
         const startY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
         const color = getCurrentHighlightColor();
@@ -1784,6 +1858,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         highlightDrawing = {
           surface,
           rect,
+          image: targetImage,
           element,
           color,
           startX,
@@ -1805,7 +1880,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
       function updateHighlightDrawing(event){
         if (!highlightDrawing) return;
-        const { rect, startX, startY, box, element } = highlightDrawing;
+        const { rect, startX, startY, box, element, image: targetImage } = highlightDrawing;
         const currentX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
         const currentY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
         const minX = Math.min(startX, currentX);
@@ -1816,7 +1891,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         box.y = minY;
         box.width = width;
         box.height = height;
-        applyOcclusionBoxGeometry(element, box);
+        applyOcclusionBoxGeometry(element, box, targetImage);
       }
 
       function finishHighlightDrawing(cancelled){
@@ -1872,8 +1947,9 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         if (!(surface instanceof HTMLElement)) return;
         if (event.target !== surface) return;
         event.preventDefault();
-        const rect = surface.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return;
+        const targetImage = workspace?.image instanceof HTMLImageElement ? workspace.image : image;
+        const rect = getImageContentRect(targetImage) || surface.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
         const startX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
         const startY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
         const element = document.createElement('div');
@@ -1882,6 +1958,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         textboxDrawing = {
           surface,
           rect,
+          image: targetImage,
           element,
           startX,
           startY,
@@ -1902,7 +1979,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
       function updateTextboxDrawing(event){
         if (!textboxDrawing) return;
-        const { rect, startX, startY, box, element } = textboxDrawing;
+        const { rect, startX, startY, box, element, image: targetImage } = textboxDrawing;
         const currentX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
         const currentY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
         const minX = Math.min(startX, currentX);
@@ -1913,7 +1990,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         box.y = minY;
         box.width = width;
         box.height = height;
-        applyOcclusionBoxGeometry(element, box);
+        applyOcclusionBoxGeometry(element, box, targetImage);
       }
 
       function finishTextboxDrawing(cancelled){
@@ -2217,7 +2294,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             layer.appendChild(element);
             boxElements.set(box.id, element);
           }
-          applyOcclusionBoxGeometry(element, box);
+          applyOcclusionBoxGeometry(element, box, image);
           const revealed = revealStates.get(box.id) === true;
           setOcclusionRevealState(element, revealed);
           seen.add(box.id);
@@ -2246,7 +2323,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
           }
           element.style.borderColor = box.color;
           element.style.backgroundColor = highlightColorToRgba(box.color, 0.35);
-          applyOcclusionBoxGeometry(element, box);
+          applyOcclusionBoxGeometry(element, box, image);
           seen.add(box.id);
         });
         highlightElements.forEach((element, id) => {
@@ -2279,7 +2356,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
           if (content && (content.textContent || '') !== (box.text || '')) {
             content.textContent = box.text || '';
           }
-          applyOcclusionBoxGeometry(element, box);
+          applyOcclusionBoxGeometry(element, box, image);
           seen.add(box.id);
         });
         textboxElements.forEach((element, id) => {
@@ -3538,7 +3615,7 @@ function openImageLightbox(image){
         layer.appendChild(element);
         boxElements.set(box.id, element);
       }
-      applyOcclusionBoxGeometry(element, box);
+      applyOcclusionBoxGeometry(element, box, cloned);
       const revealed = revealStates.get(box.id) === true;
       setOcclusionRevealState(element, revealed);
       seen.add(box.id);
@@ -3568,7 +3645,7 @@ function openImageLightbox(image){
       }
       element.style.borderColor = box.color;
       element.style.backgroundColor = highlightColorToRgba(box.color, 0.35);
-      applyOcclusionBoxGeometry(element, box);
+      applyOcclusionBoxGeometry(element, box, cloned);
       seen.add(box.id);
     });
     highlightElements.forEach((element, id) => {
@@ -3600,7 +3677,7 @@ function openImageLightbox(image){
       if (content && (content.textContent || '') !== (box.text || '')) {
         content.textContent = box.text || '';
       }
-      applyOcclusionBoxGeometry(element, box);
+      applyOcclusionBoxGeometry(element, box, cloned);
       seen.add(box.id);
     });
     textboxElements.forEach((element, id) => {
@@ -3738,7 +3815,7 @@ function createRichContentImageManager(container, options = {}){
           layer.appendChild(element);
           boxElements.set(box.id, element);
         }
-        applyOcclusionBoxGeometry(element, box);
+        applyOcclusionBoxGeometry(element, box, image);
         const revealed = revealStates.get(box.id) === true;
         setOcclusionRevealState(element, revealed);
         seen.add(box.id);
@@ -3766,7 +3843,7 @@ function createRichContentImageManager(container, options = {}){
         }
         element.style.borderColor = box.color;
         element.style.backgroundColor = highlightColorToRgba(box.color, 0.35);
-        applyOcclusionBoxGeometry(element, box);
+        applyOcclusionBoxGeometry(element, box, image);
         seen.add(box.id);
       });
       highlightElements.forEach((element, id) => {
@@ -3798,7 +3875,7 @@ function createRichContentImageManager(container, options = {}){
         if (content && (content.textContent || '') !== (box.text || '')) {
           content.textContent = box.text || '';
         }
-        applyOcclusionBoxGeometry(element, box);
+        applyOcclusionBoxGeometry(element, box, image);
         seen.add(box.id);
       });
       textboxElements.forEach((element, id) => {
