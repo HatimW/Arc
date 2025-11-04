@@ -45,8 +45,12 @@ body[data-performance-mode='conservative'] {
   --shadow-lg: 0 12px 28px rgba(2, 6, 23, 0.52);
 }
 
-body[data-performance-mode='balanced'] * {
+body[data-performance-mode='balanced'] *,
+body[data-performance-mode='balanced'] *::before,
+body[data-performance-mode='balanced'] *::after {
   transition-duration: 0.18s !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 body[data-performance-mode='conservative'] *,
@@ -4381,7 +4385,7 @@ body[data-performance-mode='conservative'] .item-card:hover {
 .image-occlusion-workspace {
   position: fixed;
   inset: 0;
-  z-index: 1400;
+  z-index: 2400;
   padding: clamp(16px, 5vw, 40px);
   opacity: 0;
   transition: opacity 0.2s ease;
