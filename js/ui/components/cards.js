@@ -573,6 +573,8 @@ export async function renderCards(container, items, onChange) {
       viewer.innerHTML = '';
       viewer.className = 'deck-viewer';
     });
+    overlay.scrollTop = 0;
+    document.body.classList.remove('is-deck-open');
     if (activeKeyHandler) {
       document.removeEventListener('keydown', activeKeyHandler);
       activeKeyHandler = null;
@@ -820,6 +822,8 @@ export async function renderCards(container, items, onChange) {
     renderCard();
     requestAnimationFrame(() => closeBtn.focus());
 
+    document.body.classList.add('is-deck-open');
+    overlay.scrollTop = 0;
     runMutation(() => {
       viewer.className = 'deck-viewer deck-viewer-card';
       viewer.replaceChildren(viewerContent);

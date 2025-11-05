@@ -294,8 +294,9 @@ function notifyImageOcclusionChange(image){
 
 function computeImageDisplayMetrics(image){
   if (!(image instanceof HTMLImageElement)) return null;
-  const containerWidth = image.clientWidth || image.offsetWidth || 0;
-  const containerHeight = image.clientHeight || image.offsetHeight || 0;
+  const rect = image.getBoundingClientRect();
+  const containerWidth = rect.width || image.clientWidth || image.offsetWidth || 0;
+  const containerHeight = rect.height || image.clientHeight || image.offsetHeight || 0;
   const naturalWidth = image.naturalWidth || containerWidth;
   const naturalHeight = image.naturalHeight || containerHeight;
   if (containerWidth <= 0 || containerHeight <= 0 || naturalWidth <= 0 || naturalHeight <= 0) {
@@ -1134,6 +1135,10 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         const workspaceOverlay = document.createElement('div');
         workspaceOverlay.className = 'image-occlusion-workspace';
         workspaceOverlay.setAttribute('aria-hidden', 'true');
+        workspaceOverlay.setAttribute('role', 'dialog');
+        workspaceOverlay.setAttribute('aria-modal', 'true');
+        workspaceOverlay.setAttribute('aria-label', 'Image occlusion editor');
+        workspaceOverlay.tabIndex = -1;
 
         const backdrop = document.createElement('div');
         backdrop.className = 'image-occlusion-workspace-backdrop';
@@ -1192,40 +1197,79 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         tools.className = 'image-occlusion-workspace-tools';
         sidebar.appendChild(tools);
 
-        const hint = document.createElement('div');
-        hint.className = 'image-occlusion-workspace-hint';
-        hint.textContent = 'Use the toolbar to occlude, highlight, or add text. Drag to draw and click occlusions to toggle.';
-        sidebar.appendChild(hint);
+        const drawGroup = document.createElement('div');
+        drawGroup.className = 'image-workspace-tool-group';
+        tools.appendChild(drawGroup);
+
+        const drawHeading = document.createElement('p');
+        drawHeading.className = 'image-workspace-tool-heading';
+        drawHeading.textContent = 'Draw';
+        drawGroup.appendChild(drawHeading);
 
         const occlusionToolBtn = document.createElement('button');
         occlusionToolBtn.type = 'button';
         occlusionToolBtn.className = 'image-workspace-tool';
-        occlusionToolBtn.title = 'Occlusion tool';
-        occlusionToolBtn.setAttribute('aria-label', 'Occlusion tool');
+        occlusionToolBtn.title = 'Draw a new occlusion';
+        occlusionToolBtn.setAttribute('aria-label', 'Draw occlusion');
         occlusionToolBtn.setAttribute('aria-pressed', 'false');
-        occlusionToolBtn.textContent = '👁';
-        tools.appendChild(occlusionToolBtn);
+        const occlusionIcon = document.createElement('span');
+        occlusionIcon.className = 'image-workspace-tool-icon';
+        occlusionIcon.textContent = '👁';
+        occlusionToolBtn.appendChild(occlusionIcon);
+        const occlusionLabel = document.createElement('span');
+        occlusionLabel.className = 'image-workspace-tool-label';
+        occlusionLabel.textContent = 'Draw occlusion';
+        occlusionToolBtn.appendChild(occlusionLabel);
+        drawGroup.appendChild(occlusionToolBtn);
+
+        const annotateGroup = document.createElement('div');
+        annotateGroup.className = 'image-workspace-tool-group is-secondary';
+        tools.appendChild(annotateGroup);
+
+        const annotateHeading = document.createElement('p');
+        annotateHeading.className = 'image-workspace-tool-heading';
+        annotateHeading.textContent = 'Annotate';
+        annotateGroup.appendChild(annotateHeading);
 
         const highlightToolBtn = document.createElement('button');
         highlightToolBtn.type = 'button';
         highlightToolBtn.className = 'image-workspace-tool image-workspace-tool--highlight';
-        highlightToolBtn.title = 'Highlight tool';
-        highlightToolBtn.setAttribute('aria-label', 'Highlight tool');
+        highlightToolBtn.title = 'Highlight an area (double-click to cycle colors)';
+        highlightToolBtn.setAttribute('aria-label', 'Highlight area');
         highlightToolBtn.setAttribute('aria-pressed', 'false');
-        highlightToolBtn.textContent = '🖍';
+        const highlightIcon = document.createElement('span');
+        highlightIcon.className = 'image-workspace-tool-icon';
+        highlightIcon.textContent = '🖍';
+        highlightToolBtn.appendChild(highlightIcon);
+        const highlightLabel = document.createElement('span');
+        highlightLabel.className = 'image-workspace-tool-label';
+        highlightLabel.textContent = 'Highlight area';
+        highlightToolBtn.appendChild(highlightLabel);
         const highlightSwatch = document.createElement('span');
         highlightSwatch.className = 'image-workspace-tool-swatch';
         highlightToolBtn.appendChild(highlightSwatch);
-        tools.appendChild(highlightToolBtn);
+        annotateGroup.appendChild(highlightToolBtn);
 
         const textToolBtn = document.createElement('button');
         textToolBtn.type = 'button';
         textToolBtn.className = 'image-workspace-tool image-workspace-tool--text';
-        textToolBtn.title = 'Text tool';
-        textToolBtn.setAttribute('aria-label', 'Text tool');
+        textToolBtn.title = 'Add a text note';
+        textToolBtn.setAttribute('aria-label', 'Text note tool');
         textToolBtn.setAttribute('aria-pressed', 'false');
-        textToolBtn.textContent = '📝';
-        tools.appendChild(textToolBtn);
+        const textIcon = document.createElement('span');
+        textIcon.className = 'image-workspace-tool-icon';
+        textIcon.textContent = '📝';
+        textToolBtn.appendChild(textIcon);
+        const textLabel = document.createElement('span');
+        textLabel.className = 'image-workspace-tool-label';
+        textLabel.textContent = 'Add note';
+        textToolBtn.appendChild(textLabel);
+        annotateGroup.appendChild(textToolBtn);
+
+        const hint = document.createElement('div');
+        hint.className = 'image-occlusion-workspace-hint';
+        hint.textContent = 'Draw boxes to hide answers, or switch to highlight and text tools for annotations. Drag on the image to place items and click them to toggle or edit.';
+        sidebar.appendChild(hint);
 
         const workspaceBoxes = new Map();
         const workspaceHighlights = new Map();
@@ -1234,6 +1278,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         let workspaceDragPointerId = null;
         let workspaceDragOffsetX = 0;
         let workspaceDragOffsetY = 0;
+        let previousFocus = null;
 
         function refreshHighlightSwatch(){
           const color = getCurrentHighlightColor();
@@ -1244,16 +1289,16 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         function applyWorkspaceWindowLayout(){
           const viewportWidth = window.innerWidth || 1280;
           const viewportHeight = window.innerHeight || 720;
-          const margin = 64;
-          const maxWidth = Math.max(520, viewportWidth - margin);
-          const maxHeight = Math.max(400, viewportHeight - margin);
+          const margin = 48;
+          const maxWidth = Math.max(540, viewportWidth - margin);
+          const maxHeight = Math.max(420, viewportHeight - margin);
           const targetWidth = Math.min(
-            Math.max(720, viewportWidth * 0.78),
+            Math.max(640, viewportWidth * 0.74),
             maxWidth,
             1320
           );
           const targetHeight = Math.min(
-            Math.max(520, viewportHeight * 0.78),
+            Math.max(460, viewportHeight * 0.72),
             maxHeight,
             960
           );
@@ -1412,11 +1457,21 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
           textboxElements: workspaceTextboxes,
           attach(){
             if (!document.body.contains(workspaceOverlay)) {
+              previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
               document.body.appendChild(workspaceOverlay);
             }
             refreshWorkspaceWindow({ forceCenter: true });
             workspaceOverlay.setAttribute('aria-hidden', 'false');
-            requestAnimationFrame(() => workspaceOverlay.classList.add('is-visible'));
+            workspaceOverlay.scrollTop = 0;
+            document.body.classList.add('is-occlusion-workspace-open');
+            requestAnimationFrame(() => {
+              workspaceOverlay.classList.add('is-visible');
+              try {
+                workspaceOverlay.focus({ preventScroll: true });
+              } catch (err) {
+                workspaceOverlay.focus();
+              }
+            });
             window.addEventListener('keydown', onKeyDown);
             window.addEventListener('resize', handleResize);
           },
@@ -1426,8 +1481,17 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             if (workspaceOverlay.parentNode) {
               workspaceOverlay.parentNode.removeChild(workspaceOverlay);
             }
+            document.body.classList.remove('is-occlusion-workspace-open');
             window.removeEventListener('keydown', onKeyDown);
             window.removeEventListener('resize', handleResize);
+            if (previousFocus && typeof previousFocus.focus === 'function') {
+              try {
+                previousFocus.focus({ preventScroll: true });
+              } catch (err) {
+                previousFocus.focus();
+              }
+            }
+            previousFocus = null;
           },
           destroy(){
             workspaceLayer.removeEventListener('pointerdown', handlePointerDown);
