@@ -4,7 +4,14 @@ import { renderRichText } from './rich-text.js';
 import { sectionsForItem } from './section-utils.js';
 import { openEditor } from './editor.js';
 import { REVIEW_RATINGS, DEFAULT_REVIEW_STEPS } from '../../review/constants.js';
-import { collectDueSections, getReviewDurations, rateSection, getSectionStateSnapshot, projectSectionRating } from '../../review/scheduler.js';
+import {
+  collectDueSections,
+  getReviewDurations,
+  rateSection,
+  getSectionStateSnapshot,
+  projectSectionRating,
+  ensureItemSr
+} from '../../review/scheduler.js';
 import { upsertItem } from '../../storage/storage.js';
 import { persistStudySession, removeStudySession } from '../../study/study-sessions.js';
 import { loadReviewSourceItems } from '../../review/pool.js';
@@ -37,14 +44,24 @@ const RATING_CLASS = {
 function formatReviewInterval(minutes) {
   if (!Number.isFinite(minutes) || minutes <= 0) return 'Now';
   if (minutes < 60) return `${minutes} min`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} hr`;
-  const days = Math.round(hours / 24);
-  if (days < 30) return `${days} day${days === 1 ? '' : 's'}`;
-  const months = Math.round(days / 30);
-  if (months < 12) return `${months} mo`;
-  const years = Math.round(months / 12);
-  return `${years} yr`;
+  const asHours = minutes / 60;
+  if (asHours < 24) {
+    const roundedHours = Number.isInteger(asHours) ? asHours : Math.round(asHours * 10) / 10;
+    return `${roundedHours} hr`;
+  }
+  const asDays = minutes / 1440;
+  if (asDays < 30) {
+    const roundedDays = Number.isInteger(asDays) ? asDays : Math.round(asDays * 10) / 10;
+    return `${roundedDays} day${roundedDays === 1 ? '' : 's'}`;
+  }
+  const asMonths = minutes / 43200;
+  if (asMonths < 12) {
+    const roundedMonths = Number.isInteger(asMonths) ? asMonths : Math.round(asMonths * 10) / 10;
+    return `${roundedMonths} mo`;
+  }
+  const asYears = minutes / 525600;
+  const roundedYears = Number.isInteger(asYears) ? asYears : Math.round(asYears * 10) / 10;
+  return `${roundedYears} yr`;
 }
 
 
@@ -52,6 +69,12 @@ function getFlashcardAccent(item) {
   if (item?.color) return item.color;
   if (item?.kind && KIND_ACCENTS[item.kind]) return KIND_ACCENTS[item.kind];
   return 'var(--accent)';
+}
+
+
+function cloneSectionState(state) {
+  if (!state || typeof state !== 'object') return null;
+  return JSON.parse(JSON.stringify(state));
 }
 
 
@@ -107,6 +130,13 @@ function normalizeFlashSession(session, fallbackPool, defaultMode = 'study') {
     next.ratings = ratings;
     changed = true;
   }
+  const baselines = source.ratingBaselines && typeof source.ratingBaselines === 'object'
+    ? source.ratingBaselines
+    : {};
+  if (source.ratingBaselines !== baselines) {
+    next.ratingBaselines = baselines;
+    changed = true;
+  }
   let idx = typeof source.idx === 'number' && Number.isFinite(source.idx) ? Math.floor(source.idx) : 0;
   if (idx < 0) idx = 0;
   const maxIdx = pool.length ? pool.length - 1 : 0;
@@ -136,6 +166,9 @@ export function renderFlashcards(root, redraw) {
     active = normalizeFlashSession({ idx: 0, pool: fallbackPool, ratings: {}, mode: 'study' }, fallbackPool, 'study');
   }
   active.ratings = active.ratings || {};
+  active.ratingBaselines = active.ratingBaselines && typeof active.ratingBaselines === 'object'
+    ? active.ratingBaselines
+    : {};
   const items = Array.isArray(active.pool) && active.pool.length ? active.pool : fallbackPool;
 
 
@@ -143,11 +176,10 @@ export function renderFlashcards(root, redraw) {
   const commitSession = (patch = {}) => {
     const pool = resolvePool();
     const next = { ...active, pool, ...patch };
-    if (patch.ratings) {
-      next.ratings = { ...patch.ratings };
-    } else {
-      next.ratings = { ...active.ratings };
-    }
+    next.ratings = patch.ratings ? { ...patch.ratings } : { ...active.ratings };
+    next.ratingBaselines = patch.ratingBaselines
+      ? { ...patch.ratingBaselines }
+      : { ...active.ratingBaselines };
     active = next;
     setFlashSession(next);
   };
@@ -319,6 +351,9 @@ export function renderFlashcards(root, redraw) {
     const ratingId = ratingKey(item, key);
     let currentRating = active.ratings[ratingId] || null;
     const snapshot = getSectionStateSnapshot(item, key);
+    if (snapshot && !active.ratingBaselines[ratingId]) {
+      active.ratingBaselines[ratingId] = cloneSectionState(snapshot);
+    }
     const lockedByQueue = !isReview && Boolean(snapshot && snapshot.last && !snapshot.retired);
     const alreadyQueued = !isReview && Boolean(snapshot && snapshot.last && !snapshot.retired);
     const requiresRating = isReview || !alreadyQueued;
@@ -396,6 +431,7 @@ export function renderFlashcards(root, redraw) {
       });
       status.classList.remove('is-error');
       status.textContent = currentRating ? 'Update rating (updates queue)' : 'Select a rating to queue for review';
+      renderPreviews();
     };
 
     const activateStatus = event => {
@@ -440,11 +476,22 @@ export function renderFlashcards(root, redraw) {
     const updatePreviews = (durations) => {
       if (!durations) return;
       const nowTs = Date.now();
+      const baselineState = active.ratingBaselines[ratingId] || null;
+      const projectionSource = baselineState ? (() => {
+        const clone = JSON.parse(JSON.stringify(item));
+        if (!clone.sr || typeof clone.sr !== 'object') clone.sr = {};
+        clone.sr.version = clone.sr.version || (item.sr && item.sr.version) || 1;
+        clone.sr.sections = clone.sr.sections && typeof clone.sr.sections === 'object'
+          ? { ...clone.sr.sections }
+          : {};
+        clone.sr.sections[key] = cloneSectionState(baselineState);
+        return clone;
+      })() : null;
       REVIEW_RATINGS.forEach(ratingValue => {
         const target = ratingPreviews.get(ratingValue);
         if (!target) return;
         try {
-          const projection = projectSectionRating(item, key, ratingValue, durations, nowTs);
+          const projection = projectSectionRating(projectionSource ? projectionSource : item, key, ratingValue, durations, nowTs);
           if (!projection || !Number.isFinite(projection.due)) {
             target.textContent = '';
             return;
@@ -498,6 +545,15 @@ export function renderFlashcards(root, redraw) {
       status.textContent = 'Saving…';
       status.classList.remove('is-error');
       try {
+        if (!active.ratingBaselines[ratingId] && snapshot) {
+          active.ratingBaselines[ratingId] = cloneSectionState(snapshot);
+        }
+        const baselineState = active.ratingBaselines[ratingId];
+        if (baselineState) {
+          const sr = ensureItemSr(item);
+          sr.sections = sr.sections || {};
+          sr.sections[key] = cloneSectionState(baselineState);
+        }
         rateSection(item, key, value, durations, Date.now());
         await upsertItem(item);
         selectRating(value);

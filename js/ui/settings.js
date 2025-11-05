@@ -319,6 +319,126 @@ export async function renderSettings(root) {
     ...DEFAULT_REVIEW_STEPS,
     ...(settings?.reviewSteps || {})
   };
+  const durationUnits = [
+    { value: 'minutes', label: 'minutes', factor: 1 },
+    { value: 'hours', label: 'hours', factor: 60 },
+    { value: 'days', label: 'days', factor: 1440 },
+    { value: 'weeks', label: 'weeks', factor: 10080 }
+  ];
+  const durationFactorMap = durationUnits.reduce((acc, unit) => {
+    acc[unit.value] = unit.factor;
+    return acc;
+  }, {});
+  const durationAliasFactors = {
+    m: 1,
+    min: 1,
+    mins: 1,
+    minute: 1,
+    minutes: 1,
+    h: 60,
+    hr: 60,
+    hrs: 60,
+    hour: 60,
+    hours: 60,
+    d: 1440,
+    day: 1440,
+    days: 1440,
+    w: 10080,
+    wk: 10080,
+    wks: 10080,
+    week: 10080,
+    weeks: 10080
+  };
+
+  const minutesToParts = (minutes) => {
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return { value: '', unit: 'minutes' };
+    }
+    return { value: Math.round(minutes * 100) / 100, unit: 'minutes' };
+  };
+
+  const convertToMinutes = (amount, unit) => {
+    const factor = durationFactorMap[unit] || 1;
+    const raw = Number(amount);
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return Math.max(1, Math.round(raw * factor));
+  };
+
+  const parseDurationToken = (token) => {
+    if (!token) return null;
+    const trimmed = token.trim();
+    if (!trimmed) return null;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return Math.max(1, Math.round(numeric));
+    }
+    const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$/);
+    if (!match) return null;
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    const unitToken = (match[2] || 'minutes').toLowerCase();
+    const factor = durationAliasFactors[unitToken];
+    if (!factor) return null;
+    return Math.max(1, Math.round(amount * factor));
+  };
+
+  const parseDurationListString = (value) => {
+    const raw = (value || '').trim();
+    if (!raw) return [];
+    const entries = raw.split(/[;,\n]+/);
+    const results = [];
+    for (const entry of entries) {
+      const minutes = parseDurationToken(entry);
+      if (!Number.isFinite(minutes) || minutes <= 0) {
+        return null;
+      }
+      results.push(minutes);
+    }
+    return results;
+  };
+
+  const formatDurationDisplay = (minutes) => {
+    if (!Number.isFinite(minutes) || minutes <= 0) return '';
+    if (minutes % durationFactorMap.weeks === 0) {
+      const value = minutes / durationFactorMap.weeks;
+      return `${value} ${value === 1 ? 'week' : 'weeks'}`;
+    }
+    if (minutes % durationFactorMap.days === 0) {
+      const value = minutes / durationFactorMap.days;
+      return `${value} ${value === 1 ? 'day' : 'days'}`;
+    }
+    if (minutes % durationFactorMap.hours === 0) {
+      const value = minutes / durationFactorMap.hours;
+      return `${value} ${value === 1 ? 'hour' : 'hours'}`;
+    }
+    const rounded = Math.round(minutes * 100) / 100;
+    return `${rounded} ${rounded === 1 ? 'minute' : 'minutes'}`;
+  };
+
+  const createDurationControl = (minutes) => {
+    const control = document.createElement('div');
+    control.className = 'settings-review-control';
+    const amountInput = document.createElement('input');
+    amountInput.type = 'number';
+    amountInput.min = '0.01';
+    amountInput.step = '0.25';
+    amountInput.className = 'input settings-review-input';
+    const unitSelect = document.createElement('select');
+    unitSelect.className = 'input settings-review-unit';
+    durationUnits.forEach(unit => {
+      const option = document.createElement('option');
+      option.value = unit.value;
+      option.textContent = unit.label;
+      unitSelect.appendChild(option);
+    });
+    const parts = minutesToParts(minutes);
+    if (parts.value !== '') amountInput.value = String(parts.value);
+    unitSelect.value = parts.unit;
+    control.appendChild(amountInput);
+    control.appendChild(unitSelect);
+    return { wrapper: control, amountInput, unitSelect };
+  };
+
   const plannerDefaults = settings?.plannerDefaults || DEFAULT_PLANNER_DEFAULTS;
 
   const blocksCard = document.createElement('section');
@@ -624,18 +744,30 @@ export async function renderSettings(root) {
 
   const stepsHeading = document.createElement('h3');
   stepsHeading.className = 'settings-subheading';
-  stepsHeading.textContent = 'Spaced repetition steps (minutes)';
+  stepsHeading.textContent = 'Button delays (when each rating shows up again)';
   reviewForm.appendChild(stepsHeading);
+
+  const stepsDescription = document.createElement('p');
+  stepsDescription.className = 'settings-review-help';
+  stepsDescription.textContent = 'Use these to control how soon you will see a card again after choosing Again, Hard, Good, or Easy.';
+  reviewForm.appendChild(stepsDescription);
 
   const grid = document.createElement('div');
   grid.className = 'settings-review-grid';
   reviewForm.appendChild(grid);
 
-  const labels = {
+  const ratingLabels = {
     again: 'Again',
     hard: 'Hard',
     good: 'Good',
     easy: 'Easy'
+  };
+
+  const ratingDescriptions = {
+    again: 'Repeat almost immediately when you didn’t remember.',
+    hard: 'Give yourself a short break after a difficult recall.',
+    good: 'Normal delay for a comfortable review.',
+    easy: 'A longer break when the card feels effortless.'
   };
 
   const reviewInputs = new Map();
@@ -643,27 +775,58 @@ export async function renderSettings(root) {
     const row = document.createElement('label');
     row.className = 'settings-review-row';
 
-    const label = document.createElement('span');
-    label.textContent = labels[rating] || rating;
-    row.appendChild(label);
+    const title = document.createElement('span');
+    title.className = 'settings-review-title';
+    title.textContent = ratingLabels[rating] || rating;
+    row.appendChild(title);
 
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.min = '1';
-    input.required = true;
-    input.className = 'input settings-review-input';
-    input.value = String(reviewSteps[rating] ?? DEFAULT_REVIEW_STEPS[rating]);
-    input.dataset.rating = rating;
-    row.appendChild(input);
+    if (ratingDescriptions[rating]) {
+      const desc = document.createElement('span');
+      desc.className = 'settings-review-help';
+      desc.textContent = ratingDescriptions[rating];
+      row.appendChild(desc);
+    }
 
-    reviewInputs.set(rating, input);
+    const control = document.createElement('div');
+    control.className = 'settings-review-control';
+
+    const amountInput = document.createElement('input');
+    amountInput.type = 'number';
+    amountInput.min = '0.01';
+    amountInput.step = '0.25';
+    amountInput.required = true;
+    amountInput.className = 'input settings-review-input';
+    amountInput.dataset.rating = rating;
+    const unitSelect = document.createElement('select');
+    unitSelect.className = 'input settings-review-unit';
+    durationUnits.forEach(unit => {
+      const option = document.createElement('option');
+      option.value = unit.value;
+      option.textContent = unit.label;
+      unitSelect.appendChild(option);
+    });
+    const parts = minutesToParts(reviewSteps[rating] ?? DEFAULT_REVIEW_STEPS[rating]);
+    if (parts.value !== '') {
+      amountInput.value = String(parts.value);
+    }
+    unitSelect.value = parts.unit;
+    control.appendChild(amountInput);
+    control.appendChild(unitSelect);
+    row.appendChild(control);
+
+    reviewInputs.set(rating, { amount: amountInput, unit: unitSelect });
     grid.appendChild(row);
   }
 
   const advancedHeading = document.createElement('h3');
   advancedHeading.className = 'settings-subheading';
-  advancedHeading.textContent = 'Advanced spacing controls';
+  advancedHeading.textContent = 'Fine-tune spaced repetition (optional)';
   reviewForm.appendChild(advancedHeading);
+
+  const advancedIntro = document.createElement('p');
+  advancedIntro.className = 'settings-review-help';
+  advancedIntro.textContent = 'Tweak how cards graduate, how ease changes, and how lapses behave. Leave any field blank to keep the default.';
+  reviewForm.appendChild(advancedIntro);
 
   const advancedGrid = document.createElement('div');
   advancedGrid.className = 'settings-review-grid';
@@ -671,45 +834,155 @@ export async function renderSettings(root) {
 
   const advancedInputs = new Map();
   const advancedFields = [
-    { key: 'learningSteps', label: 'Learning steps (minutes, comma separated)', type: 'text', placeholder: '10, 60' },
-    { key: 'relearningSteps', label: 'Relearning steps (minutes)', type: 'text', placeholder: '10' },
-    { key: 'graduatingGood', label: 'Graduating interval – Good (minutes)', type: 'number', min: 1 },
-    { key: 'graduatingEasy', label: 'Graduating interval – Easy (minutes)', type: 'number', min: 1 },
-    { key: 'startingEase', label: 'Starting ease factor', type: 'number', min: 0.5, step: 0.01 },
-    { key: 'minimumEase', label: 'Minimum ease factor', type: 'number', min: 0.5, step: 0.01 },
-    { key: 'easeBonus', label: 'Easy bonus', type: 'number', min: 0, step: 0.01 },
-    { key: 'easePenalty', label: 'Again penalty', type: 'number', min: 0, step: 0.01 },
-    { key: 'hardEasePenalty', label: 'Hard penalty', type: 'number', min: 0, step: 0.01 },
-    { key: 'hardIntervalMultiplier', label: 'Hard interval multiplier', type: 'number', min: 0.1, step: 0.01 },
-    { key: 'easyIntervalBonus', label: 'Easy interval bonus', type: 'number', min: 0.1, step: 0.01 },
-    { key: 'intervalModifier', label: 'Interval modifier', type: 'number', min: 0.1, step: 0.01 },
-    { key: 'lapseIntervalMultiplier', label: 'Lapse interval multiplier', type: 'number', min: 0.1, step: 0.01 }
+    {
+      key: 'learningSteps',
+      label: 'Extra learning reviews',
+      description: 'Short delays right after you learn a card. Separate times with commas (e.g., "10 min, 1 hour").',
+      type: 'list',
+      placeholder: '10 min, 1 hour'
+    },
+    {
+      key: 'relearningSteps',
+      label: 'Relearning reviews after a lapse',
+      description: 'Used when you miss a mature card.',
+      type: 'list',
+      placeholder: '10 min'
+    },
+    {
+      key: 'graduatingGood',
+      label: '“Good” graduation delay',
+      description: 'How long until the next review when you finish learning with Good.',
+      type: 'duration'
+    },
+    {
+      key: 'graduatingEasy',
+      label: '“Easy” graduation delay',
+      description: 'How long until the next review when you finish learning with Easy.',
+      type: 'duration'
+    },
+    {
+      key: 'startingEase',
+      label: 'Starting ease',
+      description: 'How quickly intervals grow after a card graduates.',
+      type: 'number',
+      min: 0.5,
+      step: 0.05
+    },
+    {
+      key: 'minimumEase',
+      label: 'Minimum ease',
+      description: 'Prevents ease from dropping too low after misses.',
+      type: 'number',
+      min: 0.5,
+      step: 0.05
+    },
+    {
+      key: 'easeBonus',
+      label: 'Easy bonus',
+      description: 'Extra boost applied when you choose Easy.',
+      type: 'number',
+      min: 0,
+      step: 0.05,
+      allowZero: true
+    },
+    {
+      key: 'easePenalty',
+      label: '“Again” penalty',
+      description: 'Ease reduction when you miss a card.',
+      type: 'number',
+      min: 0,
+      step: 0.05,
+      allowZero: true
+    },
+    {
+      key: 'hardEasePenalty',
+      label: '“Hard” penalty',
+      description: 'Small ease decrease applied after choosing Hard.',
+      type: 'number',
+      min: 0,
+      step: 0.05,
+      allowZero: true
+    },
+    {
+      key: 'hardIntervalMultiplier',
+      label: '“Hard” interval multiplier',
+      description: 'Scales the next review interval when you choose Hard.',
+      type: 'number',
+      min: 0.1,
+      step: 0.05
+    },
+    {
+      key: 'easyIntervalBonus',
+      label: '“Easy” interval bonus',
+      description: 'Multiplier for the next interval when you choose Easy.',
+      type: 'number',
+      min: 0.1,
+      step: 0.05
+    },
+    {
+      key: 'intervalModifier',
+      label: 'Overall pacing multiplier',
+      description: 'Adjust every interval globally. Values above 1 slow things down.',
+      type: 'number',
+      min: 0.1,
+      step: 0.05
+    },
+    {
+      key: 'lapseIntervalMultiplier',
+      label: 'Lapse interval restart',
+      description: 'How much of the previous interval you keep after a lapse.',
+      type: 'number',
+      min: 0.1,
+      step: 0.05
+    }
   ];
 
   advancedFields.forEach(field => {
     const row = document.createElement('label');
     row.className = 'settings-review-row';
-    const label = document.createElement('span');
-    label.textContent = field.label;
-    row.appendChild(label);
-    const input = document.createElement('input');
-    input.className = 'input settings-review-input';
-    if (field.type === 'number') {
+    const title = document.createElement('span');
+    title.className = 'settings-review-title';
+    title.textContent = field.label;
+    row.appendChild(title);
+    if (field.description) {
+      const desc = document.createElement('span');
+      desc.className = 'settings-review-help';
+      desc.textContent = field.description;
+      row.appendChild(desc);
+    }
+
+    if (field.type === 'list') {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'input settings-review-input';
+      if (field.placeholder) input.placeholder = field.placeholder;
+      const currentValue = reviewSteps[field.key];
+      if (Array.isArray(currentValue)) {
+        input.value = currentValue.map(formatDurationDisplay).filter(Boolean).join(', ');
+      }
+      row.appendChild(input);
+      advancedInputs.set(field.key, { type: 'list', input });
+    } else if (field.type === 'duration') {
+      const currentMinutes = Number.isFinite(Number(reviewSteps[field.key]))
+        ? Number(reviewSteps[field.key])
+        : Number(DEFAULT_REVIEW_STEPS[field.key]);
+      const control = createDurationControl(currentMinutes);
+      row.appendChild(control.wrapper);
+      advancedInputs.set(field.key, { type: 'duration', amount: control.amountInput, unit: control.unitSelect });
+    } else {
+      const input = document.createElement('input');
       input.type = 'number';
+      input.className = 'input settings-review-input';
       if (field.min != null) input.min = String(field.min);
       if (field.step != null) input.step = String(field.step);
-    } else {
-      input.type = 'text';
+      const currentValue = reviewSteps[field.key];
+      if (currentValue != null) {
+        input.value = String(currentValue);
+      }
+      row.appendChild(input);
+      advancedInputs.set(field.key, { type: 'number', input, allowZero: field.allowZero || false, min: field.min ?? 0 });
     }
-    if (field.placeholder) input.placeholder = field.placeholder;
-    const currentValue = reviewSteps[field.key];
-    if (Array.isArray(currentValue)) {
-      input.value = currentValue.join(', ');
-    } else if (currentValue != null) {
-      input.value = String(currentValue);
-    }
-    row.appendChild(input);
-    advancedInputs.set(field.key, input);
+
     advancedGrid.appendChild(row);
   });
 
@@ -731,17 +1004,16 @@ export async function renderSettings(root) {
     reviewStatus.classList.remove('is-error');
 
     const nextSteps = {};
-    for (const [rating, input] of reviewInputs) {
-      const value = Number(input.value);
-      if (!Number.isFinite(value) || value <= 0) {
-        reviewStatus.textContent = 'Enter a positive number of minutes for each step.';
+    for (const [rating, control] of reviewInputs) {
+      const minutes = convertToMinutes(control.amount.value, control.unit.value);
+      if (!Number.isFinite(minutes) || minutes <= 0) {
+        reviewStatus.textContent = 'Enter a positive time for each rating button.';
         reviewStatus.classList.add('is-error');
         reviewStatus.hidden = false;
-        input.focus();
+        control.amount.focus();
         return;
       }
-      const rounded = Math.max(1, Math.round(value));
-      nextSteps[rating] = rounded;
+      nextSteps[rating] = minutes;
     }
 
     const advancedPatch = {};
@@ -755,53 +1027,61 @@ export async function renderSettings(root) {
     };
 
     const parseListField = (key, label) => {
-      const input = advancedInputs.get(key);
-      if (!input) return true;
-      const raw = (input.value || '').trim();
+      const entry = advancedInputs.get(key);
+      if (!entry || entry.type !== 'list') return true;
+      const raw = (entry.input.value || '').trim();
       if (!raw) return true;
-      const values = raw
-        .split(/[,\s]+/)
-        .map(entry => Math.round(Number(entry)))
-        .filter(entry => Number.isFinite(entry) && entry > 0);
-      if (!values.length) {
-        return failField(`Enter positive minutes for ${label}.`, input);
+      const values = parseDurationListString(raw);
+      if (!values || !values.length) {
+        return failField(`Enter positive times for ${label}.`, entry.input);
       }
       advancedPatch[key] = values;
       return true;
     };
 
+    const parseDurationField = (key, label) => {
+      const entry = advancedInputs.get(key);
+      if (!entry || entry.type !== 'duration') return true;
+      const minutes = convertToMinutes(entry.amount.value, entry.unit.value);
+      if (!Number.isFinite(minutes) || minutes <= 0) {
+        return failField(`Enter a positive time for ${label}.`, entry.amount);
+      }
+      advancedPatch[key] = minutes;
+      return true;
+    };
+
     const parseNumberField = (key, label, { min = 0, allowZero = false } = {}) => {
-      const input = advancedInputs.get(key);
-      if (!input) return true;
-      const raw = input.value;
+      const entry = advancedInputs.get(key);
+      if (!entry || entry.type !== 'number') return true;
+      const raw = entry.input.value;
       if (raw == null || raw === '') return true;
       const value = Number(raw);
       if (!Number.isFinite(value)) {
-        return failField(`Enter a numeric value for ${label}.`, input);
+        return failField(`Enter a number for ${label}.`, entry.input);
       }
-      if (value < min) {
-        return failField(`Value for ${label} must be at least ${min}.`, input);
+      if (value < min && !(allowZero && value === 0)) {
+        return failField(`Value for ${label} must be at least ${min}.`, entry.input);
       }
       if (!allowZero && value === 0) {
-        return failField(`Value for ${label} must be greater than zero.`, input);
+        return failField(`Value for ${label} must be greater than zero.`, entry.input);
       }
       advancedPatch[key] = value;
       return true;
     };
 
-    if (!parseListField('learningSteps', 'learning steps')) return;
-    if (!parseListField('relearningSteps', 'relearning steps')) return;
-    if (!parseNumberField('graduatingGood', 'graduating good interval', { min: 0 })) return;
-    if (!parseNumberField('graduatingEasy', 'graduating easy interval', { min: 0 })) return;
+    if (!parseListField('learningSteps', 'extra learning reviews')) return;
+    if (!parseListField('relearningSteps', 'relearning reviews')) return;
+    if (!parseDurationField('graduatingGood', 'the “Good” graduation delay')) return;
+    if (!parseDurationField('graduatingEasy', 'the “Easy” graduation delay')) return;
     if (!parseNumberField('startingEase', 'starting ease', { min: 0.5, allowZero: false })) return;
     if (!parseNumberField('minimumEase', 'minimum ease', { min: 0.5, allowZero: false })) return;
     if (!parseNumberField('easeBonus', 'easy bonus', { min: 0, allowZero: true })) return;
-    if (!parseNumberField('easePenalty', 'again penalty', { min: 0, allowZero: true })) return;
-    if (!parseNumberField('hardEasePenalty', 'hard penalty', { min: 0, allowZero: true })) return;
-    if (!parseNumberField('hardIntervalMultiplier', 'hard interval multiplier', { min: 0.1, allowZero: false })) return;
-    if (!parseNumberField('easyIntervalBonus', 'easy interval bonus', { min: 0.1, allowZero: false })) return;
-    if (!parseNumberField('intervalModifier', 'interval modifier', { min: 0.01, allowZero: false })) return;
-    if (!parseNumberField('lapseIntervalMultiplier', 'lapse interval multiplier', { min: 0.01, allowZero: false })) return;
+    if (!parseNumberField('easePenalty', '“Again” penalty', { min: 0, allowZero: true })) return;
+    if (!parseNumberField('hardEasePenalty', '“Hard” penalty', { min: 0, allowZero: true })) return;
+    if (!parseNumberField('hardIntervalMultiplier', '“Hard” interval multiplier', { min: 0.1, allowZero: false })) return;
+    if (!parseNumberField('easyIntervalBonus', '“Easy” interval bonus', { min: 0.1, allowZero: false })) return;
+    if (!parseNumberField('intervalModifier', 'overall pacing multiplier', { min: 0.1, allowZero: false })) return;
+    if (!parseNumberField('lapseIntervalMultiplier', 'lapse interval restart', { min: 0.1, allowZero: false })) return;
 
     Object.assign(nextSteps, advancedPatch);
 
@@ -816,21 +1096,27 @@ export async function renderSettings(root) {
         ...DEFAULT_REVIEW_STEPS,
         ...(updated?.reviewSteps || {})
       };
-      for (const [rating, input] of reviewInputs) {
+      for (const [rating, control] of reviewInputs) {
         const value = normalized[rating];
-        if (Number.isFinite(value) && value > 0) {
-          input.value = String(value);
-        }
+        const parts = minutesToParts(value);
+        control.amount.value = parts.value !== '' ? String(parts.value) : '';
+        control.unit.value = parts.unit;
       }
-      for (const [key, input] of advancedInputs) {
-        if (!input) continue;
+      for (const [key, entry] of advancedInputs) {
+        if (!entry) continue;
         const value = normalized[key];
-        if (Array.isArray(value)) {
-          input.value = value.join(', ');
-        } else if (value != null) {
-          input.value = String(value);
-        } else {
-          input.value = '';
+        if (entry.type === 'list') {
+          if (Array.isArray(value)) {
+            entry.input.value = value.map(formatDurationDisplay).filter(Boolean).join(', ');
+          } else {
+            entry.input.value = '';
+          }
+        } else if (entry.type === 'duration') {
+          const parts = minutesToParts(value);
+          entry.amount.value = parts.value !== '' ? String(parts.value) : '';
+          entry.unit.value = parts.unit;
+        } else if (entry.type === 'number') {
+          entry.input.value = value != null ? String(value) : '';
         }
       }
       reviewStatus.textContent = 'Review settings saved.';
