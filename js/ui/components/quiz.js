@@ -3,7 +3,13 @@ import { renderRichText } from './rich-text.js';
 import { persistStudySession, removeStudySession } from '../../study/study-sessions.js';
 import { sectionsForItem } from './section-utils.js';
 import { REVIEW_RATINGS, DEFAULT_REVIEW_STEPS } from '../../review/constants.js';
-import { getReviewDurations, rateSection } from '../../review/scheduler.js';
+import {
+  getReviewDurations,
+  rateSection,
+  getSectionStateSnapshot,
+  projectSectionRating,
+  ensureItemSr
+} from '../../review/scheduler.js';
 import { upsertItem } from '../../storage/storage.js';
 import { openEditor } from './editor.js';
 
@@ -21,6 +27,34 @@ const RATING_CLASS = {
   good: '',
   easy: ''
 };
+
+function formatReviewInterval(minutes) {
+  if (!Number.isFinite(minutes) || minutes <= 0) return 'Now';
+  if (minutes < 60) return `${minutes} min`;
+  const asHours = minutes / 60;
+  if (asHours < 24) {
+    const roundedHours = Number.isInteger(asHours) ? asHours : Math.round(asHours * 10) / 10;
+    return `${roundedHours} hr`;
+  }
+  const asDays = minutes / 1440;
+  if (asDays < 30) {
+    const roundedDays = Number.isInteger(asDays) ? asDays : Math.round(asDays * 10) / 10;
+    return `${roundedDays} day${roundedDays === 1 ? '' : 's'}`;
+  }
+  const asMonths = minutes / 43200;
+  if (asMonths < 12) {
+    const roundedMonths = Number.isInteger(asMonths) ? asMonths : Math.round(asMonths * 10) / 10;
+    return `${roundedMonths} mo`;
+  }
+  const asYears = minutes / 525600;
+  const roundedYears = Number.isInteger(asYears) ? asYears : Math.round(asYears * 10) / 10;
+  return `${roundedYears} yr`;
+}
+
+function cloneSectionState(state) {
+  if (!state || typeof state !== 'object') return null;
+  return JSON.parse(JSON.stringify(state));
+}
 
 function titleOf(item) {
   return item?.name || item?.concept || '';
@@ -44,6 +78,9 @@ function ensureSessionDefaults(session) {
   }
   if (!session.ratings || typeof session.ratings !== 'object') {
     session.ratings = {};
+  }
+  if (!session.ratingBaselines || typeof session.ratingBaselines !== 'object') {
+    session.ratingBaselines = {};
   }
   if (typeof session.idx !== 'number' || Number.isNaN(session.idx)) {
     session.idx = 0;
@@ -179,6 +216,18 @@ export function renderQuiz(root, redraw) {
   details.className = 'quiz-details';
 
   const sections = sectionsForItem(item);
+  const sectionSnapshots = new Map();
+  const baselineStore = session.ratingBaselines;
+  sections.forEach(({ key }) => {
+    const snapshot = getSectionStateSnapshot(item, key);
+    if (snapshot) {
+      sectionSnapshots.set(key, snapshot);
+      const baseKey = ratingKey(item, key);
+      if (!baselineStore[baseKey]) {
+        baselineStore[baseKey] = cloneSectionState(snapshot);
+      }
+    }
+  });
   if (!sections.length) {
     const emptySection = document.createElement('div');
     emptySection.className = 'quiz-empty';
@@ -439,6 +488,63 @@ export function renderQuiz(root, redraw) {
   let selectedRating = session.ratings[ratingId] || null;
   let ratingLocked = Boolean(selectedRating);
   let adjustBtn = null;
+  const ratingPreviews = new Map();
+
+  const updatePreviews = (durations) => {
+    if (!durations) return;
+    const nowTs = Date.now();
+    const projectionSources = new Map();
+    const resolveSource = (sectionKey) => {
+      if (projectionSources.has(sectionKey)) return projectionSources.get(sectionKey);
+      const baseKey = ratingKey(item, sectionKey);
+      const baselineState = session.ratingBaselines[baseKey];
+      if (!baselineState) {
+        projectionSources.set(sectionKey, null);
+        return null;
+      }
+      const clone = JSON.parse(JSON.stringify(item));
+      if (!clone.sr || typeof clone.sr !== 'object') clone.sr = {};
+      clone.sr.version = clone.sr.version || (item.sr && item.sr.version) || 1;
+      clone.sr.sections = clone.sr.sections && typeof clone.sr.sections === 'object'
+        ? { ...clone.sr.sections }
+        : {};
+      clone.sr.sections[sectionKey] = cloneSectionState(baselineState);
+      projectionSources.set(sectionKey, clone);
+      return clone;
+    };
+    REVIEW_RATINGS.forEach(ratingValue => {
+      const target = ratingPreviews.get(ratingValue);
+      if (!target) return;
+      try {
+        let soonestDue = null;
+        sections.forEach(({ key }) => {
+          const source = resolveSource(key);
+          const projection = projectSectionRating(source || item, key, ratingValue, durations, nowTs);
+          if (!projection || !Number.isFinite(projection.due)) return;
+          if (soonestDue == null || projection.due < soonestDue) {
+            soonestDue = projection.due;
+          }
+        });
+        if (soonestDue == null) {
+          target.textContent = '';
+          return;
+        }
+        const minutes = Math.max(0, Math.round((soonestDue - nowTs) / (60 * 1000)));
+        target.textContent = formatReviewInterval(minutes);
+      } catch (err) {
+        target.textContent = '';
+      }
+    });
+  };
+
+  const renderPreviews = async () => {
+    try {
+      const durations = await durationsPromise;
+      updatePreviews(durations);
+    } catch (err) {
+      // ignore preview failures
+    }
+  };
 
   const clearStatusInteraction = () => {
     status.classList.remove('quiz-rating-status-action');
@@ -471,6 +577,7 @@ export function renderQuiz(root, redraw) {
     status.textContent = selectedRating
       ? 'Update rating (updates queue)'
       : 'Optional: set a rating to queue this card.';
+    renderPreviews();
   };
 
   const applySessionLock = () => {
@@ -516,6 +623,7 @@ export function renderQuiz(root, redraw) {
     });
     status.classList.remove('is-error');
     updateNavState();
+    renderPreviews();
   };
 
   const handleRating = async (value) => {
@@ -528,12 +636,25 @@ export function renderQuiz(root, redraw) {
       const durations = await durationsPromise;
       const timestamp = Date.now();
       if (sections.length) {
+        const sr = ensureItemSr(item);
+        sr.sections = sr.sections || {};
+        sections.forEach(({ key }) => {
+          const baseKey = ratingKey(item, key);
+          const snapshot = sectionSnapshots.get(key);
+          if (!session.ratingBaselines[baseKey] && snapshot) {
+            session.ratingBaselines[baseKey] = cloneSectionState(snapshot);
+          }
+          const stored = session.ratingBaselines[baseKey];
+          if (stored) {
+            sr.sections[key] = cloneSectionState(stored);
+          }
+        });
         sections.forEach(({ key }) => rateSection(item, key, value, durations, timestamp));
         await upsertItem(item);
       }
-      session.ratings[ratingId] = value;
       updateSelection(value);
       applySessionLock();
+      updatePreviews(durations);
     } catch (err) {
       console.error('Failed to record quiz rating', err);
       status.textContent = 'Save failed';
@@ -548,12 +669,21 @@ export function renderQuiz(root, redraw) {
     btn.className = 'btn quiz-rating-btn';
     const variant = RATING_CLASS[value];
     if (variant) btn.classList.add(variant);
-    btn.textContent = RATING_LABELS[value];
+    const labelEl = document.createElement('span');
+    labelEl.className = 'quiz-rating-btn-label';
+    labelEl.textContent = RATING_LABELS[value];
+    const previewEl = document.createElement('span');
+    previewEl.className = 'quiz-rating-preview';
+    btn.appendChild(labelEl);
+    btn.appendChild(previewEl);
+    ratingPreviews.set(value, previewEl);
     btn.disabled = !isSolved;
     btn.setAttribute('aria-pressed', 'false');
     btn.addEventListener('click', () => handleRating(value));
     options.appendChild(btn);
   });
+
+  renderPreviews();
 
   adjustBtn = document.createElement('button');
   adjustBtn.type = 'button';

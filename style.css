@@ -1198,6 +1198,25 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
   gap: var(--pad-xs);
 }
 
+.quiz-rating-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 88px;
+}
+
+.quiz-rating-btn-label {
+  font-weight: 600;
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.quiz-rating-preview {
+  font-size: 0.7rem;
+  color: var(--gray);
+}
+
 .quiz-rating-btn.is-selected {
   box-shadow: 0 10px 20px rgba(2, 6, 23, 0.35);
   transform: translateY(-1px);
@@ -9951,6 +9970,27 @@ button.question-map__item[data-change-direction="returned"] {
   align-items: flex-start;
   gap: 4px;
   font-weight: 500;
+}
+
+.settings-review-title {
+  font-weight: 600;
+}
+
+.settings-review-help {
+  font-size: 0.8rem;
+  color: var(--gray);
+}
+
+.settings-review-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pad-xs);
+  align-items: center;
+  width: 100%;
+}
+
+.settings-review-unit {
+  min-width: 96px;
 }
 
 .settings-review-input {

@@ -14,7 +14,30 @@ const NUMERIC_KEYS = [
   'lapseIntervalMultiplier'
 ];
 
+const DURATION_NUMERIC_KEYS = new Set(['graduatingGood', 'graduatingEasy']);
+
 const STEP_ARRAY_KEYS = ['learningSteps', 'relearningSteps'];
+
+const DURATION_UNIT_FACTORS = {
+  m: 1,
+  min: 1,
+  mins: 1,
+  minute: 1,
+  minutes: 1,
+  h: 60,
+  hr: 60,
+  hrs: 60,
+  hour: 60,
+  hours: 60,
+  d: 1440,
+  day: 1440,
+  days: 1440,
+  w: 10080,
+  wk: 10080,
+  wks: 10080,
+  week: 10080,
+  weeks: 10080
+};
 
 function toNumber(value, { min = 0, fallback = 0, allowZero = false } = {}) {
   const num = Number(value);
@@ -23,9 +46,42 @@ function toNumber(value, { min = 0, fallback = 0, allowZero = false } = {}) {
   return num;
 }
 
+function parseDurationValue(raw, fallback = null, { allowZero = false } = {}) {
+  if (raw == null || raw === '') return fallback;
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw)) return fallback;
+    if (raw < 0 || (!allowZero && raw === 0)) return fallback;
+    const clamped = allowZero ? Math.max(0, raw) : Math.max(1, raw);
+    return Math.round(clamped);
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    const numeric = Number(trimmed);
+    if (Number.isFinite(numeric)) {
+      if (numeric < 0 || (!allowZero && numeric === 0)) return fallback;
+      const clamped = allowZero ? Math.max(0, numeric) : Math.max(1, numeric);
+      return Math.round(clamped);
+    }
+    const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$/);
+    if (!match) return fallback;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value)) return fallback;
+    const unitToken = (match[2] || 'minutes').toLowerCase();
+    const factor = DURATION_UNIT_FACTORS[unitToken];
+    if (!factor) return fallback;
+    const minutes = value * factor;
+    if (!Number.isFinite(minutes)) return fallback;
+    if (minutes < 0 || (!allowZero && minutes === 0)) return fallback;
+    const clamped = allowZero ? Math.max(0, minutes) : Math.max(1, minutes);
+    return Math.round(clamped);
+  }
+  return fallback;
+}
+
 function parseStepList(raw, fallback = []) {
   const ensurePositive = (value) => {
-    const minutes = Math.round(Number(value));
+    const minutes = parseDurationValue(value, null);
     return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
   };
   if (Array.isArray(raw)) {
@@ -34,8 +90,8 @@ function parseStepList(raw, fallback = []) {
   }
   if (typeof raw === 'string') {
     const parsed = raw
-      .split(/[,\s]+/)
-      .map(ensurePositive)
+      .split(/[;,\n]+/)
+      .map(entry => ensurePositive(entry))
       .filter((v) => v != null);
     return parsed.length ? parsed : fallback;
   }
@@ -47,9 +103,9 @@ export function normalizeReviewSteps(raw) {
   if (!raw || typeof raw !== 'object') return normalized;
   for (const key of REVIEW_RATINGS) {
     const value = raw[key];
-    const num = Number(value);
-    if (Number.isFinite(num) && num > 0) {
-      normalized[key] = Math.round(num);
+    const minutes = parseDurationValue(value, null);
+    if (Number.isFinite(minutes) && minutes > 0) {
+      normalized[key] = minutes;
     }
   }
 
@@ -61,6 +117,11 @@ export function normalizeReviewSteps(raw) {
   for (const key of NUMERIC_KEYS) {
     const defaults = DEFAULT_REVIEW_STEPS[key];
     const fallback = typeof defaults === 'number' ? defaults : 0;
+    if (DURATION_NUMERIC_KEYS.has(key)) {
+      const minutes = parseDurationValue(raw[key], fallback);
+      normalized[key] = Number.isFinite(minutes) && minutes > 0 ? minutes : fallback;
+      continue;
+    }
     const min = key.endsWith('Ease') ? 0 : 0.0001;
     const allowZero = key === 'intervalModifier';
     const value = toNumber(raw[key], { min, fallback, allowZero });
