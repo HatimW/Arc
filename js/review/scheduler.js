@@ -285,12 +285,16 @@ function applyRatingState(section, rating, config, now) {
     if (normalizedRating === 'again') {
       section.ease = Math.max(minimumEase, section.ease - easePenalty);
       section.lapses = Math.max(0, (section.lapses || 0) + 1);
-      section.pendingInterval = Math.max(1, Math.round((currentInterval || baseGood) * lapseIntervalMultiplier));
-      scheduleRelearning(relearningSteps[0] ?? baseAgain, 0);
+      section.interval = 0;
+      section.pendingInterval = 0;
+      scheduleLearning(learningSteps[0] ?? baseAgain, 0);
     } else if (normalizedRating === 'hard') {
       section.ease = Math.max(minimumEase, section.ease - hardEasePenalty);
-      const nextInterval = Math.max(1, Math.round((currentInterval || baseGood) * hardIntervalMultiplier * intervalModifier));
-      applyReviewInterval(nextInterval);
+      section.interval = 0;
+      section.pendingInterval = 0;
+      const hardIndex = learningSteps.length > 1 ? 1 : 0;
+      const hardStep = learningSteps[Math.min(hardIndex, learningSteps.length - 1)] ?? baseHard;
+      scheduleLearning(hardStep, Math.min(hardIndex, learningSteps.length - 1));
     } else if (normalizedRating === 'good') {
       const base = currentInterval || baseGood;
       const rawInterval = Math.max(base, Math.round(base * section.ease));
@@ -358,6 +362,21 @@ export function hasContentForSection(item, key) {
   return hasSectionContent(item, key);
 }
 
+function classifySectionCategory(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object') return 'new';
+  const lastRating = typeof snapshot.lastRating === 'string' ? snapshot.lastRating : null;
+  const phase = snapshot.phase;
+  if (phase === 'review') return 'review';
+  if (phase === 'relearning') return 'learning';
+  if (phase === 'learning') {
+    if (!lastRating || lastRating === 'again') return 'new';
+    return 'learning';
+  }
+  if (lastRating === 'again') return 'new';
+  if (lastRating === 'easy' || lastRating === 'good' || lastRating === 'hard') return 'learning';
+  return 'new';
+}
+
 function collectReviewEntries(items, { now = Date.now(), predicate } = {}) {
   const results = [];
   if (!Array.isArray(items) || !items.length) return results;
@@ -367,6 +386,7 @@ function collectReviewEntries(items, { now = Date.now(), predicate } = {}) {
       const snapshot = getSectionStateSnapshot(item, section.key);
       if (!snapshot || snapshot.retired || snapshot.suspended) continue;
       if (typeof predicate === 'function' && !predicate(snapshot, now, item, section)) continue;
+      const category = classifySectionCategory(snapshot);
       results.push({
         item,
         itemId: item.id,
@@ -374,7 +394,8 @@ function collectReviewEntries(items, { now = Date.now(), predicate } = {}) {
         sectionLabel: section.label,
         due: snapshot.due,
         phase: snapshot.phase,
-        state: snapshot
+        state: snapshot,
+        category
       });
     }
   }

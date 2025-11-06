@@ -294,9 +294,13 @@ function formatBlockMeta(block) {
 export async function renderSettings(root) {
   root.innerHTML = '';
 
+  const content = document.createElement('div');
+  content.className = 'tab-content settings-content';
+  root.appendChild(content);
+
   const layout = document.createElement('div');
   layout.className = 'settings-layout';
-  root.appendChild(layout);
+  content.appendChild(layout);
 
   const [catalogResult, settingsResult] = await Promise.allSettled([
     loadBlockCatalog(),
