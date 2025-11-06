@@ -83,16 +83,29 @@ test('rateSection transitions through learning, review, and relearning phases', 
 
   const relapseAt = easyAt + 1_000;
   const relapsed = rateSection(item, 'etiology', 'again', baseDurations, relapseAt);
-  assert.equal(relapsed.phase, 'relearning');
+  assert.equal(relapsed.phase, 'learning');
+  assert.equal(relapsed.learningStepIndex, 0);
   assert.equal(relapsed.lapses >= 1, true);
-  approxEqual(relapsed.due, relapseAt + baseDurations.relearningSteps[0] * 60 * 1000);
+  approxEqual(relapsed.due, relapseAt + baseDurations.learningSteps[0] * 60 * 1000);
 
-  const pendingInterval = relapsed.pendingInterval;
   const recoverAt = relapseAt + 1_000;
   state = rateSection(item, 'etiology', 'good', baseDurations, recoverAt);
+  assert.equal(state.phase, 'learning');
+  assert.equal(state.learningStepIndex, 1);
+  approxEqual(state.due, recoverAt + baseDurations.learningSteps[1] * 60 * 1000);
+
+  const regraduateAt = recoverAt + 1_000;
+  state = rateSection(item, 'etiology', 'good', baseDurations, regraduateAt);
   assert.equal(state.phase, 'review');
-  assert.equal(state.pendingInterval, 0);
-  assert.equal(state.interval, Math.max(1, Math.round(pendingInterval * baseDurations.intervalModifier)));
+  assert.equal(state.learningStepIndex, 0);
+  assert.equal(state.interval, baseDurations.graduatingGood);
+  approxEqual(state.due, regraduateAt + baseDurations.graduatingGood * 60 * 1000);
+
+  const hardAt = regraduateAt + 1_000;
+  state = rateSection(item, 'etiology', 'hard', baseDurations, hardAt);
+  assert.equal(state.phase, 'learning');
+  assert.equal(state.learningStepIndex, Math.min(1, baseDurations.learningSteps.length - 1));
+  approxEqual(state.due, hardAt + baseDurations.learningSteps[Math.min(1, baseDurations.learningSteps.length - 1)] * 60 * 1000);
 });
 
 test('retiring and suspending cards remove them from review queues', () => {

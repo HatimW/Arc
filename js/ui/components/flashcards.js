@@ -760,7 +760,12 @@ export function renderFlashcards(root, redraw) {
 
 
   card.appendChild(controls);
-  root.appendChild(card);
+
+  const sessionWrap = document.createElement('div');
+  sessionWrap.className = 'flashcard-session';
+  if (isReview) sessionWrap.classList.add('is-review');
+  sessionWrap.appendChild(card);
+  root.appendChild(sessionWrap);
 
   card.focus();
   card.addEventListener('keydown', (e) => {

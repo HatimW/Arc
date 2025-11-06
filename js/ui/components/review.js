@@ -2,7 +2,6 @@
 import { setFlashSession, setSubtab, setCohort } from '../../state.js';
 import {
   collectDueSections,
-  collectUpcomingSections,
   getReviewDurations,
   rateSection,
   suspendSection
@@ -70,17 +69,6 @@ function formatOverdue(due, now) {
   return `${days} day${days === 1 ? '' : 's'} overdue`;
 }
 
-function formatTimeUntil(due, now) {
-  const diffMs = Math.max(0, due - now);
-  if (diffMs < 60 * 1000) return 'due in under a minute';
-  const minutes = Math.round(diffMs / (60 * 1000));
-  if (minutes < 60) return `due in ${minutes} min`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `due in ${hours} hr`;
-  const days = Math.round(hours / 24);
-  return `due in ${days} day${days === 1 ? '' : 's'}`;
-}
-
 function formatIntervalMinutes(minutes) {
   if (!Number.isFinite(minutes) || minutes <= 0) return '—';
   if (minutes < 60) return `${minutes} min`;
@@ -92,6 +80,79 @@ function formatIntervalMinutes(minutes) {
   if (months < 12) return `${months} mo`;
   const years = Math.round(months / 12);
   return `${years} yr`;
+}
+
+const COUNT_ORDER = ['new', 'learning', 'review'];
+const COUNT_CONFIG = {
+  new: { label: 'New', className: 'is-new' },
+  learning: { label: 'Learning', className: 'is-learning' },
+  review: { label: 'Review', className: 'is-review' }
+};
+
+function createEmptyCounts() {
+  return { new: 0, learning: 0, review: 0 };
+}
+
+function ensureBucketCounts(bucket) {
+  if (!bucket.counts) {
+    bucket.counts = createEmptyCounts();
+  }
+  return bucket.counts;
+}
+
+function addToCounts(counts, category, amount = 1) {
+  const key = COUNT_ORDER.includes(category) ? category : 'new';
+  counts[key] = (counts[key] || 0) + amount;
+  return counts;
+}
+
+function totalCount(counts = {}) {
+  return COUNT_ORDER.reduce((sum, key) => {
+    const value = Number.isFinite(counts[key]) ? counts[key] : 0;
+    return sum + value;
+  }, 0);
+}
+
+function summarizeEntryCounts(entries = []) {
+  const totals = createEmptyCounts();
+  entries.forEach(entry => {
+    addToCounts(totals, entry?.category, 1);
+  });
+  return totals;
+}
+
+function groupEntriesByCategory(entries = []) {
+  const groups = new Map();
+  COUNT_ORDER.forEach(key => {
+    groups.set(key, []);
+  });
+  entries.forEach(entry => {
+    const key = COUNT_ORDER.includes(entry?.category) ? entry.category : 'new';
+    groups.get(key).push(entry);
+  });
+  return groups;
+}
+
+function createCountPills(counts = {}, { variant = 'inline' } = {}) {
+  const wrapper = document.createElement('div');
+  wrapper.className = `review-counts review-counts-${variant}`;
+  COUNT_ORDER.forEach(key => {
+    const config = COUNT_CONFIG[key];
+    const pill = document.createElement('span');
+    pill.className = `review-count-pill ${config.className}`;
+    const value = Number.isFinite(counts[key]) ? counts[key] : 0;
+    if (!value) pill.classList.add('is-empty');
+    const valueEl = document.createElement('span');
+    valueEl.className = 'review-count-value';
+    valueEl.textContent = value;
+    const labelEl = document.createElement('span');
+    labelEl.className = 'review-count-label';
+    labelEl.textContent = config.label;
+    pill.appendChild(valueEl);
+    pill.appendChild(labelEl);
+    wrapper.appendChild(pill);
+  });
+  return wrapper;
 }
 
 function entryKey(entry) {
@@ -137,6 +198,8 @@ function registerEntry(bucket, entry) {
   const key = entryKey(entry);
   if (!key || bucket.entryMap.has(key)) return;
   bucket.entryMap.set(key, entry);
+  const counts = ensureBucketCounts(bucket);
+  addToCounts(counts, entry?.category, 1);
 }
 
 function finalizeEntries(bucket) {
@@ -144,6 +207,7 @@ function finalizeEntries(bucket) {
   const entries = bucket.entryMap ? Array.from(bucket.entryMap.values()) : [];
   bucket.entries = entries;
   delete bucket.entryMap;
+  ensureBucketCounts(bucket);
 }
 
 function createBlockOrder(blocks = []) {
@@ -246,7 +310,8 @@ export function buildReviewHierarchy(entries, blocks, blockTitles, blockAccents 
     id: 'all',
     title: 'All cards',
     blocks: new Map(),
-    entryMap: new Map()
+    entryMap: new Map(),
+    counts: createEmptyCounts()
   };
 
   const blockMap = root.blocks;
@@ -281,7 +346,8 @@ export function buildReviewHierarchy(entries, blocks, blockTitles, blockAccents 
           order: order.has(blockId) ? order.get(blockId) : Number.MAX_SAFE_INTEGER,
           weeks: new Map(),
           entryMap: new Map(),
-          accent: blockAccents?.get(blockId) || blockAccents?.get(UNASSIGNED_BLOCK) || null
+          accent: blockAccents?.get(blockId) || blockAccents?.get(UNASSIGNED_BLOCK) || null,
+          counts: createEmptyCounts()
         };
         blockMap.set(blockId, blockNode);
       }
@@ -297,7 +363,8 @@ export function buildReviewHierarchy(entries, blocks, blockTitles, blockAccents 
           weekNumber: ref.weekNumber,
           lectures: new Map(),
           entryMap: new Map(),
-          accent: blockNode.accent
+          accent: blockNode.accent,
+          counts: createEmptyCounts()
         };
         blockNode.weeks.set(weekKey, weekNode);
       }
@@ -314,7 +381,8 @@ export function buildReviewHierarchy(entries, blocks, blockTitles, blockAccents 
           title: ref.lectureLabel,
           lectureId: ref.lectureId,
           entryMap: new Map(),
-          accent: weekNode.accent
+          accent: weekNode.accent,
+          counts: createEmptyCounts()
         };
         weekNode.lectures.set(lectureKey, lectureNode);
       }
@@ -374,7 +442,7 @@ export function buildReviewHierarchy(entries, blocks, blockTitles, blockAccents 
 }
 
 function createNodeActions({
-  count = 0,
+  counts = createEmptyCounts(),
   reviewLabel = 'Review',
   onReview,
   onMenu,
@@ -383,17 +451,19 @@ function createNodeActions({
   const actions = document.createElement('div');
   actions.className = 'review-node-actions';
 
+  const total = totalCount(counts);
+
   const reviewBtn = document.createElement('button');
   reviewBtn.type = 'button';
   reviewBtn.className = 'btn tertiary review-node-action';
-  reviewBtn.textContent = `${reviewLabel}${count ? ` (${count})` : ''}`;
-  reviewBtn.disabled = !count;
+  reviewBtn.textContent = `${reviewLabel}${total ? ` (${total})` : ''}`;
+  reviewBtn.disabled = !total;
   reviewBtn.addEventListener('click', event => {
     if (preventToggle) {
       event.preventDefault();
       event.stopPropagation();
     }
-    if (!count) return;
+    if (!total) return;
     if (typeof onReview === 'function') onReview();
   });
   actions.appendChild(reviewBtn);
@@ -403,7 +473,7 @@ function createNodeActions({
   menuBtn.className = 'icon-button review-node-gear';
   menuBtn.innerHTML = '⚙';
   menuBtn.title = 'View entries';
-  menuBtn.disabled = !count;
+  menuBtn.disabled = !total;
   menuBtn.addEventListener('click', event => {
     if (preventToggle) {
       event.preventDefault();
@@ -419,7 +489,7 @@ function createNodeActions({
 function createCollapsibleNode({
   level = 0,
   title,
-  count,
+  counts = createEmptyCounts(),
   reviewLabel,
   onReview,
   onMenu,
@@ -453,15 +523,23 @@ function createCollapsibleNode({
   titleEl.textContent = title;
   titleWrap.appendChild(accentDot);
   titleWrap.appendChild(titleEl);
+  header.appendChild(titleWrap);
+
+  const meta = document.createElement('div');
+  meta.className = 'review-node-meta';
+  const total = totalCount(counts);
   const countEl = document.createElement('span');
   countEl.className = 'review-node-count';
-  countEl.textContent = `${count} card${count === 1 ? '' : 's'}`;
-  header.appendChild(titleWrap);
-  header.appendChild(countEl);
+  countEl.textContent = `${total} due`;
+  meta.appendChild(countEl);
+  const stats = createCountPills(counts, { variant: 'compact' });
+  stats.classList.add('review-node-stats');
+  meta.appendChild(stats);
+  header.appendChild(meta);
   summary.appendChild(header);
 
   const actions = createNodeActions({
-    count,
+    counts,
     reviewLabel,
     onReview,
     onMenu,
@@ -476,100 +554,6 @@ function createCollapsibleNode({
   details.appendChild(content);
 
   return { element: details, content, actions };
-}
-
-function createUpcomingEntry(entry, now, startSession) {
-  const item = document.createElement('li');
-  item.className = 'review-entry is-upcoming';
-
-  const trigger = document.createElement('button');
-  trigger.type = 'button';
-  trigger.className = 'review-entry-trigger';
-
-  const title = document.createElement('div');
-  title.className = 'review-entry-title';
-  title.textContent = titleOf(entry.item);
-  trigger.appendChild(title);
-
-  const meta = document.createElement('div');
-  meta.className = 'review-entry-meta';
-  meta.textContent = `${getSectionLabel(entry.item, entry.sectionKey)} • ${formatTimeUntil(entry.due, now)}`;
-  trigger.appendChild(meta);
-
-  const phaseLabel = describePhase(entry.phase);
-  const interval = entry?.state?.interval;
-  if (phaseLabel || Number.isFinite(interval)) {
-    const extra = document.createElement('div');
-    extra.className = 'review-entry-extra';
-    if (phaseLabel) {
-      const chip = document.createElement('span');
-      chip.className = 'review-entry-chip';
-      chip.dataset.chip = 'phase';
-      if (entry.phase) chip.dataset.phase = entry.phase;
-      chip.textContent = phaseLabel;
-      extra.appendChild(chip);
-    }
-    if (Number.isFinite(interval) && interval > 0) {
-      const chip = document.createElement('span');
-      chip.className = 'review-entry-chip';
-      chip.dataset.chip = 'interval';
-      chip.textContent = `Last interval • ${formatIntervalMinutes(interval)}`;
-      extra.appendChild(chip);
-    }
-    trigger.appendChild(extra);
-  }
-
-  trigger.addEventListener('click', () => {
-    if (typeof startSession !== 'function') return;
-    startSession(buildSessionPayload([entry]), {
-      scope: 'single',
-      label: `Focused review – ${titleOf(entry.item)}`
-    });
-  });
-
-  item.appendChild(trigger);
-  return item;
-}
-
-function renderUpcomingSection(container, upcomingEntries, now, startSession) {
-  if (!Array.isArray(upcomingEntries) || !upcomingEntries.length) return;
-
-  const section = document.createElement('div');
-  section.className = 'review-upcoming-section';
-
-  const heading = document.createElement('div');
-  heading.className = 'review-upcoming-title';
-  heading.textContent = 'Upcoming cards';
-  section.appendChild(heading);
-
-  const note = document.createElement('div');
-  note.className = 'review-upcoming-note';
-  note.textContent = `Next ${upcomingEntries.length} card${upcomingEntries.length === 1 ? '' : 's'} in the queue`;
-  section.appendChild(note);
-
-  const actions = document.createElement('div');
-  actions.className = 'review-upcoming-actions';
-  const startUpcomingBtn = document.createElement('button');
-  startUpcomingBtn.type = 'button';
-  startUpcomingBtn.className = 'btn secondary';
-  startUpcomingBtn.textContent = `Review upcoming (${upcomingEntries.length})`;
-  startUpcomingBtn.addEventListener('click', () => {
-    if (!upcomingEntries.length) return;
-    if (typeof startSession === 'function') {
-      startSession(buildSessionPayload(upcomingEntries), { scope: 'upcoming', label: 'Upcoming cards' });
-    }
-  });
-  actions.appendChild(startUpcomingBtn);
-  section.appendChild(actions);
-
-  const list = document.createElement('ul');
-  list.className = 'review-entry-list';
-  upcomingEntries.forEach(entry => {
-    list.appendChild(createUpcomingEntry(entry, now, startSession));
-  });
-  section.appendChild(list);
-
-  container.appendChild(section);
 }
 
 export function openEntryManager(hierarchy, {
@@ -1548,7 +1532,7 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
   const allNode = createCollapsibleNode({
     level: 0,
     title: 'All cards',
-    count: hierarchy.root.entries.length,
+    counts: hierarchy.root.counts,
     reviewLabel: 'Review all',
     onReview: () => startSession(buildSessionPayload(hierarchy.root.entries), allMeta),
     onMenu: () => openEntryManager(hierarchy, {
@@ -1577,7 +1561,7 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
     const block = createCollapsibleNode({
       level: 1,
       title: blockNode.title,
-      count: blockNode.entries.length,
+      counts: blockNode.counts,
       reviewLabel: 'Review block',
       onReview: () => startSession(buildSessionPayload(blockNode.entries), blockMeta),
       onMenu: () => openEntryManager(hierarchy, {
@@ -1608,7 +1592,7 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
       const week = createCollapsibleNode({
         level: 2,
         title: weekTitle,
-        count: weekNode.entries.length,
+        counts: weekNode.counts,
         reviewLabel: 'Review week',
         onReview: () => startSession(buildSessionPayload(weekNode.entries), weekMeta),
         onMenu: () => openEntryManager(hierarchy, {
@@ -1640,10 +1624,15 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
         titleEl.className = 'review-lecture-title';
         titleEl.textContent = lectureNode.title;
         info.appendChild(titleEl);
+        const lectureCounts = lectureNode.counts || createEmptyCounts();
+        const totalLecture = totalCount(lectureCounts);
         const countEl = document.createElement('div');
         countEl.className = 'review-lecture-count';
-        countEl.textContent = `${lectureNode.entries.length} card${lectureNode.entries.length === 1 ? '' : 's'}`;
+        countEl.textContent = `${totalLecture} due`;
         info.appendChild(countEl);
+        const lectureStats = createCountPills(lectureCounts, { variant: 'inline' });
+        lectureStats.classList.add('review-lecture-stats');
+        info.appendChild(lectureStats);
         lectureRow.appendChild(info);
 
         const lectureMeta = {
@@ -1656,7 +1645,7 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
           weekId: weekNode.id
         };
         const actions = createNodeActions({
-          count: lectureNode.entries.length,
+          counts: lectureCounts,
           reviewLabel: 'Review lecture',
           onReview: () => startSession(buildSessionPayload(lectureNode.entries), lectureMeta),
           onMenu: () => openEntryManager(hierarchy, {
@@ -1692,7 +1681,9 @@ export async function renderReview(root, redraw) {
 
   const now = Date.now();
   const dueEntries = collectDueSections(cohort, { now });
-  const upcomingEntries = collectUpcomingSections(cohort, { now, limit: 50 });
+  const totals = summarizeEntryCounts(dueEntries);
+  const totalDue = totalCount(totals);
+  const categoryGroups = groupEntriesByCategory(dueEntries);
   const { blocks } = await loadBlockCatalog();
   const blockTitles = ensureBlockTitleMap(blocks);
   const blockAccents = ensureBlockAccentMap(blocks);
@@ -1721,9 +1712,60 @@ export async function renderReview(root, redraw) {
   heading.textContent = 'Review queue';
   wrapper.appendChild(heading);
 
-  const summary = document.createElement('div');
+  const startSession = async (pool, metadata = {}) => {
+    if (!pool.length) return;
+    await removeStudySession('review').catch(err => console.warn('Failed to discard existing review save', err));
+    setFlashSession({ idx: 0, pool, ratings: {}, mode: 'review', metadata });
+
+    redraw();
+  };
+
+  const summary = document.createElement('section');
   summary.className = 'review-summary';
-  summary.textContent = `Cards due: ${dueEntries.length} • Upcoming: ${upcomingEntries.length}`;
+  const summaryTitle = document.createElement('h3');
+  summaryTitle.className = 'review-summary-title';
+  summaryTitle.textContent = 'Review overview';
+  summary.appendChild(summaryTitle);
+  const summaryTotal = document.createElement('div');
+  summaryTotal.className = 'review-summary-total';
+  summaryTotal.textContent = totalDue ? `${totalDue} card${totalDue === 1 ? '' : 's'} due now` : 'You’re all caught up!';
+  summary.appendChild(summaryTotal);
+  const summaryCounts = createCountPills(totals, { variant: 'prominent' });
+  summaryCounts.classList.add('review-summary-counts');
+  summary.appendChild(summaryCounts);
+  const quickActions = document.createElement('div');
+  quickActions.className = 'review-quick-actions';
+  COUNT_ORDER.forEach(key => {
+    const config = COUNT_CONFIG[key];
+    const count = Number.isFinite(totals[key]) ? totals[key] : 0;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `review-quick-btn ${config.className}`;
+    btn.textContent = `${config.label} (${count})`;
+    btn.disabled = !count;
+    btn.setAttribute('aria-label', `Start ${config.label.toLowerCase()} cards`);
+    btn.addEventListener('click', () => {
+      if (!count) return;
+      const pool = categoryGroups.get(key) || [];
+      if (!pool.length) return;
+      startSession(buildSessionPayload(pool), {
+        scope: 'phase',
+        phase: key,
+        label: `${config.label} cards`
+      });
+    });
+    quickActions.appendChild(btn);
+  });
+  if (!totalDue) {
+    quickActions.classList.add('is-empty');
+  }
+  summary.appendChild(quickActions);
+  if (totalDue) {
+    const summaryHint = document.createElement('div');
+    summaryHint.className = 'review-summary-hint';
+    summaryHint.textContent = 'Use quick actions or drill into lectures below.';
+    summary.appendChild(summaryHint);
+  }
   wrapper.appendChild(summary);
 
   if (savedEntry?.session) {
@@ -1754,25 +1796,11 @@ export async function renderReview(root, redraw) {
   body.className = 'review-body';
   wrapper.appendChild(body);
 
-
-  const startSession = async (pool, metadata = {}) => {
-    if (!pool.length) return;
-    await removeStudySession('review').catch(err => console.warn('Failed to discard existing review save', err));
-    setFlashSession({ idx: 0, pool, ratings: {}, mode: 'review', metadata });
-
-    redraw();
-  };
-
   if (dueEntries.length) {
     const hierarchy = buildReviewHierarchy(dueEntries, blocks, blockTitles, blockAccents);
     renderHierarchy(body, hierarchy, { startSession, now, redraw });
   } else {
     renderEmptyState(body);
   }
-
-  if (upcomingEntries.length) {
-    renderUpcomingSection(body, upcomingEntries, now, startSession);
-  }
-
   root.appendChild(wrapper);
 }

@@ -3468,7 +3468,7 @@ button.builder-pill.builder-pill-outline {
   box-shadow: 0 26px 44px rgba(8, 15, 35, 0.34);
 }
 
-.flashcard {
+.flashcard { 
   --flash-accent: var(--accent);
   --flash-neutral-inactive: color-mix(in srgb, var(--surface-2) 92%, rgba(148, 163, 184, 0.16));
   --flash-neutral-start: color-mix(in srgb, var(--surface-2) 84%, rgba(148, 163, 184, 0.26));
@@ -3491,6 +3491,26 @@ button.builder-pill.builder-pill-outline {
   background: color-mix(in srgb, rgba(15, 23, 42, 0.95) 86%, rgba(56, 189, 248, 0.1));
   border: 1px solid rgba(148, 163, 184, 0.22);
   box-shadow: 0 28px 40px rgba(8, 15, 35, 0.38);
+}
+
+.flashcard-session {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pad);
+  padding: var(--pad-lg) 0;
+  min-height: calc(70vh);
+}
+
+.flashcard-session .flashcard {
+  width: min(720px, 100%);
+  margin: 0 auto;
+}
+
+.flashcard-session.is-review .flashcard {
+  width: min(760px, 100%);
 }
 
 .flashcard-header {
@@ -9017,8 +9037,89 @@ button.question-map__item[data-change-direction="returned"] {
 }
 
 .review-summary {
-  color: var(--gray);
-  font-size: 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: var(--pad-sm) var(--pad);
+  background: color-mix(in srgb, rgba(15, 23, 42, 0.92) 88%, rgba(56, 189, 248, 0.08));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.06);
+}
+
+.review-summary-title {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.review-summary-total {
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+}
+
+.review-summary-counts {
+  margin-top: -0.2rem;
+}
+
+.review-summary-hint {
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.82);
+}
+
+.review-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.review-quick-actions.is-empty {
+  opacity: 0.55;
+}
+
+.review-quick-btn {
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--radius);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.review-quick-btn:hover:not(:disabled),
+.review-quick-btn:focus-visible:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.32);
+}
+
+.review-quick-btn.is-new {
+  background: rgba(59, 130, 246, 0.16);
+  border-color: rgba(59, 130, 246, 0.32);
+  color: #cbdafe;
+}
+
+.review-quick-btn.is-learning {
+  background: rgba(249, 115, 22, 0.16);
+  border-color: rgba(249, 115, 22, 0.32);
+  color: #fed7aa;
+}
+
+.review-quick-btn.is-review {
+  background: rgba(34, 197, 94, 0.16);
+  border-color: rgba(34, 197, 94, 0.32);
+  color: #bbf7d0;
+}
+
+.review-quick-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
 }
 
 .review-tree {
@@ -9119,9 +9220,99 @@ button.question-map__item[data-change-direction="returned"] {
   letter-spacing: 0.01em;
 }
 
-.review-node-count {
+.review-node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  color: rgba(148, 163, 184, 0.85);
   font-size: 0.85rem;
-  color: var(--gray);
+}
+
+.review-node-count {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.review-node-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.review-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.review-counts-inline {
+  gap: 0.35rem;
+}
+
+.review-counts-compact {
+  gap: 0.3rem;
+}
+
+.review-counts-prominent {
+  gap: 0.6rem;
+}
+
+.review-count-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(148, 163, 184, 0.12);
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.review-count-pill.is-new {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.32);
+  color: #dbeafe;
+}
+
+.review-count-pill.is-learning {
+  background: rgba(249, 115, 22, 0.18);
+  border-color: rgba(249, 115, 22, 0.32);
+  color: #ffedd5;
+}
+
+.review-count-pill.is-review {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.32);
+  color: #dcfce7;
+}
+
+.review-count-pill.is-empty {
+  opacity: 0.55;
+}
+
+.review-count-value {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #f8fafc;
+}
+
+.review-count-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.82);
+}
+
+.review-counts-prominent .review-count-pill {
+  padding: 6px 14px;
+  font-size: 0.85rem;
+}
+
+.review-counts-prominent .review-count-value {
+  font-size: 1.1rem;
 }
 
 .review-node-actions {
@@ -9230,6 +9421,21 @@ button.question-map__item[data-change-direction="returned"] {
 .review-lecture-count {
   font-size: 0.85rem;
   color: var(--gray);
+}
+
+.review-lecture-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.review-lecture-stats .review-count-pill {
+  padding: 2px 8px;
+  font-size: 0.75rem;
+}
+
+.review-lecture-stats .review-count-value {
+  font-size: 0.85rem;
 }
 
 .review-lecture-actions {
