@@ -938,11 +938,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
     occlusionToggle.addEventListener('click', (event) => {
       event.preventDefault();
-      if (occlusionEditor.isActive()) {
-        occlusionEditor.deactivate();
-      } else {
-        occlusionEditor.activate();
-      }
+      occlusionEditor.activate();
     });
 
     const handleDefs = [
@@ -1055,7 +1051,6 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
       if (event.key === 'Escape') {
         if (occlusionEditor.isActive()) {
           event.preventDefault();
-          occlusionEditor.deactivate();
           occlusionToggle.focus();
           return;
         }
@@ -1133,7 +1128,7 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
       function createWorkspace(){
         const workspaceOverlay = document.createElement('div');
-        workspaceOverlay.className = 'image-occlusion-workspace';
+        workspaceOverlay.className = 'image-occlusion-modal';
         workspaceOverlay.setAttribute('aria-hidden', 'true');
         workspaceOverlay.setAttribute('role', 'dialog');
         workspaceOverlay.setAttribute('aria-modal', 'true');
@@ -1141,37 +1136,21 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         workspaceOverlay.tabIndex = -1;
 
         const backdrop = document.createElement('div');
-        backdrop.className = 'image-occlusion-workspace-backdrop';
+        backdrop.className = 'image-occlusion-modal-backdrop';
         workspaceOverlay.appendChild(backdrop);
 
-        const frame = document.createElement('div');
-        frame.className = 'image-occlusion-workspace-frame';
-        workspaceOverlay.appendChild(frame);
-
-        const dragHandle = document.createElement('div');
-        dragHandle.className = 'image-occlusion-workspace-drag-handle';
-        dragHandle.setAttribute('aria-hidden', 'true');
-        frame.appendChild(dragHandle);
-
-        const closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.className = 'image-occlusion-workspace-close';
-        closeBtn.setAttribute('aria-label', 'Close occlusion editor');
-        closeBtn.innerHTML = '✕';
-        frame.appendChild(closeBtn);
-
-        const layout = document.createElement('div');
-        layout.className = 'image-occlusion-workspace-layout';
-        frame.appendChild(layout);
+        const surface = document.createElement('div');
+        surface.className = 'image-occlusion-modal-surface';
+        workspaceOverlay.appendChild(surface);
 
         const canvas = document.createElement('div');
-        canvas.className = 'image-occlusion-workspace-canvas';
-        layout.appendChild(canvas);
+        canvas.className = 'image-occlusion-modal-canvas';
+        surface.appendChild(canvas);
 
         const editingImage = image.cloneNode(true);
         editingImage.removeAttribute('width');
         editingImage.removeAttribute('height');
-        editingImage.classList.add('image-occlusion-workspace-img');
+        editingImage.classList.add('image-occlusion-modal-img');
         canvas.appendChild(editingImage);
 
         const workspaceHighlightLayer = document.createElement('div');
@@ -1189,22 +1168,13 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         workspaceLayer.setAttribute('aria-hidden', 'true');
         canvas.appendChild(workspaceLayer);
 
-        const sidebar = document.createElement('aside');
-        sidebar.className = 'image-occlusion-workspace-sidebar';
-        layout.appendChild(sidebar);
+        const toolbar = document.createElement('div');
+        toolbar.className = 'image-occlusion-modal-toolbar';
+        surface.appendChild(toolbar);
 
-        const tools = document.createElement('div');
-        tools.className = 'image-occlusion-workspace-tools';
-        sidebar.appendChild(tools);
-
-        const drawGroup = document.createElement('div');
-        drawGroup.className = 'image-workspace-tool-group';
-        tools.appendChild(drawGroup);
-
-        const drawHeading = document.createElement('p');
-        drawHeading.className = 'image-workspace-tool-heading';
-        drawHeading.textContent = 'Draw';
-        drawGroup.appendChild(drawHeading);
+        const toolButtons = document.createElement('div');
+        toolButtons.className = 'image-occlusion-toolbar-buttons';
+        toolbar.appendChild(toolButtons);
 
         const occlusionToolBtn = document.createElement('button');
         occlusionToolBtn.type = 'button';
@@ -1218,18 +1188,9 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         occlusionToolBtn.appendChild(occlusionIcon);
         const occlusionLabel = document.createElement('span');
         occlusionLabel.className = 'image-workspace-tool-label';
-        occlusionLabel.textContent = 'Draw occlusion';
+        occlusionLabel.textContent = 'Occlusion';
         occlusionToolBtn.appendChild(occlusionLabel);
-        drawGroup.appendChild(occlusionToolBtn);
-
-        const annotateGroup = document.createElement('div');
-        annotateGroup.className = 'image-workspace-tool-group is-secondary';
-        tools.appendChild(annotateGroup);
-
-        const annotateHeading = document.createElement('p');
-        annotateHeading.className = 'image-workspace-tool-heading';
-        annotateHeading.textContent = 'Annotate';
-        annotateGroup.appendChild(annotateHeading);
+        toolButtons.appendChild(occlusionToolBtn);
 
         const highlightToolBtn = document.createElement('button');
         highlightToolBtn.type = 'button';
@@ -1243,12 +1204,12 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         highlightToolBtn.appendChild(highlightIcon);
         const highlightLabel = document.createElement('span');
         highlightLabel.className = 'image-workspace-tool-label';
-        highlightLabel.textContent = 'Highlight area';
+        highlightLabel.textContent = 'Highlight';
         highlightToolBtn.appendChild(highlightLabel);
         const highlightSwatch = document.createElement('span');
         highlightSwatch.className = 'image-workspace-tool-swatch';
         highlightToolBtn.appendChild(highlightSwatch);
-        annotateGroup.appendChild(highlightToolBtn);
+        toolButtons.appendChild(highlightToolBtn);
 
         const textToolBtn = document.createElement('button');
         textToolBtn.type = 'button';
@@ -1262,117 +1223,33 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         textToolBtn.appendChild(textIcon);
         const textLabel = document.createElement('span');
         textLabel.className = 'image-workspace-tool-label';
-        textLabel.textContent = 'Add note';
+        textLabel.textContent = 'Text';
         textToolBtn.appendChild(textLabel);
-        annotateGroup.appendChild(textToolBtn);
+        toolButtons.appendChild(textToolBtn);
 
-        const hint = document.createElement('div');
-        hint.className = 'image-occlusion-workspace-hint';
-        hint.textContent = 'Draw boxes to hide answers, or switch to highlight and text tools for annotations. Drag on the image to place items and click them to toggle or edit.';
-        sidebar.appendChild(hint);
+        const hint = document.createElement('p');
+        hint.className = 'image-occlusion-modal-hint';
+        hint.textContent = 'Use the tools to draw occlusions, highlights, or notes. Double-click the highlighter to cycle colors.';
+        toolbar.appendChild(hint);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'image-occlusion-modal-close';
+        closeBtn.setAttribute('aria-label', 'Close image editor');
+        closeBtn.innerHTML = '✕';
+        canvas.appendChild(closeBtn);
 
         const workspaceBoxes = new Map();
         const workspaceHighlights = new Map();
         const workspaceTextboxes = new Map();
-        let workspacePosition = { left: null, top: null };
-        let workspaceDragPointerId = null;
-        let workspaceDragOffsetX = 0;
-        let workspaceDragOffsetY = 0;
         let previousFocus = null;
 
         function refreshHighlightSwatch(){
           const color = getCurrentHighlightColor();
-          highlightSwatch.style.backgroundColor = highlightColorToRgba(color, 0.65);
-          highlightSwatch.style.borderColor = color;
-        }
-
-        function applyWorkspaceWindowLayout(){
-          const viewportWidth = window.innerWidth || 1280;
-          const viewportHeight = window.innerHeight || 720;
-          const margin = 48;
-          const maxWidth = Math.max(540, viewportWidth - margin);
-          const maxHeight = Math.max(420, viewportHeight - margin);
-          const targetWidth = Math.min(
-            Math.max(640, viewportWidth * 0.74),
-            maxWidth,
-            1320
-          );
-          const targetHeight = Math.min(
-            Math.max(460, viewportHeight * 0.72),
-            maxHeight,
-            960
-          );
-          frame.style.width = `${Math.round(targetWidth)}px`;
-          frame.style.height = `${Math.round(targetHeight)}px`;
-        }
-
-        function setWorkspaceWindowPosition(left, top){
-          const width = frame.offsetWidth || 0;
-          const height = frame.offsetHeight || 0;
-          const margin = 32;
-          const minLeft = margin;
-          const minTop = margin;
-          const maxLeft = Math.max(minLeft, window.innerWidth - width - margin);
-          const maxTop = Math.max(minTop, window.innerHeight - height - margin);
-          const boundedLeft = Math.min(Math.max(left, minLeft), maxLeft);
-          const boundedTop = Math.min(Math.max(top, minTop), maxTop);
-          frame.style.left = `${Math.round(boundedLeft)}px`;
-          frame.style.top = `${Math.round(boundedTop)}px`;
-          workspacePosition = {
-            left: Math.round(boundedLeft),
-            top: Math.round(boundedTop)
-          };
-        }
-
-        function centerWorkspaceWindow(){
-          const width = frame.offsetWidth || 0;
-          const height = frame.offsetHeight || 0;
-          const left = (window.innerWidth - width) / 2;
-          const top = (window.innerHeight - height) / 2;
-          setWorkspaceWindowPosition(left, top);
-        }
-
-        function refreshWorkspaceWindow({ forceCenter = false } = {}){
-          applyWorkspaceWindowLayout();
-          if (forceCenter || workspacePosition.left == null || workspacePosition.top == null) {
-            centerWorkspaceWindow();
-          } else {
-            setWorkspaceWindowPosition(workspacePosition.left, workspacePosition.top);
+          if (highlightSwatch) {
+            highlightSwatch.style.setProperty('--swatch-color', color);
           }
         }
-
-        function startWorkspaceDrag(event){
-          if (event.button !== 0) return;
-          event.preventDefault();
-          const rect = frame.getBoundingClientRect();
-          workspaceDragPointerId = event.pointerId;
-          workspaceDragOffsetX = event.clientX - rect.left;
-          workspaceDragOffsetY = event.clientY - rect.top;
-          frame.setPointerCapture(workspaceDragPointerId);
-        }
-
-        function handleWorkspaceDrag(event){
-          if (workspaceDragPointerId == null || event.pointerId !== workspaceDragPointerId) return;
-          event.preventDefault();
-          setWorkspaceWindowPosition(event.clientX - workspaceDragOffsetX, event.clientY - workspaceDragOffsetY);
-        }
-
-        function stopWorkspaceDrag(event){
-          if (workspaceDragPointerId == null || event.pointerId !== workspaceDragPointerId) return;
-          event.preventDefault();
-          frame.releasePointerCapture(workspaceDragPointerId);
-          workspaceDragPointerId = null;
-          if (workspacePosition.left == null || workspacePosition.top == null) {
-            centerWorkspaceWindow();
-          } else {
-            setWorkspaceWindowPosition(workspacePosition.left, workspacePosition.top);
-          }
-        }
-
-        dragHandle.addEventListener('pointerdown', startWorkspaceDrag);
-        frame.addEventListener('pointermove', handleWorkspaceDrag);
-        frame.addEventListener('pointerup', stopWorkspaceDrag);
-        frame.addEventListener('pointercancel', stopWorkspaceDrag);
 
         function applyToolState(tool){
           const mapping = new Map([
@@ -1400,6 +1277,22 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
           workspaceTextLayer.dataset.active = isText ? 'true' : 'false';
         }
 
+        function focusOverlay(){
+          try {
+            workspaceOverlay.focus({ preventScroll: true });
+          } catch (err) {
+            workspaceOverlay.focus();
+          }
+        }
+
+        function syncCanvasDimensions(){
+          const rect = editingImage.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            canvas.style.width = `${rect.width}px`;
+            canvas.style.height = `${rect.height}px`;
+          }
+        }
+
         occlusionToolBtn.addEventListener('click', () => setWorkspaceTool('occlusion'));
         highlightToolBtn.addEventListener('click', () => setWorkspaceTool('highlight'));
         highlightToolBtn.addEventListener('dblclick', (event) => {
@@ -1411,23 +1304,9 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
         refreshHighlightSwatch();
 
-        const onKeyDown = (event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            deactivate();
-          }
-        };
-
         const handleResize = () => {
-          refreshWorkspaceWindow();
+          syncCanvasDimensions();
           refreshBoxes();
-        };
-
-        const handleClickOutside = (event) => {
-          if (event.target === workspaceOverlay || event.target === backdrop) {
-            event.preventDefault();
-            deactivate();
-          }
         };
 
         const handleClose = (event) => {
@@ -1437,13 +1316,15 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
 
         closeBtn.addEventListener('click', handleClose);
 
-        workspaceOverlay.addEventListener('click', handleClickOutside);
         workspaceLayer.addEventListener('pointerdown', handlePointerDown);
         workspaceHighlightLayer.addEventListener('pointerdown', handleHighlightPointerDown);
         workspaceTextLayer.addEventListener('pointerdown', handleTextboxPointerDown);
 
         editingImage.addEventListener('load', () => {
-          requestAnimationFrame(() => refreshBoxes());
+          requestAnimationFrame(() => {
+            syncCanvasDimensions();
+            refreshBoxes();
+          });
         });
 
         return {
@@ -1460,19 +1341,15 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
               previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
               document.body.appendChild(workspaceOverlay);
             }
-            refreshWorkspaceWindow({ forceCenter: true });
             workspaceOverlay.setAttribute('aria-hidden', 'false');
             workspaceOverlay.scrollTop = 0;
             document.body.classList.add('is-occlusion-workspace-open');
+            syncCanvasDimensions();
+            refreshBoxes();
             requestAnimationFrame(() => {
               workspaceOverlay.classList.add('is-visible');
-              try {
-                workspaceOverlay.focus({ preventScroll: true });
-              } catch (err) {
-                workspaceOverlay.focus();
-              }
+              focusOverlay();
             });
-            window.addEventListener('keydown', onKeyDown);
             window.addEventListener('resize', handleResize);
           },
           detach(){
@@ -1482,7 +1359,6 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
               workspaceOverlay.parentNode.removeChild(workspaceOverlay);
             }
             document.body.classList.remove('is-occlusion-workspace-open');
-            window.removeEventListener('keydown', onKeyDown);
             window.removeEventListener('resize', handleResize);
             if (previousFocus && typeof previousFocus.focus === 'function') {
               try {
@@ -1497,16 +1373,14 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
             workspaceLayer.removeEventListener('pointerdown', handlePointerDown);
             workspaceHighlightLayer.removeEventListener('pointerdown', handleHighlightPointerDown);
             workspaceTextLayer.removeEventListener('pointerdown', handleTextboxPointerDown);
-            dragHandle.removeEventListener('pointerdown', startWorkspaceDrag);
-            frame.removeEventListener('pointermove', handleWorkspaceDrag);
-            frame.removeEventListener('pointerup', stopWorkspaceDrag);
-            frame.removeEventListener('pointercancel', stopWorkspaceDrag);
             closeBtn.removeEventListener('click', handleClose);
-            workspaceOverlay.removeEventListener('click', handleClickOutside);
             workspaceBoxes.clear();
             workspaceHighlights.clear();
             workspaceTextboxes.clear();
             this.detach();
+          },
+          focus(){
+            focusOverlay();
           },
           setTool(tool){
             applyToolState(tool);
@@ -2311,19 +2185,32 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
       }
 
       function activate(){
-        if (active) return;
+        const workspaceInstance = getWorkspace();
+        if (active) {
+          if (workspaceInstance && typeof workspaceInstance.focus === 'function') {
+            workspaceInstance.focus();
+          }
+          if (workspaceInstance && typeof workspaceInstance.updateHighlightSwatch === 'function') {
+            workspaceInstance.updateHighlightSwatch();
+          }
+          if (workspaceInstance && typeof workspaceInstance.setTool === 'function') {
+            workspaceInstance.setTool(activeWorkspaceTool);
+          }
+          return;
+        }
         active = true;
         revealStates.clear();
         overlay.classList.add('is-occluding');
         occlusionToggle.dataset.active = 'true';
         occlusionToggle.setAttribute('aria-pressed', 'true');
-        const workspaceInstance = getWorkspace();
-        workspaceInstance.attach();
-        if (typeof workspaceInstance.setTool === 'function') {
-          workspaceInstance.setTool(activeWorkspaceTool);
-        }
-        if (typeof workspaceInstance.updateHighlightSwatch === 'function') {
-          workspaceInstance.updateHighlightSwatch();
+        if (workspaceInstance) {
+          workspaceInstance.attach();
+          if (typeof workspaceInstance.setTool === 'function') {
+            workspaceInstance.setTool(activeWorkspaceTool);
+          }
+          if (typeof workspaceInstance.updateHighlightSwatch === 'function') {
+            workspaceInstance.updateHighlightSwatch();
+          }
         }
         refreshBoxes();
       }
@@ -3595,16 +3482,6 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
     if (target instanceof HTMLImageElement) {
       event.preventDefault();
       event.stopPropagation();
-      beginImageEditing(target);
-      openImageLightbox(target);
-    }
-  });
-
-  editable.addEventListener('click', (event) => {
-    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
-    const target = path.find(node => node instanceof HTMLImageElement) || event.target;
-    if (target instanceof HTMLImageElement) {
-      event.preventDefault();
       beginImageEditing(target);
     }
   });

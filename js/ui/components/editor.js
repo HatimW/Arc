@@ -51,9 +51,19 @@ export async function openEditor(kind, onSave, existing = null) {
   let statusFadeTimer = null;
   let autoSaveTimer = null;
   let idleSaveHandle = null;
-  const AUTOSAVE_DELAY = 2000;
+  const AUTOSAVE_DELAY = 9000;
+  const AUTOSAVE_IDLE_TIMEOUT = 15000;
   const runWhenIdle = typeof requestIdleCallback === 'function' ? requestIdleCallback : null;
   const cancelIdle = typeof cancelIdleCallback === 'function' ? cancelIdleCallback : null;
+  const computePersistSignature = (item) => {
+    if (!item || typeof item !== 'object') return null;
+    try {
+      return JSON.stringify(item);
+    } catch (err) {
+      return null;
+    }
+  };
+  let lastPersistSignature = existing ? computePersistSignature(existing) : null;
   const editorCleanups = new Set();
 
   function registerCleanup(fn) {
@@ -173,7 +183,7 @@ export async function openEditor(kind, onSave, existing = null) {
         idleSaveHandle = runWhenIdle(() => {
           idleSaveHandle = null;
           attemptSave();
-        }, { timeout: AUTOSAVE_DELAY });
+        }, { timeout: AUTOSAVE_IDLE_TIMEOUT });
       } else {
         attemptSave();
       }
@@ -861,8 +871,13 @@ export async function openEditor(kind, onSave, existing = null) {
     }
     item.lectures = lectures;
     item.color = colorInput.value;
+    const signature = computePersistSignature(item);
+    const canCompareSignature = signature && lastPersistSignature && existing && existing.id === item.id;
+    const shouldSkipPersist = Boolean(canCompareSignature && signature === lastPersistSignature);
     try {
-      await upsertItem(item);
+      if (!shouldSkipPersist) {
+        await upsertItem(item);
+      }
     } catch (err) {
       console.error(err);
       if (status) {
@@ -876,6 +891,7 @@ export async function openEditor(kind, onSave, existing = null) {
       throw err;
     }
     existing = item;
+    lastPersistSignature = signature;
     updateTitle();
     isDirty = false;
     const shouldNotify = onSave && (!silent || wasNew);
@@ -896,7 +912,7 @@ export async function openEditor(kind, onSave, existing = null) {
             statusFadeTimer = null;
           }, 1800);
         } else {
-          status.textContent = 'Saved';
+          status.textContent = shouldSkipPersist ? 'Up to date' : 'Saved';
           status.classList.remove('editor-status-muted');
         }
       }

@@ -94,6 +94,53 @@ function startOfDay(timestamp) {
   return date.getTime();
 }
 
+function shiftDay(dayTs, offset = 0) {
+  if (!Number.isFinite(dayTs)) return null;
+  const date = new Date(dayTs);
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + offset);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function enumerateDaySpan(startDay, totalDays) {
+  if (!Number.isFinite(startDay) || !Number.isFinite(totalDays) || totalDays <= 0) {
+    return [];
+  }
+  const days = [];
+  const cursor = new Date(startDay);
+  cursor.setHours(0, 0, 0, 0);
+  const count = Math.max(0, Math.floor(totalDays));
+  for (let i = 0; i < count; i += 1) {
+    const value = cursor.getTime();
+    if (!days.length || days[days.length - 1] !== value) {
+      days.push(value);
+    }
+    cursor.setDate(cursor.getDate() + 1);
+    cursor.setHours(0, 0, 0, 0);
+  }
+  return days;
+}
+
+function enumerateDayRange(startDay, endDay) {
+  if (!Number.isFinite(startDay) || !Number.isFinite(endDay)) return [];
+  if (endDay < startDay) return [];
+  const days = [];
+  const cursor = new Date(startDay);
+  cursor.setHours(0, 0, 0, 0);
+  const safetyLimit = 3660; // ~10 years of days
+  for (let i = 0; i < safetyLimit; i += 1) {
+    const value = cursor.getTime();
+    if (value > endDay) break;
+    if (!days.length || days[days.length - 1] !== value) {
+      days.push(value);
+    }
+    cursor.setDate(cursor.getDate() + 1);
+    cursor.setHours(0, 0, 0, 0);
+  }
+  return days;
+}
+
 function formatDay(timestamp) {
   const date = new Date(Number(timestamp));
   const formatter = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
@@ -401,8 +448,8 @@ function formatPassDueLabel(due) {
 
 function collectDefaultBoardDays(now = Date.now()) {
   const today = startOfDay(now);
-  const start = today - 2 * DAY_MS;
-  return Array.from({ length: DEFAULT_BOARD_DAYS }, (_, idx) => start + idx * DAY_MS);
+  const start = shiftDay(today, -2);
+  return enumerateDaySpan(start != null ? start : today, DEFAULT_BOARD_DAYS);
 }
 
 function collectLectureDueRange(lectures) {
@@ -453,33 +500,27 @@ function collectDaysForBlock(block, lectures = [], now = Date.now()) {
       const deficit = 3 - spanDays;
       const padBefore = Math.ceil(deficit / 2);
       const padAfter = deficit - padBefore;
-      startDay -= padBefore * DAY_MS;
-      endDay += padAfter * DAY_MS;
+      const paddedStart = shiftDay(startDay, -padBefore);
+      const paddedEnd = shiftDay(endDay, padAfter);
+      startDay = paddedStart != null ? paddedStart : startDay;
+      endDay = paddedEnd != null ? paddedEnd : endDay;
     }
-    const days = [];
-    for (let ts = startDay; ts <= endDay; ts += DAY_MS) {
-      days.push(ts);
-    }
-    return days;
+    return enumerateDayRange(startDay, endDay);
   }
 
   if (Number.isFinite(weeks) && weeks > 0) {
     const totalDays = Math.max(1, Math.round(weeks * 7));
     const anchor = dueRange.start != null ? dueRange.start : startOfDay(now);
-    return Array.from({ length: totalDays }, (_, idx) => anchor + idx * DAY_MS);
+    return enumerateDaySpan(anchor, totalDays);
   }
 
   if (dueRange.start != null && dueRange.end != null && dueRange.end >= dueRange.start) {
-    const days = [];
-    for (let ts = dueRange.start; ts <= dueRange.end; ts += DAY_MS) {
-      days.push(ts);
-    }
-    return days;
+    return enumerateDayRange(dueRange.start, dueRange.end);
   }
 
   if (startDate) {
     const start = startOfDay(startDate.getTime());
-    return Array.from({ length: 7 }, (_, idx) => start + idx * DAY_MS);
+    return enumerateDaySpan(start, 7);
   }
 
   return [];
