@@ -100,15 +100,27 @@ describe('settings UI', () => {
     const easyInput = form.querySelector('input[data-rating="easy"]');
     assert.ok(againInput && hardInput && goodInput && easyInput, 'review inputs should exist');
 
-    assert.equal(Number(againInput.value), DEFAULT_REVIEW_STEPS.again);
-    assert.equal(Number(hardInput.value), DEFAULT_REVIEW_STEPS.hard);
-    assert.equal(Number(goodInput.value), DEFAULT_REVIEW_STEPS.good);
-    assert.equal(Number(easyInput.value), DEFAULT_REVIEW_STEPS.easy);
+    const againUnit = againInput.closest('.settings-review-row').querySelector('select');
+    const hardUnit = hardInput.closest('.settings-review-row').querySelector('select');
+    const goodUnit = goodInput.closest('.settings-review-row').querySelector('select');
+    const easyUnit = easyInput.closest('.settings-review-row').querySelector('select');
+
+    const factor = unit => ({ minutes: 1, hours: 60, days: 1440, weeks: 10080 })[unit] || 1;
+    const toMinutes = (input, unitSelect) => Math.round(Number(input.value) * factor(unitSelect.value));
+
+    assert.equal(toMinutes(againInput, againUnit), DEFAULT_REVIEW_STEPS.again);
+    assert.equal(toMinutes(hardInput, hardUnit), DEFAULT_REVIEW_STEPS.hard);
+    assert.equal(toMinutes(goodInput, goodUnit), DEFAULT_REVIEW_STEPS.good);
+    assert.equal(toMinutes(easyInput, easyUnit), DEFAULT_REVIEW_STEPS.easy);
 
     againInput.value = '15';
-    hardInput.value = '90';
-    goodInput.value = '600';
-    easyInput.value = '2880';
+    againUnit.value = 'minutes';
+    hardInput.value = '1.5';
+    hardUnit.value = 'hours';
+    goodInput.value = '10';
+    goodUnit.value = 'hours';
+    easyInput.value = '2';
+    easyUnit.value = 'days';
 
     form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
 
@@ -123,13 +135,73 @@ describe('settings UI', () => {
     assert.equal(updated.reviewSteps.good, 600);
     assert.equal(updated.reviewSteps.easy, 2880);
 
-    const refreshedAgain = Number(form.querySelector('input[data-rating="again"]').value);
-    const refreshedHard = Number(form.querySelector('input[data-rating="hard"]').value);
-    const refreshedGood = Number(form.querySelector('input[data-rating="good"]').value);
-    const refreshedEasy = Number(form.querySelector('input[data-rating="easy"]').value);
-    assert.equal(refreshedAgain, 15);
-    assert.equal(refreshedHard, 90);
-    assert.equal(refreshedGood, 600);
-    assert.equal(refreshedEasy, 2880);
+    const refreshedAgainInput = form.querySelector('input[data-rating="again"]');
+    const refreshedHardInput = form.querySelector('input[data-rating="hard"]');
+    const refreshedGoodInput = form.querySelector('input[data-rating="good"]');
+    const refreshedEasyInput = form.querySelector('input[data-rating="easy"]');
+    const refreshedAgainUnit = refreshedAgainInput.closest('.settings-review-row').querySelector('select');
+    const refreshedHardUnit = refreshedHardInput.closest('.settings-review-row').querySelector('select');
+    const refreshedGoodUnit = refreshedGoodInput.closest('.settings-review-row').querySelector('select');
+    const refreshedEasyUnit = refreshedEasyInput.closest('.settings-review-row').querySelector('select');
+
+    assert.equal(toMinutes(refreshedAgainInput, refreshedAgainUnit), 15);
+    assert.equal(toMinutes(refreshedHardInput, refreshedHardUnit), 90);
+    assert.equal(toMinutes(refreshedGoodInput, refreshedGoodUnit), 600);
+    assert.equal(toMinutes(refreshedEasyInput, refreshedEasyUnit), 2880);
+  });
+
+  it('prefers friendly units when displaying default review steps', async () => {
+    const root = document.getElementById('root');
+    await renderSettings(root);
+
+    const form = root.querySelector('.settings-review-form');
+    assert.ok(form, 'review form should render');
+
+    const againRow = form.querySelector('input[data-rating="again"]').closest('.settings-review-row');
+    const hardRow = form.querySelector('input[data-rating="hard"]').closest('.settings-review-row');
+    const goodRow = form.querySelector('input[data-rating="good"]').closest('.settings-review-row');
+    const easyRow = form.querySelector('input[data-rating="easy"]').closest('.settings-review-row');
+    assert.ok(againRow && hardRow && goodRow && easyRow, 'all rating rows should exist');
+
+    const valueOf = row => row.querySelector('input').value;
+    const unitOf = row => row.querySelector('select').value;
+
+    assert.equal(valueOf(againRow), '10');
+    assert.equal(unitOf(againRow), 'minutes');
+    assert.equal(valueOf(hardRow), '1');
+    assert.equal(unitOf(hardRow), 'hours');
+    assert.equal(valueOf(goodRow), '12');
+    assert.equal(unitOf(goodRow), 'hours');
+    assert.equal(valueOf(easyRow), '36');
+    assert.equal(unitOf(easyRow), 'hours');
+  });
+
+  it('saves fractional review times based on the selected unit', async () => {
+    const root = document.getElementById('root');
+    await renderSettings(root);
+
+    const form = root.querySelector('.settings-review-form');
+    assert.ok(form, 'review form should render');
+
+    const againInput = form.querySelector('input[data-rating="again"]');
+    const againUnit = againInput.closest('.settings-review-row').querySelector('select');
+    againInput.value = '1.5';
+    againUnit.value = 'hours';
+
+    form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+
+    await waitFor(() => {
+      const status = root.querySelector('.settings-review-status');
+      return status && !status.hidden && /saved/i.test(status.textContent);
+    });
+
+    const updated = await getSettings();
+    assert.equal(updated.reviewSteps.again, 90);
+
+    const refreshedAgain = form.querySelector('input[data-rating="again"]').value;
+    const refreshedUnit = form.querySelector('input[data-rating="again"]').closest('.settings-review-row')
+      .querySelector('select').value;
+    assert.equal(refreshedAgain, '90');
+    assert.equal(refreshedUnit, 'minutes');
   });
 });

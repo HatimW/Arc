@@ -3513,11 +3513,58 @@ button.builder-pill.builder-pill-outline {
   width: min(760px, 100%);
 }
 
+.flashcard.is-review {
+  border-width: 2px;
+  border-color: color-mix(in srgb, var(--review-category-color, var(--flash-accent)) 46%, rgba(148, 163, 184, 0.55));
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+
+.flash-finish-btn {
+  margin-left: auto;
+}
+
 .flashcard-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--pad-sm);
+}
+
+.flashcard-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.flashcard-progress {
+  font-size: 0.875rem;
+  color: rgba(15, 23, 42, 0.7);
+}
+
+.flashcard-category {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--review-category-color, var(--flash-accent)) 78%, rgba(15, 23, 42, 0.8));
+}
+
+.flashcard-ordering {
+  display: flex;
+  align-items: center;
+  gap: var(--pad-sm);
+  margin-top: var(--pad-sm);
+  flex-wrap: wrap;
+}
+
+.flashcard-ordering-label {
+  font-size: 0.875rem;
+  color: rgba(15, 23, 42, 0.72);
+}
+
+.flashcard-ordering-select {
+  max-width: 280px;
 }
 
 .flashcard-header-actions {
@@ -3578,8 +3625,12 @@ button.builder-pill.builder-pill-outline {
 }
 
 .flashcard.is-review .flash-section {
-  border: 1px solid color-mix(in srgb, var(--flash-accent-border) 45%, rgba(148, 163, 184, 0.28));
-  background: color-mix(in srgb, var(--flash-neutral-inactive) 92%, rgba(56, 189, 248, 0.08));
+  border: 1px solid color-mix(in srgb, var(--review-category-color, var(--flash-accent)) 42%, rgba(148, 163, 184, 0.28));
+  background: color-mix(
+    in srgb,
+    var(--flash-neutral-inactive) 92%,
+    color-mix(in srgb, var(--review-category-color, var(--flash-accent)) 18%, transparent)
+  );
 }
 
 .flashcard.is-review .flash-section[data-active="true"] {

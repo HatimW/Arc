@@ -17,6 +17,12 @@ import { persistStudySession, removeStudySession } from '../../study/study-sessi
 import { loadReviewSourceItems } from '../../review/pool.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
 import { ensureBlockTitleMap, ensureBlockAccentMap, buildReviewHierarchy, openEntryManager } from './review.js';
+import {
+  DEFAULT_REVIEW_ORDERING,
+  ensureReviewOrdering,
+  normalizeReviewCategory,
+  orderReviewEntries
+} from '../../review/order.js';
 
 
 const KIND_ACCENTS = {
@@ -39,6 +45,65 @@ const RATING_CLASS = {
   good: '',
   easy: ''
 };
+
+
+const REVIEW_CATEGORY_COLORS = {
+  new: '#38bdf8',
+  learning: '#f59e0b',
+  review: '#34d399'
+};
+
+const REVIEW_CATEGORY_LABELS = {
+  new: 'New',
+  learning: 'Learning',
+  review: 'Review'
+};
+
+const ORDER_PRESETS = [
+  { id: 'mixed', label: 'Mixed (random)', ordering: { mode: 'mixed', priorities: [] } },
+  { id: 'review-learning-new', label: 'Review → Learning → New', ordering: { mode: 'prioritized', priorities: ['review', 'learning', 'new'] } },
+  { id: 'review-new-learning', label: 'Review → New → Learning', ordering: { mode: 'prioritized', priorities: ['review', 'new', 'learning'] } },
+  { id: 'learning-review-new', label: 'Learning → Review → New', ordering: { mode: 'prioritized', priorities: ['learning', 'review', 'new'] } },
+  { id: 'learning-new-review', label: 'Learning → New → Review', ordering: { mode: 'prioritized', priorities: ['learning', 'new', 'review'] } },
+  { id: 'new-review-learning', label: 'New → Review → Learning', ordering: { mode: 'prioritized', priorities: ['new', 'review', 'learning'] } },
+  { id: 'new-learning-review', label: 'New → Learning → Review', ordering: { mode: 'prioritized', priorities: ['new', 'learning', 'review'] } }
+];
+
+function orderingsEqual(a, b) {
+  if (!a || !b) return false;
+  if (a.mode !== b.mode) return false;
+  const aList = Array.isArray(a.priorities) ? a.priorities : [];
+  const bList = Array.isArray(b.priorities) ? b.priorities : [];
+  if (aList.length !== bList.length) return false;
+  for (let i = 0; i < aList.length; i += 1) {
+    if (aList[i] !== bList[i]) return false;
+  }
+  return true;
+}
+
+function findPresetId(ordering) {
+  const normalized = ensureReviewOrdering(ordering);
+  const match = ORDER_PRESETS.find(preset => orderingsEqual(ensureReviewOrdering(preset.ordering), normalized));
+  return match ? match.id : 'review-learning-new';
+}
+
+function deriveReviewCategory(entry, snapshot) {
+  if (entry && typeof entry.category === 'string') {
+    return normalizeReviewCategory(entry.category);
+  }
+  const state = snapshot || null;
+  if (!state || typeof state !== 'object') return 'new';
+  const { phase, lastRating } = state;
+  if (phase === 'review') return 'review';
+  if (phase === 'relearning') return 'learning';
+  if (phase === 'learning') {
+    if (!lastRating || lastRating === 'again') return 'new';
+    return 'learning';
+  }
+  if (lastRating === 'again') return 'new';
+  if (lastRating === 'easy' || lastRating === 'good' || lastRating === 'hard') return 'learning';
+  return 'new';
+}
 
 
 function formatReviewInterval(minutes) {
@@ -150,6 +215,13 @@ function normalizeFlashSession(session, fallbackPool, defaultMode = 'study') {
     next.mode = mode;
     changed = true;
   }
+  const ordering = ensureReviewOrdering(source.reviewOrdering);
+  if (!orderingsEqual(source.reviewOrdering, ordering)) {
+    next.reviewOrdering = ordering;
+    changed = true;
+  } else if (source.reviewOrdering !== ordering) {
+    next.reviewOrdering = ordering;
+  }
   return changed ? next : session;
 }
 
@@ -180,6 +252,7 @@ export function renderFlashcards(root, redraw) {
     next.ratingBaselines = patch.ratingBaselines
       ? { ...patch.ratingBaselines }
       : { ...active.ratingBaselines };
+    next.reviewOrdering = ensureReviewOrdering(patch.reviewOrdering ? patch.reviewOrdering : active.reviewOrdering);
     active = next;
     setFlashSession(next);
   };
@@ -286,7 +359,7 @@ export function renderFlashcards(root, redraw) {
     return;
   }
 
-  const allowedSections = entry && entry.sections ? entry.sections : null;
+  const allowedSections = entry && entry.sections ? entry.sections : (entry && entry.sectionKey ? [entry.sectionKey] : null);
   const sections = sectionsForItem(item, allowedSections);
 
   const card = document.createElement('section');
@@ -296,13 +369,32 @@ export function renderFlashcards(root, redraw) {
     card.classList.add('is-review');
   }
 
+  const totalCount = items.length;
+
   const header = document.createElement('div');
   header.className = 'flashcard-header';
+
+  const headerInfo = document.createElement('div');
+  headerInfo.className = 'flashcard-header-info';
+  header.appendChild(headerInfo);
 
   const title = document.createElement('h2');
   title.className = 'flashcard-title';
   title.textContent = item.name || item.concept || '';
-  header.appendChild(title);
+  headerInfo.appendChild(title);
+
+  const progress = document.createElement('div');
+  progress.className = 'flashcard-progress';
+  progress.textContent = totalCount ? `Card ${active.idx + 1} of ${totalCount}` : 'Card 0 of 0';
+  headerInfo.appendChild(progress);
+
+  let categoryBadge = null;
+  if (isReview) {
+    categoryBadge = document.createElement('span');
+    categoryBadge.className = 'flashcard-category';
+    categoryBadge.hidden = true;
+    headerInfo.appendChild(categoryBadge);
+  }
 
   const headerActions = document.createElement('div');
   headerActions.className = 'flashcard-header-actions';
@@ -337,9 +429,65 @@ export function renderFlashcards(root, redraw) {
 
   card.appendChild(header);
 
+  let orderSelect = null;
+  const applyReviewOrdering = (ordering) => {
+    const normalizedOrdering = ensureReviewOrdering(ordering);
+    const pool = resolvePool();
+    if (!Array.isArray(pool) || !pool.length) {
+      commitSession({ reviewOrdering: normalizedOrdering });
+      redraw();
+      return;
+    }
+    const currentIdx = active.idx;
+    const leading = pool.slice(0, currentIdx);
+    const currentEntry = pool[currentIdx];
+    const remainder = pool.slice(currentIdx + 1);
+    const reorderedTail = orderReviewEntries(remainder, normalizedOrdering);
+    const nextPool = currentEntry
+      ? [...leading, currentEntry, ...reorderedTail]
+      : [...leading, ...reorderedTail];
+    commitSession({ pool: nextPool, reviewOrdering: normalizedOrdering });
+    redraw();
+  };
+
+  if (isReview) {
+    const orderingControls = document.createElement('div');
+    orderingControls.className = 'flashcard-ordering';
+    const controlId = `flashcard-ordering-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const orderLabel = document.createElement('label');
+    orderLabel.className = 'flashcard-ordering-label';
+    orderLabel.setAttribute('for', controlId);
+    orderLabel.textContent = 'Order cards';
+    orderingControls.appendChild(orderLabel);
+
+    orderSelect = document.createElement('select');
+    orderSelect.className = 'input flashcard-ordering-select';
+    orderSelect.id = controlId;
+    ORDER_PRESETS.forEach(preset => {
+      const option = document.createElement('option');
+      option.value = preset.id;
+      option.textContent = preset.label;
+      orderSelect.appendChild(option);
+    });
+    const presetId = findPresetId(active.reviewOrdering);
+    const initialPreset = ORDER_PRESETS.find(preset => preset.id === presetId) || ORDER_PRESETS[1];
+    orderSelect.value = initialPreset.id;
+    orderSelect.addEventListener('change', () => {
+      const preset = ORDER_PRESETS.find(entryPreset => entryPreset.id === orderSelect.value) || initialPreset;
+      applyReviewOrdering(preset.ordering);
+    });
+    orderingControls.appendChild(orderSelect);
+
+    card.appendChild(orderingControls);
+  }
+
   const durationsPromise = getReviewDurations().catch(() => ({ ...DEFAULT_REVIEW_STEPS }));
   const sectionBlocks = sections.length ? sections : [];
   const sectionRequirements = new Map();
+  let reviewCategory = isReview && typeof entry?.category === 'string'
+    ? normalizeReviewCategory(entry.category)
+    : null;
   if (!sectionBlocks.length) {
     const empty = document.createElement('div');
     empty.className = 'flash-empty';
@@ -351,6 +499,9 @@ export function renderFlashcards(root, redraw) {
     const ratingId = ratingKey(item, key);
     let currentRating = active.ratings[ratingId] || null;
     const snapshot = getSectionStateSnapshot(item, key);
+    if (isReview && !reviewCategory && snapshot) {
+      reviewCategory = deriveReviewCategory(entry, snapshot);
+    }
     if (snapshot && !active.ratingBaselines[ratingId]) {
       active.ratingBaselines[ratingId] = cloneSectionState(snapshot);
     }
@@ -641,6 +792,7 @@ export function renderFlashcards(root, redraw) {
       setToggleState(sec, next, 'revealed');
     };
     sec.addEventListener('click', (event) => {
+      if (event.detail > 1) return;
       if (event.target instanceof HTMLElement) {
         if (event.target.closest('.flash-rating')) return;
         if (event.target.closest('[data-cloze]')) return;
@@ -661,18 +813,42 @@ export function renderFlashcards(root, redraw) {
     card.appendChild(sec);
   });
 
+  if (isReview) {
+    const normalizedCategory = reviewCategory ? normalizeReviewCategory(reviewCategory) : 'new';
+    card.dataset.reviewCategory = normalizedCategory;
+    const categoryColor = REVIEW_CATEGORY_COLORS[normalizedCategory];
+    if (categoryColor) {
+      card.style.setProperty('--review-category-color', categoryColor);
+    } else {
+      card.style.removeProperty('--review-category-color');
+    }
+    if (categoryBadge) {
+      categoryBadge.textContent = `${REVIEW_CATEGORY_LABELS[normalizedCategory]} card`;
+      categoryBadge.dataset.category = normalizedCategory;
+      categoryBadge.hidden = false;
+    }
+  } else {
+    card.style.removeProperty('--review-category-color');
+  }
+
   const controls = document.createElement('div');
   controls.className = 'row flash-controls';
 
   const prev = document.createElement('button');
   prev.className = 'btn';
   prev.textContent = 'Prev';
-  prev.disabled = active.idx === 0;
+  prev.disabled = isReview ? active.idx === 0 : totalCount === 0;
   prev.addEventListener('click', () => {
-    if (active.idx > 0) {
-
-      commitSession({ idx: active.idx - 1 });
-
+    if (isReview) {
+      if (active.idx > 0) {
+        commitSession({ idx: active.idx - 1 });
+        redraw();
+      }
+    } else if (totalCount > 0) {
+      const prevIdx = totalCount > 1
+        ? (active.idx === 0 ? totalCount - 1 : active.idx - 1)
+        : 0;
+      commitSession({ idx: prevIdx });
       redraw();
     }
   });
@@ -680,23 +856,43 @@ export function renderFlashcards(root, redraw) {
 
   const next = document.createElement('button');
   next.className = 'btn';
-  const isLast = active.idx >= items.length - 1;
-
-  next.textContent = isLast ? (isReview ? 'Finish review' : 'Finish') : 'Next';
-
+  next.textContent = 'Next';
+  const isLast = active.idx >= totalCount - 1;
+  next.disabled = isReview ? isLast : totalCount === 0;
   next.addEventListener('click', () => {
-    const pool = Array.isArray(active.pool) ? active.pool : items;
-    const idx = active.idx + 1;
-    if (idx >= items.length) {
-      setFlashSession(null);
-    } else {
-
-      commitSession({ idx });
-
+    if (isReview) {
+      if (active.idx < totalCount - 1) {
+        commitSession({ idx: active.idx + 1 });
+        redraw();
+      }
+      return;
     }
+    if (!totalCount) return;
+    const nextIdx = totalCount > 1 ? (active.idx + 1) % totalCount : active.idx;
+    commitSession({ idx: nextIdx });
     redraw();
   });
   controls.appendChild(next);
+
+  let finishBtn = null;
+  if (isReview) {
+    finishBtn = document.createElement('button');
+    finishBtn.type = 'button';
+    finishBtn.className = 'btn flash-finish-btn';
+    finishBtn.textContent = 'Finish review';
+    finishBtn.addEventListener('click', async () => {
+      finishBtn.disabled = true;
+      try {
+        await removeStudySession('review').catch(err => console.warn('Failed to clear saved review entry', err));
+      } finally {
+        setFlashSession(null);
+        setStudySelectedMode('Flashcards');
+        setSubtab('Study', 'Review');
+        redraw();
+      }
+    });
+    controls.appendChild(finishBtn);
+  }
 
   if (!isReview) {
     const saveExit = document.createElement('button');
@@ -739,7 +935,13 @@ export function renderFlashcards(root, redraw) {
 
         const pool = resolvePool();
         await persistStudySession('review', {
-          session: { ...active, idx: active.idx, pool, ratings: { ...(active.ratings || {}) } },
+          session: {
+            ...active,
+            idx: active.idx,
+            pool,
+            ratings: { ...(active.ratings || {}) },
+            reviewOrdering: ensureReviewOrdering(active.reviewOrdering)
+          },
 
           cohort: state.cohort,
           metadata: active.metadata || { label: 'Review session' }
@@ -770,9 +972,17 @@ export function renderFlashcards(root, redraw) {
   card.focus();
   card.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight') {
-      next.click();
+      if (!next.disabled) {
+        next.click();
+      } else if (isReview && finishBtn) {
+        finishBtn.focus();
+      }
     } else if (e.key === 'ArrowLeft') {
-      prev.click();
+      if (!prev.disabled) {
+        prev.click();
+      } else if (!isReview && totalCount > 1) {
+        prev.click();
+      }
     }
   });
 

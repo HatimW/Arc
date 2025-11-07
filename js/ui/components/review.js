@@ -13,6 +13,7 @@ import { loadReviewSourceItems } from '../../review/pool.js';
 import { RETIRE_RATING } from '../../review/constants.js';
 import { upsertItem } from '../../storage/storage.js';
 import { createFloatingWindow } from './window-manager.js';
+import { DEFAULT_REVIEW_ORDERING, orderReviewEntries, normalizeReviewCategory } from '../../review/order.js';
 
 
 let blockTitleCache = null;
@@ -177,7 +178,11 @@ function describePhase(phase) {
 }
 
 function buildSessionPayload(entries) {
-  return entries.map(entry => ({ item: entry.item, sections: [entry.sectionKey] }));
+  return entries.map(entry => ({
+    item: entry.item,
+    sections: [entry.sectionKey],
+    category: normalizeReviewCategory(entry?.category)
+  }));
 }
 
 function renderEmptyState(container) {
@@ -1552,6 +1557,8 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
   blockList.className = 'review-tree-children';
   allNode.content.appendChild(blockList);
 
+  const blockFragment = document.createDocumentFragment();
+
   hierarchy.blocks.forEach(blockNode => {
     const blockMeta = {
       scope: 'block',
@@ -1574,11 +1581,13 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
       }),
       accent: blockNode.accent
     });
-    blockList.appendChild(block.element);
+    blockFragment.appendChild(block.element);
 
     const weekList = document.createElement('div');
     weekList.className = 'review-tree-children';
     block.content.appendChild(weekList);
+
+    const weekFragment = document.createDocumentFragment();
 
     blockNode.weeks.forEach(weekNode => {
       const weekTitle = weekNode.weekNumber != null ? `Week ${weekNode.weekNumber}` : 'Unassigned week';
@@ -1605,11 +1614,13 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
         }),
         accent: weekNode.accent
       });
-      weekList.appendChild(week.element);
+      weekFragment.appendChild(week.element);
 
       const lectureList = document.createElement('div');
       lectureList.className = 'review-lecture-list';
       week.content.appendChild(lectureList);
+
+      const lectureFragment = document.createDocumentFragment();
 
       weekNode.lectures.forEach(lectureNode => {
         const lectureRow = document.createElement('div');
@@ -1660,10 +1671,16 @@ function renderHierarchy(container, hierarchy, { startSession, now, redraw }) {
         actions.classList.add('review-lecture-actions');
         lectureRow.appendChild(actions);
 
-        lectureList.appendChild(lectureRow);
+        lectureFragment.appendChild(lectureRow);
       });
+
+      lectureList.appendChild(lectureFragment);
     });
+
+    weekList.appendChild(weekFragment);
   });
+
+  blockList.appendChild(blockFragment);
 }
 export async function renderReview(root, redraw) {
   root.innerHTML = '';
@@ -1714,8 +1731,10 @@ export async function renderReview(root, redraw) {
 
   const startSession = async (pool, metadata = {}) => {
     if (!pool.length) return;
+    const reviewOrdering = { ...DEFAULT_REVIEW_ORDERING };
+    const orderedPool = orderReviewEntries(pool, reviewOrdering);
     await removeStudySession('review').catch(err => console.warn('Failed to discard existing review save', err));
-    setFlashSession({ idx: 0, pool, ratings: {}, mode: 'review', metadata });
+    setFlashSession({ idx: 0, pool: orderedPool, ratings: {}, mode: 'review', metadata, reviewOrdering });
 
     redraw();
   };
