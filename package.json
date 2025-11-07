@@ -5,25 +5,36 @@
   "main": "electron-main.js",
   "scripts": {
     "bundle": "esbuild js/main.js --bundle --format=iife --global-name=Arc --outfile=bundle.js",
-    "start": "npm run bundle && electron .",
-    "package": "npm run bundle && electron-builder",
+    "ensure:icons": "node scripts/ensure-placeholder-icons.js",
+    "start": "npm run ensure:icons && npm run bundle && electron .",
+    "package": "npm run ensure:icons && npm run bundle && electron-builder",
     "test": "node --test",
-    "prepare:pr": "npm run bundle && npm test"
+    "prepare:pr": "npm run ensure:icons && npm run bundle && npm test"
   },
   "build": {
     "appId": "com.arc.desktop",
     "productName": "Arc",
     "files": [
       "index.html",
-      "bundle.js", 
+      "bundle.js",
       "bundle.js.map",
       "style.css",
       "js/**/*",
       "docs/**/*",
+      "assets/**/*",
       "electron-main.js",
       "electron-preload.js",
       "package.json"
-    ]
+    ],
+    "mac": {
+      "icon": "assets/icon.icns"
+    },
+    "win": {
+      "icon": "assets/icon.ico"
+    },
+    "linux": {
+      "icon": "assets/icon.png"
+    }
   },
   "devDependencies": {
     "electron": "^30.0.0",

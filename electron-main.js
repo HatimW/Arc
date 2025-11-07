@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensurePlaceholderIcons } from './assets/placeholder-icons.js';
 
 const PERFORMANCE_SETTINGS_FILE = 'performance-settings.json';
 const defaultPerformanceSettings = {
@@ -58,12 +59,26 @@ if (performanceSettings.disableHardwareAcceleration) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const assetBaseDir = path.join(app.isPackaged ? process.resourcesPath : __dirname, 'assets');
+
+try {
+  ensurePlaceholderIcons({ targetDir: assetBaseDir });
+} catch (err) {
+  console.warn('Failed to ensure placeholder icon bundle is available', err);
+}
+
+function resolveAssetPath(...segments) {
+  return path.join(assetBaseDir, ...segments);
+}
+
 const windows = new Set();
 
 function createWindow() {
+  const iconPath = resolveAssetPath('icon.png');
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    icon: iconPath,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -146,6 +161,15 @@ ipcMain.handle('performance:update-settings', (event, requestedSettings = {}) =>
 });
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin' && app.dock && typeof app.dock.setIcon === 'function') {
+    const dockIconPath = resolveAssetPath('icon.png');
+    try {
+      app.dock.setIcon(dockIconPath);
+    } catch (err) {
+      console.warn('Failed to set dock icon', err);
+    }
+  }
+
   createWindow();
 
   app.on('activate', () => {
