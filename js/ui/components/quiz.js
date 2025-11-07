@@ -730,9 +730,10 @@ export function renderQuiz(root, redraw) {
   backBtn.type = 'button';
   backBtn.className = 'btn secondary';
   backBtn.textContent = 'Back';
-  backBtn.disabled = session.idx === 0;
+  backBtn.disabled = pool.length === 0;
   backBtn.addEventListener('click', () => {
-    setQuizSession({ ...session, idx: Math.max(0, session.idx - 1) });
+    const prevIdx = session.idx === 0 ? pool.length - 1 : session.idx - 1;
+    setQuizSession({ ...session, idx: prevIdx });
     redraw();
   });
   controls.appendChild(backBtn);
@@ -740,10 +741,11 @@ export function renderQuiz(root, redraw) {
   const nextBtn = document.createElement('button');
   nextBtn.type = 'button';
   nextBtn.className = 'btn';
-  nextBtn.textContent = session.idx === pool.length - 1 ? 'Finish' : 'Next';
+  nextBtn.textContent = 'Next';
   nextBtn.disabled = true;
   nextBtn.addEventListener('click', () => {
-    setQuizSession({ ...session, idx: session.idx + 1 });
+    const nextIdx = (session.idx + 1) % pool.length;
+    setQuizSession({ ...session, idx: nextIdx });
     redraw();
   });
   controls.appendChild(nextBtn);

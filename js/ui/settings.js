@@ -358,6 +358,26 @@ export async function renderSettings(root) {
     if (!Number.isFinite(minutes) || minutes <= 0) {
       return { value: '', unit: 'minutes' };
     }
+    const unitCandidates = [
+      { unit: 'weeks', factor: durationFactorMap.weeks },
+      { unit: 'days', factor: durationFactorMap.days },
+      { unit: 'hours', factor: durationFactorMap.hours },
+      { unit: 'minutes', factor: 1 }
+    ];
+    for (const { unit, factor } of unitCandidates) {
+      if (!factor) continue;
+      const value = minutes / factor;
+      if (value >= 1 && Number.isInteger(value)) {
+        return { value, unit };
+      }
+    }
+    for (const { unit, factor } of unitCandidates) {
+      if (!factor) continue;
+      const value = minutes / factor;
+      if (value >= 1) {
+        return { value: Math.round(value * 100) / 100, unit };
+      }
+    }
     return { value: Math.round(minutes * 100) / 100, unit: 'minutes' };
   };
 
@@ -424,8 +444,8 @@ export async function renderSettings(root) {
     control.className = 'settings-review-control';
     const amountInput = document.createElement('input');
     amountInput.type = 'number';
-    amountInput.min = '0.01';
-    amountInput.step = '0.25';
+    amountInput.min = '0.1';
+    amountInput.step = '0.1';
     amountInput.className = 'input settings-review-input';
     const unitSelect = document.createElement('select');
     unitSelect.className = 'input settings-review-unit';
@@ -796,8 +816,8 @@ export async function renderSettings(root) {
 
     const amountInput = document.createElement('input');
     amountInput.type = 'number';
-    amountInput.min = '0.01';
-    amountInput.step = '0.25';
+    amountInput.min = '0.1';
+    amountInput.step = '0.1';
     amountInput.required = true;
     amountInput.className = 'input settings-review-input';
     amountInput.dataset.rating = rating;
