@@ -1060,8 +1060,10 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
     };
 
     const handleOutside = (event) => {
-      if (event.target === image) return;
-      if (overlay.contains(event.target)) return;
+      const target = event.target;
+      if (target === image) return;
+      if (target instanceof Node && overlay.contains(target)) return;
+      if (target instanceof Element && target.closest('.image-occlusion-modal')) return;
       destroy();
     };
 
@@ -1143,6 +1145,14 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         surface.className = 'image-occlusion-modal-surface';
         workspaceOverlay.appendChild(surface);
 
+        const toolbar = document.createElement('div');
+        toolbar.className = 'image-occlusion-modal-toolbar';
+        surface.appendChild(toolbar);
+
+        const toolButtons = document.createElement('div');
+        toolButtons.className = 'image-occlusion-toolbar-buttons';
+        toolbar.appendChild(toolButtons);
+
         const canvas = document.createElement('div');
         canvas.className = 'image-occlusion-modal-canvas';
         surface.appendChild(canvas);
@@ -1167,14 +1177,6 @@ export function createRichTextEditor({ value = '', onChange, ariaLabel, ariaLabe
         workspaceLayer.className = 'image-occlusion-layer';
         workspaceLayer.setAttribute('aria-hidden', 'true');
         canvas.appendChild(workspaceLayer);
-
-        const toolbar = document.createElement('div');
-        toolbar.className = 'image-occlusion-modal-toolbar';
-        surface.appendChild(toolbar);
-
-        const toolButtons = document.createElement('div');
-        toolButtons.className = 'image-occlusion-toolbar-buttons';
-        toolbar.appendChild(toolButtons);
 
         const occlusionToolBtn = document.createElement('button');
         occlusionToolBtn.type = 'button';
