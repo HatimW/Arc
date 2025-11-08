@@ -177,12 +177,20 @@ export function createAppShell({
       const kind = resolveListKind();
       const listMeta = listTabConfig.find(cfg => cfg.kind === kind) || listTabConfig[0];
       const createTarget = listMeta?.kind || 'disease';
-      const entryControl = await createEntryAddControl(renderApp, createTarget);
-      main.appendChild(entryControl);
 
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
+
+      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, createTarget))
+        .then(control => {
+          if (control) {
+            main.insertBefore(control, content);
+          }
+        })
+        .catch(err => {
+          console.warn('Failed to create list entry control', err);
+        });
 
       const selector = document.createElement('div');
       selector.className = 'list-subtabs';
@@ -210,69 +218,130 @@ export function createAppShell({
 
       const filter = { ...state.filters, types:[kind], query: state.query };
       const query = findItemsByFilter(filter);
-      await renderCardList(listHost, query, kind, renderApp);
+      const renderPromise = renderCardList(listHost, query, kind, renderApp);
+      await Promise.all([entryControlPromise, renderPromise]);
     } else if (state.tab === 'Block Board') {
-      const entryControl = await createEntryAddControl(renderApp, 'disease');
-      main.appendChild(entryControl);
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
-      await renderBlockBoard(content, renderApp);
+      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
+        .then(control => {
+          if (control) {
+            main.insertBefore(control, content);
+          }
+        })
+        .catch(err => {
+          console.warn('Failed to create block board entry control', err);
+        });
+      const renderPromise = renderBlockBoard(content, renderApp);
+      await Promise.all([entryControlPromise, renderPromise]);
     } else if (state.tab === 'Lectures') {
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
       await renderLectures(content, renderApp);
     } else if (state.tab === 'Cards') {
-      const entryControl = await createEntryAddControl(renderApp, 'disease');
-      main.appendChild(entryControl);
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
       const filter = { ...state.filters, query: state.query };
       const query = findItemsByFilter(filter);
-      const items = await query.toArray();
-      await renderCards(content, items, renderApp);
+      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
+        .then(control => {
+          if (control) {
+            main.insertBefore(control, content);
+          }
+        })
+        .catch(err => {
+          console.warn('Failed to create cards entry control', err);
+        });
+      const itemsPromise = query.toArray();
+      const cardsPromise = itemsPromise.then(items => renderCards(content, items, renderApp));
+      await Promise.all([entryControlPromise, cardsPromise]);
     } else if (state.tab === 'Study') {
-      const entryControl = await createEntryAddControl(renderApp, 'disease');
-      main.appendChild(entryControl);
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
+      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
+        .then(control => {
+          if (control) {
+            main.insertBefore(control, content);
+          }
+        })
+        .catch(err => {
+          console.warn('Failed to create study entry control', err);
+        });
       if (state.flashSession) {
-        await renderFlashcards(content, renderApp);
+        await Promise.all([
+          entryControlPromise,
+          renderFlashcards(content, renderApp)
+        ]);
       } else if (state.quizSession) {
-        await renderQuiz(content, renderApp);
+        await Promise.all([
+          entryControlPromise,
+          renderQuiz(content, renderApp)
+        ]);
       } else {
         const activeStudy = state.subtab.Study === 'Blocks' ? 'Blocks' : (state.subtab.Study || 'Builder');
         if (activeStudy === 'Review') {
-          await renderReview(content, renderApp);
+          await Promise.all([
+            entryControlPromise,
+            renderReview(content, renderApp)
+          ]);
         } else if (activeStudy === 'Blocks') {
-          await renderBlockMode(content, renderApp);
+          await Promise.all([
+            entryControlPromise,
+            renderBlockMode(content, renderApp)
+          ]);
         } else {
           const wrap = document.createElement('div');
-          await renderBuilder(wrap, renderApp);
-          content.appendChild(wrap);
+          const builderPromise = renderBuilder(wrap, renderApp).then(() => {
+            content.appendChild(wrap);
+          });
+          await Promise.all([entryControlPromise, builderPromise]);
         }
       }
     } else if (state.tab === 'Exams') {
-      const entryControl = await createEntryAddControl(renderApp, 'disease');
-      main.appendChild(entryControl);
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
+      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
+        .then(control => {
+          if (control) {
+            main.insertBefore(control, content);
+          }
+        })
+        .catch(err => {
+          console.warn('Failed to create exams entry control', err);
+        });
       if (state.examSession) {
-        await renderExamRunner(content, renderApp);
+        await Promise.all([
+          entryControlPromise,
+          renderExamRunner(content, renderApp)
+        ]);
       } else {
-        await renderExams(content, renderApp);
+        await Promise.all([
+          entryControlPromise,
+          renderExams(content, renderApp)
+        ]);
       }
     } else if (state.tab === 'Map') {
-      const entryControl = await createEntryAddControl(renderApp, 'disease');
-      main.appendChild(entryControl);
       const mapHost = document.createElement('div');
       mapHost.className = 'tab-content map-host';
       main.appendChild(mapHost);
-      await renderMap(mapHost);
+      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
+        .then(control => {
+          if (control) {
+            main.insertBefore(control, mapHost);
+          }
+        })
+        .catch(err => {
+          console.warn('Failed to create map entry control', err);
+        });
+      await Promise.all([
+        entryControlPromise,
+        renderMap(mapHost)
+      ]);
     } else {
       main.textContent = `Currently viewing: ${state.tab}`;
     }

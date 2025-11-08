@@ -192,6 +192,9 @@ export async function renderCards(container, items, onChange) {
   noteTabRender('cards');
   container.innerHTML = '';
   container.classList.add('cards-tab');
+  container.style.overflowY = 'auto';
+  container.style.overscrollBehavior = 'contain';
+  container.style.scrollbarGutter = 'stable both-edges';
 
   const scheduleDomMutation = createMutationScheduler();
   const runMutation = (task, options = {}) => {
@@ -572,7 +575,7 @@ export async function renderCards(container, items, onChange) {
       overlay.dataset.active = 'false';
       viewer.innerHTML = '';
       viewer.className = 'deck-viewer';
-    });
+    }, { immediate: true });
     overlay.scrollTop = 0;
     document.body.classList.remove('is-deck-open');
     if (activeKeyHandler) {
@@ -798,8 +801,8 @@ export async function renderCards(container, items, onChange) {
       showRelated = !showRelated;
       persistRelatedVisibility = showRelated;
 
-      updateToggle(lecture.cards[idx]);
-      renderRelated(lecture.cards[idx]);
+      updateToggle(lecture.cards[idx], { schedule: false });
+      renderRelated(lecture.cards[idx], { schedule: false });
 
     });
 
@@ -1214,7 +1217,7 @@ export async function renderCards(container, items, onChange) {
             if (!collapsed) {
               ensureGridRendered(deckGrid);
             }
-          });
+          }, { immediate: true });
         });
       });
 
@@ -1244,7 +1247,7 @@ export async function renderCards(container, items, onChange) {
           populateBody();
           ensureVisibleWeekGrids();
         }
-      });
+      }, { immediate: true });
     });
 
     return section;

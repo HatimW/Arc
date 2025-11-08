@@ -5,19 +5,29 @@ import { createAppShell } from './app-shell.js';
 
 function createLazyRenderer(loader, exportName) {
   let cachedPromise;
-  return async (...args) => {
+  const load = () => {
     if (!cachedPromise) {
-      cachedPromise = loader().then(mod => {
-        const resolved = exportName ? mod[exportName] : mod?.default;
-        if (typeof resolved !== 'function') {
-          throw new TypeError(`Expected ${exportName || 'default'} export to be a function`);
-        }
-        return resolved;
-      });
+      cachedPromise = loader()
+        .then(mod => {
+          const resolved = exportName ? mod[exportName] : mod?.default;
+          if (typeof resolved !== 'function') {
+            throw new TypeError(`Expected ${exportName || 'default'} export to be a function`);
+          }
+          return resolved;
+        })
+        .catch(err => {
+          cachedPromise = null;
+          throw err;
+        });
     }
-    const fn = await cachedPromise;
+    return cachedPromise;
+  };
+  const runner = async (...args) => {
+    const fn = await load();
     return fn(...args);
   };
+  runner.preload = () => load().then(() => undefined);
+  return runner;
 }
 
 const renderSettings = createLazyRenderer(() => import('./ui/settings.js'), 'renderSettings');
@@ -68,11 +78,38 @@ async function bootstrap() {
     }
     await performanceReady;
     await renderApp();
+    schedulePrefetch();
   } catch (err) {
     const root = document.getElementById('app');
     if (root) root.textContent = 'Failed to load app';
     console.error(err);
   }
+}
+
+function schedulePrefetch() {
+  if (typeof window === 'undefined') return;
+  const tasks = [
+    () => renderSettings.preload(),
+    () => renderCardList.preload(),
+    () => renderCards.preload(),
+    () => renderBuilder.preload(),
+    () => renderLectures.preload(),
+    () => renderFlashcards.preload(),
+    () => renderReview.preload(),
+    () => renderQuiz.preload(),
+    () => renderBlockMode.preload(),
+    () => renderBlockBoard.preload(),
+    () => renderExams.preload(),
+    () => renderExamRunner.preload(),
+    () => renderMap.preload(),
+    () => createEntryAddControl.preload()
+  ];
+  const schedule = typeof window.requestIdleCallback === 'function'
+    ? window.requestIdleCallback.bind(window)
+    : (cb) => setTimeout(cb, 200);
+  schedule(() => {
+    tasks.reduce((chain, task) => chain.then(task).catch(() => undefined), Promise.resolve());
+  });
 }
 
 if (typeof window !== 'undefined' && !globalThis.__ARC_TEST__) {

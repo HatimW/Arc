@@ -882,12 +882,12 @@ export function renderFlashcards(root, redraw) {
     finishBtn.textContent = 'Finish review';
     finishBtn.addEventListener('click', async () => {
       finishBtn.disabled = true;
+      setFlashSession(null);
+      setStudySelectedMode('Flashcards');
+      setSubtab('Study', 'Review');
       try {
         await removeStudySession('review').catch(err => console.warn('Failed to clear saved review entry', err));
       } finally {
-        setFlashSession(null);
-        setStudySelectedMode('Flashcards');
-        setSubtab('Study', 'Review');
         redraw();
       }
     });
