@@ -5429,7 +5429,18 @@ function refreshEdgeGeometry(line, options = {}) {
   syncLineDecoration(line, geometry);
 }
 
-function updateEdgesFor(id, options = {}) {
+const pendingEdgeUpdates = new Map();
+let edgeUpdateFrame = 0;
+
+function mergeEdgeOptions(base = {}, next = {}) {
+  return {
+    ...base,
+    ...next,
+    animate: Boolean(base?.animate || next?.animate)
+  };
+}
+
+function refreshEdgesForImmediate(id, options = {}) {
   ensureEdgeRegistry();
   if (!mapState.edgeRefs) return;
   const key = String(id);
@@ -5456,6 +5467,40 @@ function updateEdgesFor(id, options = {}) {
       unregisterEdgeElement(edge);
     });
   }
+}
+
+function scheduleEdgeFlush() {
+  if (edgeUpdateFrame) return;
+  const flush = () => {
+    edgeUpdateFrame = 0;
+    if (!pendingEdgeUpdates.size) return;
+    const entries = Array.from(pendingEdgeUpdates.entries());
+    pendingEdgeUpdates.clear();
+    entries.forEach(([key, payload]) => {
+      refreshEdgesForImmediate(key, payload?.options || {});
+    });
+  };
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    edgeUpdateFrame = window.requestAnimationFrame(flush);
+  } else {
+    edgeUpdateFrame = setTimeout(flush, 16);
+  }
+}
+
+function updateEdgesFor(id, options = {}) {
+  if (id == null) return;
+  if (typeof window === 'undefined' || (typeof window.requestAnimationFrame !== 'function' && typeof setTimeout !== 'function')) {
+    refreshEdgesForImmediate(id, options);
+    return;
+  }
+  const key = String(id);
+  if (pendingEdgeUpdates.has(key)) {
+    const existing = pendingEdgeUpdates.get(key);
+    existing.options = mergeEdgeOptions(existing.options, options);
+    return;
+  }
+  pendingEdgeUpdates.set(key, { options });
+  scheduleEdgeFlush();
 }
 
 function buildToolbox(container, hiddenNodeCount, hiddenLinkCount) {

@@ -4925,6 +4925,8 @@ body[data-performance-mode='conservative'] .item-card:hover {
   contain: layout paint;
   min-height: 0;
   flex: 1 1 auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
 }
 
 .card-catalog {
@@ -5371,6 +5373,7 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   transition: opacity 0.3s ease;
   box-sizing: border-box;
   scrollbar-gutter: stable both-edges;
+  overscroll-behavior: contain;
 }
 
 .deck-overlay[data-active="true"] {

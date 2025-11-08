@@ -1112,16 +1112,12 @@ export async function renderBlockBoard(container, refresh) {
   container.classList.add('block-board-container');
 
   const boardState = ensureBoardState();
-  const [catalog, lectures] = await Promise.all([
+  const settingsPromise = fetchSettings().catch(() => null);
+  const [catalog, lectures, settings] = await Promise.all([
     loadCatalog(),
-    fetchLectures()
+    fetchLectures(),
+    settingsPromise
   ]);
-  let settings = null;
-  try {
-    settings = await fetchSettings();
-  } catch (err) {
-    settings = null;
-  }
   const { blocks } = catalog;
   setPassColorPalette(settings?.plannerDefaults?.passColors);
   if (Array.isArray(blocks) && blocks.length) {

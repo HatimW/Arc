@@ -1020,26 +1020,42 @@ export async function renderExams(root, render) {
     status.textContent = '';
   }
 
-  const stored = await listExams();
+  const [stored, savedSessions] = await Promise.all([
+    listExams(),
+    listExamSessions()
+  ]);
   const exams = [];
+  const pendingUpdates = [];
   for (const raw of stored) {
     const { exam, changed } = ensureExamShape(raw);
     exams.push(exam);
-    if (changed) await upsertExam(exam);
+    if (changed) {
+      pendingUpdates.push(upsertExam(exam).catch(err => {
+        console.warn('Failed to normalize exam', err);
+      }));
+    }
+  }
+  if (pendingUpdates.length) {
+    await Promise.all(pendingUpdates);
   }
   exams.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-  const savedSessions = await listExamSessions();
   const sessionMap = new Map();
   for (const sess of savedSessions) {
     if (sess?.examId) sessionMap.set(sess.examId, sess);
   }
 
   // Clean up orphaned sessions for removed exams
+  const cleanupTasks = [];
   for (const sess of savedSessions) {
     if (!exams.find(ex => ex.id === sess.examId)) {
-      await deleteExamSessionProgress(sess.examId);
+      cleanupTasks.push(deleteExamSessionProgress(sess.examId).catch(err => {
+        console.warn('Failed to cleanup orphaned exam session', err);
+      }));
     }
+  }
+  if (cleanupTasks.length) {
+    await Promise.all(cleanupTasks);
   }
 
   if (!exams.length) {
@@ -1057,9 +1073,11 @@ export async function renderExams(root, render) {
   if (viewMode === 'row') {
     grid.classList.add('exam-grid--row');
   }
+  const frag = document.createDocumentFragment();
   exams.forEach(exam => {
-    grid.appendChild(buildExamCard(exam, render, sessionMap.get(exam.id), status, layoutSnapshot));
+    frag.appendChild(buildExamCard(exam, render, sessionMap.get(exam.id), status, layoutSnapshot));
   });
+  grid.appendChild(frag);
   root.appendChild(grid);
 }
 
