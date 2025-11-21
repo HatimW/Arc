@@ -190,6 +190,10 @@ function getLectureAccent(cards) {
  */
 export async function renderCards(container, items, onChange) {
   noteTabRender('cards');
+  if (typeof document !== 'undefined') {
+    document.body.classList.remove('is-deck-open');
+    document.body.classList.remove('is-occlusion-workspace-open');
+  }
   container.innerHTML = '';
   container.classList.add('cards-tab');
   container.style.overflowY = 'auto';
