@@ -123,6 +123,8 @@ main > .tab-content {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable both-edges;
+  overscroll-behavior: contain;
 }
 
 .map-main {
@@ -4929,6 +4931,11 @@ body[data-performance-mode='conservative'] .item-card:hover {
   scrollbar-gutter: stable both-edges;
 }
 
+.card-block-section {
+  content-visibility: auto;
+  contain-intrinsic-size: 480px 720px;
+}
+
 .card-catalog {
   display: flex;
   flex-direction: column;
@@ -5365,7 +5372,7 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   justify-content: center;
   padding: clamp(18px, 4vw, 48px);
   background: rgba(2, 6, 18, 0.78);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(10px);
   z-index: 2000;
   opacity: 0;
   pointer-events: none;
@@ -5374,6 +5381,12 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   box-sizing: border-box;
   scrollbar-gutter: stable both-edges;
   overscroll-behavior: contain;
+}
+
+body[data-performance-mode='balanced'] .deck-overlay,
+body[data-performance-mode='conservative'] .deck-overlay {
+  backdrop-filter: none;
+  background: rgba(2, 6, 18, 0.88);
 }
 
 .deck-overlay[data-active="true"] {
@@ -5401,6 +5414,11 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   border-radius: 28px;
   border: 1px solid rgba(148, 163, 184, 0.22);
   box-shadow: 0 36px 72px rgba(2, 6, 23, 0.55);
+}
+
+body[data-performance-mode='balanced'] .deck-viewer,
+body[data-performance-mode='conservative'] .deck-viewer {
+  box-shadow: 0 24px 46px rgba(2, 6, 23, 0.42);
 }
 
 .deck-viewer-card {
