@@ -573,6 +573,8 @@ export async function renderCards(container, items, onChange) {
   overlay.dataset.active = 'false';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
+  overlay.hidden = true;
+  overlay.inert = true;
   const viewer = document.createElement('div');
   viewer.className = 'deck-viewer';
   overlay.appendChild(viewer);
@@ -581,14 +583,21 @@ export async function renderCards(container, items, onChange) {
   let activeKeyHandler = null;
   let persistRelatedVisibility = false;
   let deckDirty = false;
+  let overlayHideTimer = 0;
   /** @type {Array<{ context: any, targetCardId: string | null }>} */
   let deckHistory = [];
 
   function closeDeck() {
+    if (overlayHideTimer) {
+      clearTimeout(overlayHideTimer);
+      overlayHideTimer = 0;
+    }
+
     runMutation(() => {
       overlay.dataset.active = 'false';
       viewer.innerHTML = '';
       viewer.className = 'deck-viewer';
+      overlay.inert = true;
     }, { immediate: true });
     overlay.scrollTop = 0;
     document.body.classList.remove('is-deck-open');
@@ -605,6 +614,12 @@ export async function renderCards(container, items, onChange) {
       }
     }
     deckDirty = false;
+    overlayHideTimer = setTimeout(() => {
+      if (overlay.dataset.active !== 'true') {
+        overlay.hidden = true;
+      }
+      overlayHideTimer = 0;
+    }, 320);
   }
 
   overlay.addEventListener('click', evt => {
@@ -612,6 +627,12 @@ export async function renderCards(container, items, onChange) {
   });
 
   function openDeck(context, targetCardId = null, options = {}) {
+    if (overlayHideTimer) {
+      clearTimeout(overlayHideTimer);
+      overlayHideTimer = 0;
+    }
+    overlay.hidden = false;
+    overlay.inert = false;
     const { pushHistory = true, replaceHistory = false } = options;
     if (pushHistory) {
       if (!overlay.dataset || overlay.dataset.active !== 'true' || replaceHistory) {
