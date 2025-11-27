@@ -581,6 +581,8 @@ export async function renderCards(container, items, onChange) {
   let activeKeyHandler = null;
   let persistRelatedVisibility = false;
   let deckDirty = false;
+  /** @type {Array<{ context: any, targetCardId: string | null }>} */
+  let deckHistory = [];
 
   function closeDeck() {
     runMutation(() => {
@@ -595,6 +597,7 @@ export async function renderCards(container, items, onChange) {
       activeKeyHandler = null;
     }
     persistRelatedVisibility = false;
+    deckHistory = [];
     if (deckDirty && typeof onChange === 'function') {
       const result = onChange();
       if (result && typeof result.catch === 'function') {
@@ -608,7 +611,17 @@ export async function renderCards(container, items, onChange) {
     if (evt.target === overlay) closeDeck();
   });
 
-  function openDeck(context, targetCardId = null) {
+  function openDeck(context, targetCardId = null, options = {}) {
+    const { pushHistory = true, replaceHistory = false } = options;
+    if (pushHistory) {
+      if (!overlay.dataset || overlay.dataset.active !== 'true' || replaceHistory) {
+        deckHistory = [];
+      }
+      deckHistory.push({ context, targetCardId });
+    } else if (!deckHistory.length) {
+      deckHistory.push({ context, targetCardId });
+    }
+
     const { block, week, lecture } = context;
     if (activeKeyHandler) {
       document.removeEventListener('keydown', activeKeyHandler);
@@ -655,6 +668,24 @@ export async function renderCards(container, items, onChange) {
     closeBtn.innerHTML = '<span aria-hidden="true">×</span><span class="sr-only">Close deck</span>';
     closeBtn.addEventListener('click', closeDeck);
     viewerContent.appendChild(closeBtn);
+
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'deck-back';
+    backBtn.innerHTML = '<span aria-hidden="true">←</span><span class="deck-back-label">Back</span><span class="sr-only">Return to previous card</span>';
+    backBtn.disabled = deckHistory.length <= 1;
+    backBtn.addEventListener('click', () => {
+      if (deckHistory.length <= 1) {
+        closeDeck();
+        return;
+      }
+      deckHistory.pop();
+      const previous = deckHistory[deckHistory.length - 1];
+      if (previous) {
+        openDeck(previous.context, previous.targetCardId, { pushHistory: false });
+      }
+    });
+    viewerContent.appendChild(backBtn);
 
     const summary = document.createElement('div');
     summary.className = 'deck-card-summary';
@@ -916,7 +947,7 @@ export async function renderCards(container, items, onChange) {
 
     tile.appendChild(info);
 
-    const open = () => openDeck({ block, week, lecture });
+    const open = () => openDeck({ block, week, lecture }, null, { replaceHistory: true });
     tile.addEventListener('click', open);
     tile.addEventListener('keydown', evt => {
       if (evt.key === 'Enter' || evt.key === ' ') {

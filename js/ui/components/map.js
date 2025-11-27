@@ -373,6 +373,9 @@ const mapState = {
   viewMemoryDirty: false
 };
 
+let pendingPointerMove = null;
+let pointerMoveScheduled = false;
+
 function normalizeMapTab(tab = {}) {
   const filter = tab.filter && typeof tab.filter === 'object' ? tab.filter : {};
   const layout = {};
@@ -3908,7 +3911,7 @@ function applyNodeDragFromPointer(pointer, options = {}) {
   return applied;
 }
 
-function handlePointerMove(e) {
+function handlePointerMoveFrame(e) {
   if (!mapState.svg) return;
 
   const pendingPress = mapState.edgePress;
@@ -4038,6 +4041,25 @@ function handlePointerMove(e) {
     updateAutoPanFromPointer(e.clientX, e.clientY);
     updateSelectionDragPosition(e.clientX, e.clientY);
   }
+}
+
+function handlePointerMove(e) {
+  if (!mapState.svg) return;
+  pendingPointerMove = {
+    clientX: e.clientX,
+    clientY: e.clientY,
+    pointerId: e.pointerId,
+    preventDefault: typeof e.preventDefault === 'function' ? () => e.preventDefault() : undefined
+  };
+  if (pointerMoveScheduled) return;
+  pointerMoveScheduled = true;
+  requestAnimationFrame(() => {
+    pointerMoveScheduled = false;
+    if (!pendingPointerMove) return;
+    const next = pendingPointerMove;
+    pendingPointerMove = null;
+    handlePointerMoveFrame(next);
+  });
 }
 
 async function handlePointerUp(e) {
