@@ -8,7 +8,7 @@ import {
   importLectureTransfer
 } from '../../storage/transfers.js';
 import { confirmModal } from './confirm.js';
-import { debounce, findActiveBlockId } from '../../utils.js';
+import { debounce, findActiveBlockId, resolveLatestBlockId } from '../../utils.js';
 import {
   DEFAULT_PASS_PLAN,
   clonePassPlan,
@@ -1326,8 +1326,10 @@ function renderLectureTable(
   });
 
   const activeBlockId = findActiveBlockId(blocks);
+  const latestBlockId = resolveLatestBlockId(blocks);
   const defaultBlockId = (() => {
     if (blockFilter) return blockFilter;
+    if (latestBlockId) return latestBlockId;
     if (activeBlockId) return activeBlockId;
     const firstWithId = sortedGroups.find(group => {
       const id = String(group.blockId ?? '');

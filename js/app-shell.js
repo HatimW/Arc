@@ -34,6 +34,10 @@ export function createAppShell({
   }
 
   async function renderApp() {
+    if (typeof document !== 'undefined') {
+      document.body.classList.remove('is-deck-open');
+      document.body.classList.remove('is-occlusion-workspace-open');
+    }
     const root = document.getElementById('app');
     const activeEl = document.activeElement;
     const shouldRestoreSearch = activeEl && activeEl.dataset && activeEl.dataset.role === 'global-search';
@@ -109,11 +113,8 @@ export function createAppShell({
     search.spellcheck = false;
     search.className = 'search-input';
     search.dataset.role = 'global-search';
-    const scheduleMicrotask = typeof queueMicrotask === 'function'
-      ? queueMicrotask
-      : (cb => Promise.resolve().then(cb));
     let pendingQuery = search.value;
-    let queryUpdateScheduled = false;
+    let queryUpdateTimer = 0;
     const commitQuery = value => {
       const next = typeof value === 'string' ? value : '';
       if (setQuery(next)) {
@@ -122,19 +123,23 @@ export function createAppShell({
     };
     const scheduleQueryUpdate = value => {
       pendingQuery = typeof value === 'string' ? value : '';
-      if (queryUpdateScheduled) return;
-      queryUpdateScheduled = true;
-      scheduleMicrotask(() => {
-        queryUpdateScheduled = false;
+      if (queryUpdateTimer) {
+        clearTimeout(queryUpdateTimer);
+      }
+      queryUpdateTimer = setTimeout(() => {
+        queryUpdateTimer = 0;
         commitQuery(pendingQuery);
-      });
+      }, 120);
     };
     search.addEventListener('input', e => {
       scheduleQueryUpdate(e.target.value);
     });
     search.addEventListener('search', e => {
       pendingQuery = typeof e.target.value === 'string' ? e.target.value : '';
-      queryUpdateScheduled = false;
+      if (queryUpdateTimer) {
+        clearTimeout(queryUpdateTimer);
+        queryUpdateTimer = 0;
+      }
       commitQuery(pendingQuery);
     });
     searchField.appendChild(search);

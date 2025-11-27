@@ -4,6 +4,7 @@ import { openEditor } from './editor.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
 import { reportListComplexity, getPerformanceMode } from '../performance.js';
 import { noteTabRender } from './sections.js';
+import { resolveLatestBlockId } from '../../utils.js';
 
 const UNASSIGNED_BLOCK_KEY = '__unassigned__';
 const MISC_LECTURE_KEY = '__misc__';
@@ -359,6 +360,8 @@ export async function renderCards(container, items, onChange) {
     }
   });
 
+  const latestBlockId = resolveLatestBlockId(blockDefs);
+
   const blockSections = Array.from(blockBuckets.values())
     .map(block => {
       const weeks = Array.from(block.weeks.values())
@@ -415,16 +418,21 @@ export async function renderCards(container, items, onChange) {
   });
 
   if (!hasCollapsedBlockState) {
+    const latestBlockKey = blockSections.find(block => String(block.blockId ?? '') === String(latestBlockId))?.key;
     blockSections.forEach(block => {
-      if (block?.key) collapsedBlockSet.add(block.key);
+      if (!block?.key) return;
+      if (latestBlockKey && block.key === latestBlockKey) return;
+      collapsedBlockSet.add(block.key);
     });
     schedulePersist();
   }
 
   if (!hasCollapsedWeekState) {
+    const latestBlockKey = blockSections.find(block => String(block.blockId ?? '') === String(latestBlockId))?.key;
     blockSections.forEach(block => {
-      block.weeks.forEach(week => {
+      block.weeks.forEach((week, index) => {
         const key = `${block.key}::${week.key}`;
+        if (latestBlockKey && block.key === latestBlockKey && index === 0) return;
         collapsedWeekSet.add(key);
       });
     });
