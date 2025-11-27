@@ -1,7 +1,7 @@
 import { state, setBuilder, setCohort, resetBlockMode, setBlockMode, setSubtab, setFlashSession, setQuizSession, setStudySelectedMode, setTab } from '../../state.js';
 import { listItemsByKind } from '../../storage/storage.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
-import { setToggleState } from '../../utils.js';
+import { resolveLatestBlockId, setToggleState } from '../../utils.js';
 import { hydrateStudySessions, getStudySessionEntry, removeAllStudySessions, removeStudySession } from '../../study/study-sessions.js';
 
 import { collectDueSections } from '../../review/scheduler.js';
@@ -224,6 +224,8 @@ function chooseDefaultBlock(contexts) {
   const selectedBlocks = Array.isArray(state.builder.blocks) ? state.builder.blocks : [];
   const blockMatch = selectedBlocks.find(id => builderBlockOrder.includes(id));
   if (blockMatch) return blockMatch;
+  const latestBlockId = resolveLatestBlockId(contexts.map(ctx => ctx.block));
+  if (latestBlockId && builderBlockOrder.includes(latestBlockId)) return latestBlockId;
   const withLectures = contexts.find(ctx => ctx.block.blockId !== '__unlabeled' && ctx.lectures.length);
   if (withLectures) return withLectures.block.blockId;
   return contexts[0]?.block.blockId || '';

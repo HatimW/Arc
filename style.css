@@ -5368,7 +5368,7 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: clamp(18px, 4vw, 48px);
   background: rgba(2, 6, 18, 0.78);

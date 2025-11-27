@@ -8,6 +8,7 @@ import {
   calculateNextDue
 } from '../../lectures/scheduler.js';
 import { passColorForOrder, setPassColorPalette } from './pass-colors.js';
+import { resolveLatestBlockId } from '../../utils.js';
 
 let loadCatalog = loadBlockCatalog;
 let fetchLectures = listAllLectures;
@@ -191,42 +192,6 @@ function combineShiftValueUnit(value, unitId) {
   }
   const unit = SHIFT_OFFSET_UNITS.find(option => option.id === normalizeShiftUnit(unitId)) || SHIFT_OFFSET_UNITS[2];
   return Math.max(0, Math.round(numeric * unit.minutes));
-}
-
-function resolveLatestBlockId(blocks = []) {
-  if (!Array.isArray(blocks) || !blocks.length) return null;
-  let latestId = null;
-  let latestScore = -Infinity;
-  let fallbackId = null;
-  const total = blocks.length;
-  blocks.forEach((block, index) => {
-    if (!block || block.blockId == null) return;
-    const blockId = String(block.blockId);
-    if (!fallbackId) fallbackId = blockId;
-    const orderScore = Number(block?.order);
-    const createdScore = Number(block?.createdAt);
-    const start = parseBlockDate(block?.startDate);
-    const end = parseBlockDate(block?.endDate);
-    const startScore = start instanceof Date ? start.getTime() : null;
-    const endScore = end instanceof Date ? end.getTime() : null;
-    let score;
-    if (Number.isFinite(orderScore)) {
-      score = orderScore;
-    } else if (Number.isFinite(createdScore)) {
-      score = createdScore;
-    } else if (Number.isFinite(startScore)) {
-      score = startScore;
-    } else if (Number.isFinite(endScore)) {
-      score = endScore;
-    } else {
-      score = total - index;
-    }
-    if (latestId == null || score > latestScore) {
-      latestId = blockId;
-      latestScore = score;
-    }
-  });
-  return latestId ?? fallbackId;
 }
 
 function buildScopeOptions(mode) {

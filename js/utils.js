@@ -196,6 +196,40 @@ export function findActiveBlockId(blocks, now = Date.now()) {
   return first ? String(first.blockId) : '';
 }
 
+export function resolveLatestBlockId(blocks = []) {
+  if (!Array.isArray(blocks) || blocks.length === 0) return null;
+  let latestId = null;
+  let latestScore = -Infinity;
+  let fallbackId = null;
+  const total = blocks.length;
+  blocks.forEach((block, index) => {
+    if (!block || block.blockId == null) return;
+    const blockId = String(block.blockId);
+    if (!fallbackId) fallbackId = blockId;
+    const orderScore = Number(block?.order);
+    const createdScore = Number(block?.createdAt);
+    const startScore = parseDateValue(block?.startDate);
+    const endScore = parseDateValue(block?.endDate);
+    let score;
+    if (Number.isFinite(orderScore)) {
+      score = orderScore;
+    } else if (Number.isFinite(createdScore)) {
+      score = createdScore;
+    } else if (Number.isFinite(startScore)) {
+      score = startScore;
+    } else if (Number.isFinite(endScore)) {
+      score = endScore;
+    } else {
+      score = total - index;
+    }
+    if (latestId == null || score > latestScore) {
+      latestId = blockId;
+      latestScore = score;
+    }
+  });
+  return latestId ?? fallbackId;
+}
+
 export function setToggleState(element, active, className = 'active') {
   if (!element) return;
   const isActive = Boolean(active);

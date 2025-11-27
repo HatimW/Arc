@@ -1,7 +1,7 @@
 import { upsertItem, deleteItem } from '../../storage/storage.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
 import { state, setEntryLayout, setFilters } from '../../state.js';
-import { setToggleState } from '../../utils.js';
+import { resolveLatestBlockId, setToggleState } from '../../utils.js';
 import { openEditor } from './editor.js';
 import { confirmModal } from './confirm.js';
 import { openLinker } from './linker.js';
@@ -289,6 +289,7 @@ export function createItemCard(item, onChange){
 export async function renderCardList(container, itemSource, kind, onChange){
   container.innerHTML = '';
   const { blocks } = await loadBlockCatalog();
+  const latestBlockId = resolveLatestBlockId(blocks);
   const blockTitle = id => blocks.find(b => b.blockId === id)?.title || id;
   const orderMap = new Map(blocks.map((b,i)=>[b.blockId,i]));
   const blockWeekMap = new Map();
@@ -713,7 +714,12 @@ export async function renderCardList(container, itemSource, kind, onChange){
   }
 
   if (blockKeys.length) {
-    const initial = activeBlockKey && blockKeys.includes(activeBlockKey) ? activeBlockKey : blockKeys[0];
+    const preferred = latestBlockId && blockKeys.includes(String(latestBlockId))
+      ? String(latestBlockId)
+      : null;
+    const initial = preferred
+      || (activeBlockKey && blockKeys.includes(activeBlockKey) ? activeBlockKey : null)
+      || blockKeys[0];
     applyBlockActivation(initial);
   } else {
     applyBlockActivation(null);
