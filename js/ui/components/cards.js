@@ -9,6 +9,16 @@ import { resolveLatestBlockId } from '../../utils.js';
 const UNASSIGNED_BLOCK_KEY = '__unassigned__';
 const MISC_LECTURE_KEY = '__misc__';
 
+const deps = {
+  loadBlockCatalog
+};
+
+export function __setCardsDeps(overrides = {}) {
+  deps.loadBlockCatalog = typeof overrides.loadBlockCatalog === 'function'
+    ? overrides.loadBlockCatalog
+    : loadBlockCatalog;
+}
+
 const KIND_COLORS = {
   disease: 'var(--pink)',
   drug: 'var(--blue)',
@@ -231,7 +241,15 @@ export async function renderCards(container, items, onChange) {
   const GRID_FRAME_BUDGET = perfMode === 'conservative' ? 9 : perfMode === 'balanced' ? 12 : 14;
   const OBSERVER_ROOT_MARGIN = perfMode === 'conservative' ? '120px 0px' : perfMode === 'balanced' ? '160px 0px' : '200px 0px';
 
-  const { blocks: blockDefs } = await loadBlockCatalog();
+  let blockDefs = [];
+  try {
+    const catalog = await deps.loadBlockCatalog();
+    blockDefs = Array.isArray(catalog?.blocks) ? catalog.blocks : [];
+  } catch (err) {
+    console.warn('[cards] Unable to load block catalog, continuing with card data only', err);
+    blockDefs = [];
+  }
+
   const blockLookup = new Map(blockDefs.map(def => [def.blockId, def]));
   const blockOrder = new Map(blockDefs.map((def, idx) => [def.blockId, idx]));
 
@@ -409,7 +427,7 @@ export async function renderCards(container, items, onChange) {
     .sort((a, b) => (a.order - b.order) || a.title.localeCompare(b.title));
 
   const totalLectures = blockSections.reduce((sum, block) => sum + block.lectureCount, 0);
-  refreshHeroStats({ blocks: blockSections.length, lectures: totalLectures });
+  const heroStats = { blocks: blockSections.length, lectures: totalLectures };
 
   blockSections.forEach(block => {
     block.weeks.forEach(week => {
@@ -679,6 +697,8 @@ export async function renderCards(container, items, onChange) {
   hero.appendChild(heroActions);
 
   shell.appendChild(hero);
+
+  refreshHeroStats(heroStats);
 
   const catalog = document.createElement('div');
   catalog.className = 'card-catalog';
