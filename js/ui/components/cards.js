@@ -201,6 +201,10 @@ export async function renderCards(container, items, onChange) {
   container.style.overscrollBehavior = 'contain';
   container.style.scrollbarGutter = 'stable both-edges';
 
+  const shell = document.createElement('div');
+  shell.className = 'cards-shell';
+  container.appendChild(shell);
+
   const scheduleDomMutation = createMutationScheduler();
   const runMutation = (task, options = {}) => {
     if (typeof task !== 'function') return;
@@ -404,6 +408,9 @@ export async function renderCards(container, items, onChange) {
     .filter(block => block.totalCards > 0)
     .sort((a, b) => (a.order - b.order) || a.title.localeCompare(b.title));
 
+  const totalLectures = blockSections.reduce((sum, block) => sum + block.lectureCount, 0);
+  refreshHeroStats({ blocks: blockSections.length, lectures: totalLectures });
+
   blockSections.forEach(block => {
     block.weeks.forEach(week => {
       week.lectures.forEach(lecture => {
@@ -564,9 +571,118 @@ export async function renderCards(container, items, onChange) {
     startGridRender(grid);
   }
 
+  const blockRefs = [];
+
+  function refreshHeroStats({ blocks = 0, lectures = 0 }) {
+    statBlocksValue.textContent = String(blocks);
+    statLecturesValue.textContent = String(lectures);
+    statCardsValue.textContent = String(sortedItems.length);
+  }
+
+  function expandAllBlocks() {
+    blockRefs.forEach(ref => {
+      ref.populate?.();
+      ref.section.classList.remove('is-collapsed');
+      ref.header.setAttribute('aria-expanded', 'true');
+      setBlockCollapsedState(ref.blockKey, false);
+      ref.ensureVisibleWeekGrids?.();
+      (ref.weeks || []).forEach(week => {
+        week.section.classList.remove('is-collapsed');
+        week.header.setAttribute('aria-expanded', 'true');
+        setWeekCollapsedState(week.stateKey, false);
+        ensureGridRendered(week.grid);
+      });
+    });
+  }
+
+  function collapseAllBlocks() {
+    blockRefs.forEach(ref => {
+      ref.populate?.();
+      ref.section.classList.add('is-collapsed');
+      ref.header.setAttribute('aria-expanded', 'false');
+      setBlockCollapsedState(ref.blockKey, true);
+      (ref.weeks || []).forEach(week => {
+        week.section.classList.add('is-collapsed');
+        week.header.setAttribute('aria-expanded', 'false');
+        setWeekCollapsedState(week.stateKey, true);
+      });
+    });
+  }
+
+  const hero = document.createElement('section');
+  hero.className = 'cards-hero';
+
+  const heroText = document.createElement('div');
+  heroText.className = 'cards-hero__text';
+
+  const heroTitle = document.createElement('h1');
+  heroTitle.className = 'cards-hero__title';
+  heroTitle.textContent = 'Card decks';
+  heroText.appendChild(heroTitle);
+
+  const heroSubtitle = document.createElement('p');
+  heroSubtitle.className = 'cards-hero__subtitle';
+  heroSubtitle.textContent = 'Browse every lecture-aligned deck with smoother navigation, better spacing, and quick controls for expanding everything or focusing on your most recent content.';
+  heroText.appendChild(heroSubtitle);
+
+  hero.appendChild(heroText);
+
+  const heroMeta = document.createElement('div');
+  heroMeta.className = 'cards-hero__meta';
+
+  const statBlocks = document.createElement('div');
+  statBlocks.className = 'cards-hero__stat';
+  const statBlocksLabel = document.createElement('span');
+  statBlocksLabel.textContent = 'Blocks';
+  const statBlocksValue = document.createElement('strong');
+  statBlocksValue.textContent = '0';
+  statBlocks.append(statBlocksLabel, statBlocksValue);
+  heroMeta.appendChild(statBlocks);
+
+  const statLectures = document.createElement('div');
+  statLectures.className = 'cards-hero__stat';
+  const statLecturesLabel = document.createElement('span');
+  statLecturesLabel.textContent = 'Lectures';
+  const statLecturesValue = document.createElement('strong');
+  statLecturesValue.textContent = '0';
+  statLectures.append(statLecturesLabel, statLecturesValue);
+  heroMeta.appendChild(statLectures);
+
+  const statCards = document.createElement('div');
+  statCards.className = 'cards-hero__stat';
+  const statCardsLabel = document.createElement('span');
+  statCardsLabel.textContent = 'Cards';
+  const statCardsValue = document.createElement('strong');
+  statCardsValue.textContent = String(sortedItems.length);
+  statCards.append(statCardsLabel, statCardsValue);
+  heroMeta.appendChild(statCards);
+
+  hero.appendChild(heroMeta);
+
+  const heroActions = document.createElement('div');
+  heroActions.className = 'cards-hero__actions';
+
+  const expandAllBtn = document.createElement('button');
+  expandAllBtn.type = 'button';
+  expandAllBtn.className = 'cards-hero__action';
+  expandAllBtn.textContent = 'Expand all sections';
+  expandAllBtn.addEventListener('click', expandAllBlocks);
+  heroActions.appendChild(expandAllBtn);
+
+  const collapseAllBtn = document.createElement('button');
+  collapseAllBtn.type = 'button';
+  collapseAllBtn.className = 'cards-hero__action ghost';
+  collapseAllBtn.textContent = 'Collapse all sections';
+  collapseAllBtn.addEventListener('click', collapseAllBlocks);
+  heroActions.appendChild(collapseAllBtn);
+
+  hero.appendChild(heroActions);
+
+  shell.appendChild(hero);
+
   const catalog = document.createElement('div');
   catalog.className = 'card-catalog';
-  container.appendChild(catalog);
+  shell.appendChild(catalog);
 
   const overlay = document.createElement('div');
   overlay.className = 'deck-overlay';
@@ -1222,13 +1338,21 @@ export async function renderCards(container, items, onChange) {
       section.classList.add('is-collapsed');
     }
 
-    let blockWeekGrids = [];
+    const ref = {
+      blockKey,
+      section,
+      header,
+      populate: populateBody,
+      ensureVisibleWeekGrids,
+      weeks: []
+    };
+    let blockWeekGrids = ref.weeks;
 
     function populateBody() {
       if (body.dataset.populated === 'true') return;
       body.dataset.populated = 'true';
       const frag = document.createDocumentFragment();
-      const grids = [];
+        const grids = [];
 
       block.weeks.forEach(week => {
         const weekSection = document.createElement('div');
@@ -1266,7 +1390,7 @@ export async function renderCards(container, items, onChange) {
           weekSection.classList.add('is-collapsed');
         }
 
-        grids.push({ grid: deckGrid, section: weekSection });
+        grids.push({ grid: deckGrid, section: weekSection, header: weekHeader, stateKey: weekStateKey });
 
         weekSection.appendChild(weekHeader);
         weekSection.appendChild(deckGrid);
@@ -1286,6 +1410,7 @@ export async function renderCards(container, items, onChange) {
       });
 
       blockWeekGrids = grids;
+      ref.weeks = grids;
       body.appendChild(frag);
     }
 
@@ -1313,6 +1438,7 @@ export async function renderCards(container, items, onChange) {
         }
       }, { immediate: true });
     });
+    blockRefs.push(ref);
 
     return section;
   }
