@@ -640,7 +640,7 @@ export async function renderCards(container, items, onChange) {
 
   const heroSubtitle = document.createElement('p');
   heroSubtitle.className = 'cards-hero__subtitle';
-  heroSubtitle.textContent = 'Browse every lecture-aligned deck with smoother navigation, better spacing, and quick controls for expanding everything or focusing on your most recent content.';
+  heroSubtitle.textContent = 'Browse lecture-aligned decks with smoother spacing and quick controls for expanding everything or focusing on your most recent content.';
   heroText.appendChild(heroSubtitle);
 
   hero.appendChild(heroText);
@@ -648,31 +648,24 @@ export async function renderCards(container, items, onChange) {
   const heroMeta = document.createElement('div');
   heroMeta.className = 'cards-hero__meta';
 
-  const statBlocks = document.createElement('div');
-  statBlocks.className = 'cards-hero__stat';
-  const statBlocksLabel = document.createElement('span');
-  statBlocksLabel.textContent = 'Blocks';
-  const statBlocksValue = document.createElement('strong');
-  statBlocksValue.textContent = '0';
-  statBlocks.append(statBlocksLabel, statBlocksValue);
+  const createStatPill = (label, initialValue = '0') => {
+    const pill = document.createElement('span');
+    pill.className = 'cards-hero__pill';
+    const labelEl = document.createElement('small');
+    labelEl.textContent = label;
+    const valueEl = document.createElement('strong');
+    valueEl.textContent = initialValue;
+    pill.append(labelEl, valueEl);
+    return { pill, valueEl };
+  };
+
+  const { pill: statBlocks, valueEl: statBlocksValue } = createStatPill('Blocks');
   heroMeta.appendChild(statBlocks);
 
-  const statLectures = document.createElement('div');
-  statLectures.className = 'cards-hero__stat';
-  const statLecturesLabel = document.createElement('span');
-  statLecturesLabel.textContent = 'Lectures';
-  const statLecturesValue = document.createElement('strong');
-  statLecturesValue.textContent = '0';
-  statLectures.append(statLecturesLabel, statLecturesValue);
+  const { pill: statLectures, valueEl: statLecturesValue } = createStatPill('Lectures');
   heroMeta.appendChild(statLectures);
 
-  const statCards = document.createElement('div');
-  statCards.className = 'cards-hero__stat';
-  const statCardsLabel = document.createElement('span');
-  statCardsLabel.textContent = 'Cards';
-  const statCardsValue = document.createElement('strong');
-  statCardsValue.textContent = String(sortedItems.length);
-  statCards.append(statCardsLabel, statCardsValue);
+  const { pill: statCards, valueEl: statCardsValue } = createStatPill('Cards', String(sortedItems.length));
   heroMeta.appendChild(statCards);
 
   hero.appendChild(heroMeta);

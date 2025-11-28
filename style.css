@@ -145,7 +145,7 @@ body.is-occlusion-workspace-open {
 
 body.is-deck-open main > .tab-content,
 body.is-occlusion-workspace-open main > .tab-content {
-  overflow: hidden;
+  overflow: auto;
 }
 
 body {
@@ -4922,116 +4922,112 @@ body[data-performance-mode='conservative'] .item-card:hover {
 .cards-tab {
   display: flex;
   flex-direction: column;
-  gap: var(--pad-lg);
-  padding: clamp(18px, 3vw, 32px);
-  contain: layout paint;
+  gap: clamp(14px, 2.25vw, 24px);
+  padding: clamp(16px, 2.5vw, 26px);
   min-height: 0;
   flex: 1 1 auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
   overflow-y: auto;
-  background: linear-gradient(180deg, rgba(10, 17, 32, 0.82), rgba(5, 8, 16, 0.92));
+  scroll-padding-top: 14px;
+  background: linear-gradient(180deg, rgba(10, 17, 32, 0.92), rgba(6, 10, 20, 0.94));
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  box-shadow: 0 20px 56px rgba(2, 6, 23, 0.42);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.35);
 }
 
 .cards-shell {
   display: flex;
   flex-direction: column;
-  gap: clamp(16px, 2vw, 28px);
+  gap: clamp(14px, 1.8vw, 24px);
   min-height: 0;
 }
 
 .cards-hero {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: clamp(14px, 2vw, 20px);
-  align-items: start;
-  padding: clamp(18px, 2.5vw, 28px);
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(192, 132, 252, 0.12)), rgba(10, 15, 28, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px clamp(12px, 2vw, 18px);
+  padding: clamp(14px, 2vw, 22px);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(94, 234, 212, 0.08)), rgba(7, 11, 22, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: var(--radius-lg);
-  box-shadow: 0 16px 40px rgba(2, 6, 23, 0.35);
+  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.3);
 }
 
 .cards-hero__text {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .cards-hero__title {
   margin: 0;
-  font-size: clamp(1.35rem, 1vw + 1.2rem, 1.9rem);
+  font-size: clamp(1.25rem, 0.8vw + 1.2rem, 1.7rem);
   letter-spacing: 0.01em;
 }
 
 .cards-hero__subtitle {
   margin: 0;
-  color: rgba(241, 245, 249, 0.75);
-  font-size: 0.98rem;
-  line-height: 1.6;
+  color: rgba(241, 245, 249, 0.7);
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .cards-hero__meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-}
-
-.cards-hero__stat {
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(148, 163, 184, 0.18);
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.cards-hero__stat span {
-  color: var(--text-muted);
-  font-size: 0.85rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.cards-hero__stat strong {
-  font-size: 1.35rem;
-  font-weight: 700;
+.cards-hero__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.22);
   color: var(--text);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.cards-hero__pill small {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
 }
 
 .cards-hero__actions {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  justify-content: flex-end;
+  margin-left: auto;
 }
 
 .cards-hero__action {
   background: rgba(56, 189, 248, 0.16);
-  border: 1px solid rgba(56, 189, 248, 0.3);
+  border: 1px solid rgba(56, 189, 248, 0.32);
   border-radius: 999px;
   color: var(--text);
-  padding: 10px 16px;
+  padding: 8px 14px;
   font-weight: 600;
-  box-shadow: 0 10px 24px rgba(2, 6, 23, 0.35);
+  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.32);
 }
 
 .cards-hero__action.ghost {
-  background: rgba(148, 163, 184, 0.12);
-  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.2);
   color: rgba(241, 245, 249, 0.9);
 }
 
 .cards-hero__action:hover {
   transform: translateY(-1px);
-  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.4);
+  box-shadow: 0 12px 28px rgba(2, 6, 23, 0.36);
 }
-
 .card-block-section {
   content-visibility: visible;
   contain-intrinsic-size: auto;
@@ -5041,7 +5037,7 @@ body[data-performance-mode='conservative'] .item-card:hover {
   display: flex;
   flex-direction: column;
   gap: clamp(18px, 2vw, 26px);
-  contain: content;
+  overflow: visible;
   min-height: 0;
   flex: 1 1 auto;
 }
@@ -5078,7 +5074,7 @@ body[data-performance-mode='conservative'] .cards-empty {
   --block-accent: rgba(56, 189, 248, 0.55);
   position: relative;
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow: visible;
   background: linear-gradient(160deg, rgba(12, 18, 32, 0.9), rgba(6, 11, 22, 0.82));
   border: 1px solid rgba(148, 163, 184, 0.2);
   box-shadow: 0 18px 44px rgba(2, 6, 23, 0.38);
@@ -5481,6 +5477,7 @@ body[data-performance-mode='conservative'] .card-block-section::before {
   opacity: 0;
   pointer-events: none;
   overflow-y: auto;
+  scroll-padding-top: 22px;
   transition: opacity 0.3s ease;
   box-sizing: border-box;
   scrollbar-gutter: stable both-edges;
