@@ -213,6 +213,10 @@ function ensureScrollPositions(sess) {
 function resolveScrollContainer(root) {
   const hasDocument = typeof document !== 'undefined';
   if (root && typeof root.closest === 'function') {
+    const scopedSession = root.closest('.exam-session');
+    if (scopedSession) return scopedSession;
+  }
+  if (root && typeof root.closest === 'function') {
     const scoped = root.closest('main');
     if (scoped) return scoped;
   }
@@ -1537,6 +1541,32 @@ function optionHtml(question, id) {
   return sanitizeRichText(html);
 }
 
+function makeZoomableImage(img) {
+  if (!img || typeof img.addEventListener !== 'function') return;
+  img.classList.add('zoomable-media');
+  img.addEventListener('dblclick', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    img.classList.toggle('is-expanded');
+  });
+}
+
+function markInlineMedia(container) {
+  if (!container || typeof container.querySelectorAll !== 'function') return;
+  const selectors = [
+    '.exam-media img',
+    '.exam-stem img',
+    '.exam-option .option-text img',
+    '.exam-explanation-body img',
+    '.exam-answer-html img'
+  ];
+  selectors.forEach(selector => {
+    container.querySelectorAll(selector).forEach(el => {
+      makeZoomableImage(el);
+    });
+  });
+}
+
 function mediaElement(source) {
   if (!source) return null;
   const wrap = document.createElement('div');
@@ -1556,6 +1586,7 @@ function mediaElement(source) {
     const img = document.createElement('img');
     img.src = source;
     img.alt = 'Question media';
+    makeZoomableImage(img);
     wrap.appendChild(img);
   }
   return wrap;
@@ -2161,6 +2192,8 @@ export function renderExamRunner(root, render) {
       main.appendChild(explain);
     }
   }
+
+  markInlineMedia(main);
 
   const paletteSummary = renderQuestionMap(sidebar, sess, render);
   renderSidebarMeta(sidebar, sess, paletteSummary);

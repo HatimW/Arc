@@ -8445,6 +8445,23 @@ body.map-toolbox-dragging {
   height: auto;
 }
 
+.zoomable-media {
+  max-width: min(100%, 640px);
+  max-height: 340px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  cursor: zoom-in;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.zoomable-media.is-expanded {
+  max-width: min(100%, 960px);
+  max-height: none;
+  cursor: zoom-out;
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.55);
+}
+
 .exam-answer-summary-list {
   display: flex;
   flex-direction: column;
@@ -8454,6 +8471,11 @@ body.map-toolbox-dragging {
 .exam-answer-row strong {
   display: block;
   margin-bottom: 4px;
+}
+
+.exam-answer-html {
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .exam-answer-html audio {
@@ -8487,6 +8509,7 @@ body.map-toolbox-dragging {
   background: rgba(12, 18, 32, 0.78);
   box-shadow: 0 22px 44px rgba(2, 6, 23, 0.5);
   min-height: 0;
+  min-width: 0;
   overflow: visible;
   scrollbar-gutter: stable both-edges;
 }
@@ -8541,6 +8564,8 @@ body.map-toolbox-dragging {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .exam-stem-empty {
@@ -8608,6 +8633,8 @@ body.map-toolbox-dragging {
 .exam-option .option-text {
   flex: 1;
   display: block;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .exam-option .option-text img,
@@ -8741,6 +8768,8 @@ body.map-toolbox-dragging {
   flex-direction: column;
   gap: 0.75rem;
   line-height: 1.6;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .exam-explanation-body img,
@@ -8758,6 +8787,12 @@ body.map-toolbox-dragging {
   flex-wrap: wrap;
   gap: var(--pad);
   justify-content: space-between;
+  position: sticky;
+  bottom: 0;
+  padding: var(--pad);
+  background: linear-gradient(180deg, rgba(12, 18, 32, 0) 0%, rgba(12, 18, 32, 0.82) 22%);
+  backdrop-filter: blur(8px);
+  border-radius: var(--radius-lg);
 }
 
 .exam-sidebar-info {
