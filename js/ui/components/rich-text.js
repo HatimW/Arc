@@ -471,7 +471,7 @@ function sanitizeNode(node){
       }
     }
     if (name === 'src' && ['img','video','audio','source','iframe'].includes(tag)) {
-      const allowData = tag === 'img';
+      const allowData = tag === 'img' || tag === 'video' || tag === 'audio' || tag === 'source';
       const requireHttps = tag === 'iframe';
       if (!isSafeUrl(attr.value || '', { allowData, requireHttps })) {
         node.removeAttribute(attr.name);

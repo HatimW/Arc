@@ -3,6 +3,7 @@ import { state, setExamSession, setExamAttemptExpanded, setExamLayout } from '..
 import { uid, setToggleState, deepClone } from '../../utils.js';
 import { confirmModal } from './confirm.js';
 import { createRichTextEditor, sanitizeHtml, htmlToPlainText, isEmptyHtml } from './rich-text.js';
+import { readFileAsDataUrl } from './media-upload.js';
 import { createFloatingWindow } from './window-manager.js';
 
 const DEFAULT_SECONDS = 60;
@@ -1527,6 +1528,11 @@ function optionText(question, id) {
   return htmlToPlainText(html).trim();
 }
 
+function optionHtml(question, id) {
+  const html = question.options.find(opt => opt.id === id)?.text || '';
+  return sanitizeRichText(html);
+}
+
 function mediaElement(source) {
   if (!source) return null;
   const wrap = document.createElement('div');
@@ -1578,6 +1584,70 @@ function evaluateQuestionAnswer(question, answer) {
     isValid,
     isCorrect
   };
+}
+
+function incorrectQuestionIndices(exam, result) {
+  if (!exam || !result) return [];
+  const questions = Array.isArray(exam.questions) ? exam.questions : [];
+  return questions.reduce((list, question, idx) => {
+    const ans = result.answers?.[idx];
+    if (ans == null || ans !== question?.answer) {
+      list.push(idx);
+    }
+    return list;
+  }, []);
+}
+
+function subsetExamForIndices(exam, result, indices) {
+  const valid = Array.isArray(indices)
+    ? indices.filter(idx => Number.isInteger(idx) && idx >= 0 && idx < (exam?.questions?.length || 0))
+    : [];
+  if (!exam || !valid.length) return null;
+
+  const baseQuestions = Array.isArray(exam.questions) ? exam.questions : [];
+  const nextExam = clone(exam);
+  nextExam.questions = valid.map(idx => ({ ...clone(baseQuestions[idx]), originalIndex: idx }));
+
+  if (!result) return { exam: nextExam };
+
+  const nextResult = clone(result) || {};
+  nextResult.answers = {};
+  nextResult.flagged = [];
+  nextResult.questionStats = [];
+
+  let answered = 0;
+  let correct = 0;
+
+  valid.forEach((origIdx, newIdx) => {
+    const answer = result.answers?.[origIdx];
+    if (answer != null) {
+      nextResult.answers[newIdx] = answer;
+      answered += 1;
+      if (answer === baseQuestions[origIdx]?.answer) {
+        correct += 1;
+      }
+    }
+
+    if (Array.isArray(result.flagged) && result.flagged.includes(origIdx)) {
+      nextResult.flagged.push(newIdx);
+    }
+
+    const stat = Array.isArray(result.questionStats) ? clone(result.questionStats[origIdx]) : null;
+    nextResult.questionStats[newIdx] = stat || {
+      timeMs: 0,
+      changes: [],
+      enteredAt: null,
+      initialAnswer: null,
+      initialAnswerAt: null
+    };
+  });
+
+  nextResult.total = nextExam.questions.length;
+  nextResult.correct = correct;
+  nextResult.answered = answered;
+  nextResult.changeSummary = summarizeAnswerChanges(nextResult.questionStats, nextExam, nextResult.answers);
+
+  return { exam: nextExam, result: nextResult };
 }
 
 function renderQuestionMap(sidebar, sess, render) {
@@ -1979,9 +2049,28 @@ export function renderExamRunner(root, render) {
 
     const answerSummary = document.createElement('div');
     answerSummary.className = 'exam-answer-summary';
-    const your = optionText(question, selected);
-    const correct = optionText(question, question.answer);
-    answerSummary.innerHTML = `<div><strong>Your answer:</strong> ${your || '—'}</div><div><strong>Correct answer:</strong> ${correct || '—'}</div>`;
+
+    const answerSummaryList = document.createElement('div');
+    answerSummaryList.className = 'exam-answer-summary-list';
+
+    const renderAnswerRow = (labelText, html) => {
+      const row = document.createElement('div');
+      row.className = 'exam-answer-row';
+      const label = document.createElement('strong');
+      label.textContent = `${labelText}:`;
+      row.appendChild(label);
+      const body = document.createElement('div');
+      body.className = 'exam-answer-html';
+      const safeHtml = html && !isEmptyHtml(html) ? html : '<em>—</em>';
+      body.innerHTML = safeHtml;
+      row.appendChild(body);
+      return row;
+    };
+
+    answerSummaryList.appendChild(renderAnswerRow('Your answer', optionHtml(question, selected)));
+    answerSummaryList.appendChild(renderAnswerRow('Correct answer', optionHtml(question, question.answer)));
+
+    answerSummary.appendChild(answerSummaryList);
     main.appendChild(answerSummary);
 
     if (sess.mode === 'review') {
@@ -2344,6 +2433,8 @@ function renderSummary(root, render, sess) {
   const actions = document.createElement('div');
   actions.className = 'exam-summary-actions';
 
+  const wrongIndices = incorrectQuestionIndices(sess.exam, sess.latestResult);
+
   const reviewBtn = document.createElement('button');
   reviewBtn.className = 'btn';
   reviewBtn.textContent = 'Review Attempt';
@@ -2359,6 +2450,24 @@ function renderSummary(root, render, sess) {
   });
   actions.appendChild(reviewBtn);
 
+  const reviewWrongBtn = document.createElement('button');
+  reviewWrongBtn.className = 'btn secondary';
+  reviewWrongBtn.textContent = 'Review Incorrect';
+  reviewWrongBtn.disabled = wrongIndices.length === 0;
+  reviewWrongBtn.addEventListener('click', () => {
+    const subset = subsetExamForIndices(sess.exam, sess.latestResult, wrongIndices);
+    if (!subset) return;
+    setExamSession({
+      mode: 'review',
+      exam: subset.exam,
+      result: subset.result,
+      idx: 0,
+      fromSummary: clone(sess.latestResult)
+    });
+    render();
+  });
+  actions.appendChild(reviewWrongBtn);
+
   const retake = document.createElement('button');
   retake.className = 'btn secondary';
   retake.textContent = 'Retake Exam';
@@ -2367,6 +2476,18 @@ function renderSummary(root, render, sess) {
     render();
   });
   actions.appendChild(retake);
+
+  const retakeWrong = document.createElement('button');
+  retakeWrong.className = 'btn secondary';
+  retakeWrong.textContent = 'Retake Incorrect';
+  retakeWrong.disabled = wrongIndices.length === 0;
+  retakeWrong.addEventListener('click', () => {
+    const subset = subsetExamForIndices(sess.exam, null, wrongIndices);
+    if (!subset) return;
+    setExamSession(createTakingSession(subset.exam));
+    render();
+  });
+  actions.appendChild(retakeWrong);
 
   const exit = document.createElement('button');
   exit.className = 'btn';
@@ -2644,6 +2765,7 @@ function openExamEditor(existing, render) {
         updatePreview();
         markDirty();
       });
+      mediaInput.addEventListener('paste', event => { void handleMediaPaste(event); });
       mediaField.appendChild(mediaInput);
 
       const mediaUpload = document.createElement('input');
@@ -2681,6 +2803,28 @@ function openExamEditor(existing, render) {
 
       const preview = document.createElement('div');
       preview.className = 'exam-media-preview';
+
+      async function handleMediaPaste(event) {
+        if (!event?.clipboardData) return;
+        const files = Array.from(event.clipboardData.files || []);
+        const file = files.find(f => f && typeof f.type === 'string' && (
+          f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/')
+        ));
+        if (!file) return;
+        event.preventDefault();
+        try {
+          const dataUrl = await readFileAsDataUrl(file);
+          if (typeof dataUrl === 'string' && dataUrl) {
+            question.media = dataUrl;
+            mediaInput.value = question.media;
+            updatePreview();
+            markDirty();
+          }
+        } catch (err) {
+          console.warn('Failed to read pasted media', err);
+        }
+      }
+
       function updatePreview() {
         preview.innerHTML = '';
         const el = mediaElement(question.media);

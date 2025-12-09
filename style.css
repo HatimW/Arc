@@ -8426,18 +8426,48 @@ body.map-toolbox-dragging {
   width: 100%;
 }
 
+.exam-stem img,
+.exam-option .option-text img,
+.exam-explanation-body img,
+.exam-answer-html img,
+.exam-stem video,
+.exam-option .option-text video,
+.exam-explanation-body video,
+.exam-answer-html video {
+  max-width: 100%;
+  height: auto;
+}
+
+.exam-answer-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad-sm);
+}
+
+.exam-answer-row strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.exam-answer-html audio {
+  width: 100%;
+}
+
 .exam-session {
   display: flex;
   flex-direction: column;
   gap: var(--pad-lg);
   padding: var(--pad-lg);
+  min-height: 100vh;
+  scrollbar-gutter: stable both-edges;
 }
 
 .exam-runner {
   display: grid;
   gap: var(--pad-lg);
   grid-template-columns: minmax(0, 1fr) 320px;
-  align-items: flex-start;
+  align-items: stretch;
+  min-height: calc(100vh - 240px);
 }
 
 .exam-main {
@@ -8449,6 +8479,10 @@ body.map-toolbox-dragging {
   border: 1px solid rgba(148, 163, 184, 0.22);
   background: rgba(12, 18, 32, 0.78);
   box-shadow: 0 22px 44px rgba(2, 6, 23, 0.5);
+  max-height: calc(100vh - 260px);
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
 }
 
 .exam-sidebar {
@@ -8997,6 +9031,11 @@ button.question-map__item[data-change-direction="returned"] {
 
   .exam-sidebar {
     max-height: none;
+  }
+
+  .exam-main {
+    max-height: none;
+    overflow: visible;
   }
 }
 
