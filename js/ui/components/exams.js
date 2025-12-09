@@ -981,7 +981,7 @@ export async function renderExams(root, render) {
 
   controls.appendChild(actions);
 
-  const layout = state.examLayout || { mode: 'grid', detailsVisible: true };
+  const layout = state.examLayout || { mode: 'grid', detailsVisible: false };
   const viewMode = layout.mode === 'row' ? 'row' : 'grid';
   const detailsVisible = layout.detailsVisible !== false;
 
@@ -1108,7 +1108,11 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
   summaryButton.className = 'exam-card-summary';
   summaryButton.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
   summaryButton.addEventListener('click', () => {
-    setExamAttemptExpanded(exam.id, !isExpanded);
+    const nextExpanded = !isExpanded;
+    if (nextExpanded) {
+      state.examAttemptExpanded = {};
+    }
+    setExamAttemptExpanded(exam.id, nextExpanded);
     render();
   });
   header.appendChild(summaryButton);

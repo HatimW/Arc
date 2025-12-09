@@ -30,7 +30,7 @@ const DEFAULT_ENTRY_LAYOUT = {
 
 const DEFAULT_EXAM_LAYOUT = {
   mode: 'grid',
-  detailsVisible: true
+  detailsVisible: false
 };
 
 const preferences = loadUIPreferences();
