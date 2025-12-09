@@ -1438,6 +1438,8 @@ function buildAttemptRow(exam, result, render) {
   const row = document.createElement('div');
   row.className = 'exam-attempt-row';
 
+  const wrongIndices = incorrectQuestionIndices(exam, result);
+
   const main = document.createElement('div');
   main.className = 'exam-attempt-main';
   row.appendChild(main);
@@ -1476,6 +1478,18 @@ function buildAttemptRow(exam, result, render) {
     render();
   });
   actions.appendChild(review);
+
+  const retakeIncorrect = document.createElement('button');
+  retakeIncorrect.className = 'btn secondary exam-attempt-retake';
+  retakeIncorrect.textContent = 'Retake Incorrect';
+  retakeIncorrect.disabled = wrongIndices.length === 0;
+  retakeIncorrect.addEventListener('click', () => {
+    const subset = subsetExamForIndices(exam, null, wrongIndices);
+    if (!subset) return;
+    setExamSession(createTakingSession(subset.exam));
+    render();
+  });
+  actions.appendChild(retakeIncorrect);
 
   return row;
 }
