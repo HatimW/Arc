@@ -1556,9 +1556,33 @@ function mediaElement(source) {
     const img = document.createElement('img');
     img.src = source;
     img.alt = 'Question media';
+    img.classList.add('exam-zoomable-media');
     wrap.appendChild(img);
   }
   return wrap;
+}
+
+function toggleExamImageZoom(img) {
+  if (!img) return;
+  const nextState = !img.classList.contains('exam-zoomed');
+  img.classList.toggle('exam-zoomed', nextState);
+  img.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+}
+
+function enhanceExamMedia(container) {
+  if (!container) return;
+  const selectors = [
+    '.exam-media img',
+    '.exam-stem img',
+    '.exam-option .option-text img',
+    '.exam-explanation-body img',
+    '.exam-answer-html img'
+  ];
+  const images = container.querySelectorAll(selectors.join(', '));
+  images.forEach(img => {
+    img.classList.add('exam-zoomable-media');
+    img.addEventListener('dblclick', () => toggleExamImageZoom(img));
+  });
 }
 
 function answerClass(question, selectedId, optionId) {
@@ -1853,12 +1877,11 @@ export function renderExamRunner(root, render) {
   const prevMode = sess.__lastRenderedMode;
   const scroller = resolveScrollContainer(root);
   const prevScrollY = readScrollPosition(scroller);
-  if (scroller) {
-    if (typeof prevIdx === 'number') {
-      storeScrollPosition(sess, prevIdx, prevScrollY);
-    } else if (typeof sess.idx === 'number') {
-      storeScrollPosition(sess, sess.idx, prevScrollY);
-    }
+  const questionChanged = typeof prevIdx === 'number' ? prevIdx !== sess.idx : false;
+  if (scroller && questionChanged && typeof prevIdx === 'number') {
+    storeScrollPosition(sess, prevIdx, prevScrollY);
+  } else if (scroller && !questionChanged && typeof prevIdx !== 'number' && typeof sess.idx === 'number') {
+    storeScrollPosition(sess, sess.idx, prevScrollY);
   }
   root.innerHTML = '';
   root.className = 'exam-session';
@@ -2162,6 +2185,8 @@ export function renderExamRunner(root, render) {
     }
   }
 
+  enhanceExamMedia(main);
+
   const paletteSummary = renderQuestionMap(sidebar, sess, render);
   renderSidebarMeta(sidebar, sess, paletteSummary);
 
@@ -2260,19 +2285,7 @@ export function renderExamRunner(root, render) {
     : cb => setTimeout(cb, 0);
   if (scroller) {
     if (sameQuestion) {
-      const targetY = typeof sess.idx === 'number'
-        ? (getStoredScroll(sess, sess.idx) ?? prevScrollY)
-        : prevScrollY;
-      if (typeof sess.idx === 'number') {
-        storeScrollPosition(sess, sess.idx, targetY);
-
-      }
-      const restore = () => {
-        if (Math.abs(readScrollPosition(scroller) - targetY) > 1) {
-          applyScrollPosition(scroller, targetY);
-        }
-      };
-      queueFrame(restore);
+      storeScrollPosition(sess, sess.idx, prevScrollY);
     } else {
       const storedScroll = getStoredScroll(sess, sess.idx);
       const targetY = storedScroll ?? 0;

@@ -8443,6 +8443,17 @@ body.map-toolbox-dragging {
 .exam-answer-html video {
   max-width: 100%;
   height: auto;
+  max-height: 360px;
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
+.exam-zoomable-media.exam-zoomed {
+  max-height: none;
+  max-width: min(100%, 1200px);
+  width: auto;
+  cursor: zoom-out;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
 }
 
 .exam-answer-summary-list {
@@ -8473,7 +8484,7 @@ body.map-toolbox-dragging {
 .exam-runner {
   display: grid;
   gap: var(--pad-lg);
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   align-items: start;
 }
 
@@ -8487,6 +8498,7 @@ body.map-toolbox-dragging {
   background: rgba(12, 18, 32, 0.78);
   box-shadow: 0 22px 44px rgba(2, 6, 23, 0.5);
   min-height: 0;
+  min-width: 0;
   overflow: visible;
   scrollbar-gutter: stable both-edges;
 }
@@ -8541,6 +8553,7 @@ body.map-toolbox-dragging {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  word-break: break-word;
 }
 
 .exam-stem-empty {
@@ -8758,6 +8771,11 @@ body.map-toolbox-dragging {
   flex-wrap: wrap;
   gap: var(--pad);
   justify-content: space-between;
+  position: sticky;
+  bottom: 0;
+  padding: var(--pad) var(--pad) 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(12, 18, 32, 0.9) 30%);
+  z-index: 5;
 }
 
 .exam-sidebar-info {
