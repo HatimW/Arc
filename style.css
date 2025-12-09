@@ -7509,6 +7509,9 @@ body.map-toolbox-dragging {
   display: flex;
   flex-direction: column;
   gap: var(--pad-lg);
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: calc(var(--pad-lg) * 1.5);
 }
 
 .exam-controls {
@@ -7611,7 +7614,11 @@ body.map-toolbox-dragging {
   display: grid;
   gap: var(--pad-lg);
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  align-items: stretch;
+  align-items: start;
+}
+
+.exam-grid:not(.exam-grid--row) .exam-card--expanded {
+  grid-column: 1 / -1;
 }
 
 .exam-grid.exam-grid--row {
@@ -8460,14 +8467,14 @@ body.map-toolbox-dragging {
   padding: var(--pad-lg);
   min-height: 100vh;
   scrollbar-gutter: stable both-edges;
+  overflow-y: auto;
 }
 
 .exam-runner {
   display: grid;
   gap: var(--pad-lg);
   grid-template-columns: minmax(0, 1fr) 320px;
-  align-items: stretch;
-  min-height: calc(100vh - 240px);
+  align-items: start;
 }
 
 .exam-main {
@@ -8479,9 +8486,8 @@ body.map-toolbox-dragging {
   border: 1px solid rgba(148, 163, 184, 0.22);
   background: rgba(12, 18, 32, 0.78);
   box-shadow: 0 22px 44px rgba(2, 6, 23, 0.5);
-  max-height: calc(100vh - 260px);
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
   scrollbar-gutter: stable both-edges;
 }
 
@@ -8493,8 +8499,7 @@ body.map-toolbox-dragging {
   border-radius: var(--radius-lg);
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(15, 23, 42, 0.72);
-  max-height: calc(100vh - 200px);
-  overflow-y: auto;
+  max-height: none;
 }
 
 .exam-topbar {
