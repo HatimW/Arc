@@ -27,10 +27,17 @@
       "package.json"
     ],
     "mac": {
-      "icon": "assets/icon.icns"
+      "icon": "assets/icon.icns",
+      "identity": "${MAC_IDENTITY}",
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist"
     },
     "win": {
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "certificateFile": "${WIN_CERTIFICATE_FILE}",
+      "certificatePassword": "${WIN_CERTIFICATE_PASSWORD}",
+      "certificateSubjectName": "${WIN_CERTIFICATE_SUBJECT_NAME}"
     },
     "linux": {
       "icon": "assets/icon.png"
