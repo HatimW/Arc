@@ -35,6 +35,7 @@ const timerHandles = new WeakMap();
 let keyHandler = null;
 let keyHandlerSession = null;
 let lastExamStatusMessage = '';
+let examViewScrollTop = 0;
 
 function sanitizeRichText(value) {
   const raw = value == null ? '' : String(value);
@@ -859,6 +860,8 @@ function createTakingSession(exam) {
     startedAt: Date.now(),
     elapsedMs: 0,
     remainingMs: totalMs,
+    baseExam: null,
+    subsetIndices: null,
     questionStats: snapshot.questions.map(() => ({
       timeMs: 0,
       changes: [],
@@ -888,6 +891,8 @@ function hydrateSavedSession(saved, fallbackExam) {
     startedAt: Date.now(),
     elapsedMs: elapsed,
     remainingMs: remaining,
+    baseExam: saved?.baseExam ? ensureExamShape(saved.baseExam).exam : null,
+    subsetIndices: Array.isArray(saved?.subsetIndices) ? [...saved.subsetIndices] : null,
     questionStats: exam.questions.map((_, questionIdx) => {
       const stat = saved?.questionStats?.[questionIdx] || {};
       return {
@@ -902,6 +907,8 @@ function hydrateSavedSession(saved, fallbackExam) {
 }
 
 export async function renderExams(root, render) {
+  const scroller = resolveScrollContainer(root);
+  examViewScrollTop = readScrollPosition(scroller);
   root.innerHTML = '';
   root.className = 'exam-view';
 
@@ -1080,6 +1087,7 @@ export async function renderExams(root, render) {
   });
   grid.appendChild(frag);
   root.appendChild(grid);
+  applyScrollPosition(scroller, examViewScrollTop);
 }
 
 function buildExamCard(exam, render, savedSession, statusEl, layout) {
@@ -1206,7 +1214,8 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
   } else if (last) {
     quickBtn.textContent = 'Review';
     quickBtn.addEventListener('click', () => {
-      setExamSession({ mode: 'review', exam: clone(exam), result: clone(last), idx: 0 });
+      const reviewPacket = resolveReviewPacket(exam, last);
+      setExamSession({ mode: 'review', exam: clone(reviewPacket.exam), result: clone(reviewPacket.result), idx: 0 });
       render();
     });
   } else {
@@ -1349,7 +1358,8 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
 
   if (last) {
     addMenuAction('Review Last Attempt', () => {
-      setExamSession({ mode: 'review', exam: clone(exam), result: clone(last), idx: 0 });
+      const reviewPacket = resolveReviewPacket(exam, last);
+      setExamSession({ mode: 'review', exam: clone(reviewPacket.exam), result: clone(reviewPacket.result), idx: 0 });
       render();
     });
   }
@@ -1474,7 +1484,8 @@ function buildAttemptRow(exam, result, render) {
   review.className = 'btn secondary exam-attempt-review';
   review.textContent = 'Review';
   review.addEventListener('click', () => {
-    setExamSession({ mode: 'review', exam: clone(exam), result: clone(result), idx: 0 });
+    const reviewPacket = resolveReviewPacket(exam, result);
+    setExamSession({ mode: 'review', exam: clone(reviewPacket.exam), result: clone(reviewPacket.result), idx: 0 });
     render();
   });
   actions.appendChild(review);
@@ -1486,7 +1497,10 @@ function buildAttemptRow(exam, result, render) {
   retakeIncorrect.addEventListener('click', () => {
     const subset = subsetExamForIndices(exam, null, wrongIndices);
     if (!subset) return;
-    setExamSession(createTakingSession(subset.exam));
+    const session = createTakingSession(subset.exam);
+    session.baseExam = clone(exam);
+    session.subsetIndices = [...wrongIndices];
+    setExamSession(session);
     render();
   });
   actions.appendChild(retakeIncorrect);
@@ -1631,7 +1645,14 @@ function evaluateQuestionAnswer(question, answer) {
 function incorrectQuestionIndices(exam, result) {
   if (!exam || !result) return [];
   const questions = Array.isArray(exam.questions) ? exam.questions : [];
-  return questions.reduce((list, question, idx) => {
+  const subsetIndices = Array.isArray(result.subsetIndices)
+    ? result.subsetIndices.filter(idx => Number.isInteger(idx) && idx >= 0 && idx < questions.length)
+    : null;
+  const indices = subsetIndices && subsetIndices.length
+    ? subsetIndices
+    : questions.map((_, idx) => idx);
+  return indices.reduce((list, idx) => {
+    const question = questions[idx];
     const ans = result.answers?.[idx];
     if (ans == null || ans !== question?.answer) {
       list.push(idx);
@@ -1690,6 +1711,15 @@ function subsetExamForIndices(exam, result, indices) {
   nextResult.changeSummary = summarizeAnswerChanges(nextResult.questionStats, nextExam, nextResult.answers);
 
   return { exam: nextExam, result: nextResult };
+}
+
+function resolveReviewPacket(exam, result) {
+  if (!exam || !result) return { exam, result };
+  if (Array.isArray(result.subsetIndices) && result.subsetIndices.length) {
+    const subset = subsetExamForIndices(exam, result, result.subsetIndices);
+    if (subset) return subset;
+  }
+  return { exam, result };
 }
 
 function renderQuestionMap(sidebar, sess, render) {
@@ -2300,6 +2330,7 @@ export function renderExamRunner(root, render) {
   if (scroller) {
     if (sameQuestion) {
       storeScrollPosition(sess, sess.idx, prevScrollY);
+      applyScrollPosition(scroller, prevScrollY);
     } else {
       const storedScroll = getStoredScroll(sess, sess.idx);
       const targetY = storedScroll ?? 0;
@@ -2371,6 +2402,8 @@ async function saveProgressAndExit(sess, render) {
     remainingMs: typeof sess.remainingMs === 'number' ? Math.max(0, sess.remainingMs) : null,
     elapsedMs: sess.elapsedMs || 0,
     mode: 'taking',
+    baseExam: sess.baseExam ? clone(sess.baseExam) : null,
+    subsetIndices: Array.isArray(sess.subsetIndices) ? [...sess.subsetIndices] : null,
     questionStats
   };
   await saveExamSessionProgress(payload);
@@ -2396,10 +2429,16 @@ async function finalizeExam(sess, render, options = {}) {
   const answers = {};
   let correct = 0;
   let answeredCount = 0;
+  const indexForQuestion = idx => {
+    const question = sess.exam.questions?.[idx];
+    const originalIndex = Number.isInteger(question?.originalIndex) ? question.originalIndex : null;
+    return originalIndex ?? idx;
+  };
   sess.exam.questions.forEach((question, idx) => {
     const ans = sess.answers[idx];
     if (ans != null) {
-      answers[idx] = ans;
+      const targetIdx = indexForQuestion(idx);
+      answers[targetIdx] = ans;
       answeredCount += 1;
       if (ans === question.answer) correct += 1;
     }
@@ -2407,10 +2446,17 @@ async function finalizeExam(sess, render, options = {}) {
 
   const flagged = Object.entries(sess.flagged || {})
     .filter(([_, val]) => Boolean(val))
-    .map(([idx]) => Number(idx));
+    .map(([idx]) => indexForQuestion(Number(idx)))
+    .filter(Number.isFinite);
 
-  const questionStats = snapshotQuestionStats(sess);
-  const changeSummary = summarizeAnswerChanges(questionStats, sess.exam, answers);
+  const questionStatsSnapshot = snapshotQuestionStats(sess);
+  const mappedQuestionStats = [];
+  questionStatsSnapshot.forEach((stat, idx) => {
+    const targetIdx = indexForQuestion(idx);
+    mappedQuestionStats[targetIdx] = stat;
+  });
+  const examForResult = sess.baseExam || sess.exam;
+  const changeSummary = summarizeAnswerChanges(mappedQuestionStats, examForResult, answers);
 
   const result = {
     id: uid(),
@@ -2421,11 +2467,20 @@ async function finalizeExam(sess, render, options = {}) {
     flagged,
     durationMs: sess.elapsedMs || 0,
     answered: answeredCount,
-    questionStats,
+    questionStats: mappedQuestionStats,
     changeSummary
   };
 
-  const updatedExam = clone(sess.exam);
+  if (sess.baseExam) {
+    const subsetIndices = sess.exam.questions
+      .map((_, idx) => indexForQuestion(idx))
+      .filter(Number.isFinite);
+    if (subsetIndices.length && subsetIndices.length < (sess.baseExam.questions?.length || 0)) {
+      result.subsetIndices = subsetIndices;
+    }
+  }
+
+  const updatedExam = clone(examForResult);
   updatedExam.results = [...(updatedExam.results || []), result];
   updatedExam.updatedAt = Date.now();
   await upsertExam(updatedExam);
@@ -2470,10 +2525,11 @@ function renderSummary(root, render, sess) {
   reviewBtn.className = 'btn';
   reviewBtn.textContent = 'Review Attempt';
   reviewBtn.addEventListener('click', () => {
+    const reviewPacket = resolveReviewPacket(sess.exam, sess.latestResult);
     setExamSession({
       mode: 'review',
-      exam: clone(sess.exam),
-      result: clone(sess.latestResult),
+      exam: clone(reviewPacket.exam),
+      result: clone(reviewPacket.result),
       idx: 0,
       fromSummary: clone(sess.latestResult)
     });
@@ -2515,7 +2571,10 @@ function renderSummary(root, render, sess) {
   retakeWrong.addEventListener('click', () => {
     const subset = subsetExamForIndices(sess.exam, null, wrongIndices);
     if (!subset) return;
-    setExamSession(createTakingSession(subset.exam));
+    const session = createTakingSession(subset.exam);
+    session.baseExam = clone(sess.exam);
+    session.subsetIndices = [...wrongIndices];
+    setExamSession(session);
     render();
   });
   actions.appendChild(retakeWrong);
