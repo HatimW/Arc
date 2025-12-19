@@ -39,6 +39,38 @@ npm run package
 
 The generated installers are written to the `dist/` folder.
 
+### Signing and notarization
+
+Electron-builder reads signing configuration from environment variables to
+produce installers that are trusted by macOS and Windows.
+
+**macOS (notarization + hardened runtime)**
+
+1. Ensure you have a Developer ID certificate installed in the keychain.
+2. Export these environment variables before running `npm run package`:
+
+   ```bash
+   export MAC_IDENTITY="Developer ID Application: Example Corp (TEAMID)"
+   export APPLE_ID="you@example.com"
+   export APPLE_APP_SPECIFIC_PASSWORD="app-specific-password"
+   export APPLE_TEAM_ID="TEAMID"
+   ```
+
+   The macOS build uses `entitlements.mac.plist` and the hardened runtime to
+   satisfy notarization requirements.
+
+**Windows (Authenticode signing)**
+
+Provide either a certificate file + password or a subject name available in the
+Windows certificate store, then run `npm run package`.
+
+```bash
+export WIN_CERTIFICATE_FILE="C:\\path\\to\\codesign.p12"
+export WIN_CERTIFICATE_PASSWORD="p12-password"
+# or
+export WIN_CERTIFICATE_SUBJECT_NAME="Example Corp"
+```
+
 ## Browser usage
 
 You can still use the app by opening `index.html` directly in a modern
