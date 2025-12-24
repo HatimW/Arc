@@ -42,30 +42,11 @@ export function createAppShell({
 
   function ensureShell() {
     if (shell) return shell;
-    ensureShell();
-    tabButtons.forEach((btn, tab) => {
-      btn.classList.toggle('active', state.tab === tab);
-    });
-    if (settingsBtn) {
-      settingsBtn.classList.toggle('active', state.tab === 'Settings');
+    const root = document.getElementById('app');
+    if (!root) {
+      throw new Error('Missing app root');
     }
-    if (searchInput && document.activeElement !== searchInput && searchInput.value !== state.query) {
-      searchInput.value = state.query;
-    }
-
-    if (shouldRestoreSearch && searchInput) {
-      requestAnimationFrame(() => {
-        searchInput.focus();
-        if (selectionStart !== null && selectionEnd !== null && searchInput.setSelectionRange) {
-          searchInput.setSelectionRange(selectionStart, selectionEnd);
-        } else {
-          const len = searchInput.value.length;
-          if (searchInput.setSelectionRange) searchInput.setSelectionRange(len, len);
-        }
-      });
-    }
-
-    main.innerHTML = '';
+    root.innerHTML = '';
 
     const header = document.createElement('header');
     header.className = 'header';
