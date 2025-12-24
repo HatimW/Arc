@@ -17,6 +17,7 @@
     "files": [
       "index.html",
       "bundle.js",
+      "js/**/*",
       "style.css",
       "assets/**/*",
       "electron-main.js",
@@ -30,11 +31,17 @@
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist"
     },
+    "dmg": {
+      "writeUpdateInfo": false
+    },
     "win": {
       "icon": "assets/icon.ico",
       "certificateFile": "${WIN_CERTIFICATE_FILE}",
       "certificatePassword": "${WIN_CERTIFICATE_PASSWORD}",
       "certificateSubjectName": "${WIN_CERTIFICATE_SUBJECT_NAME}"
+    },
+    "nsis": {
+      "differentialPackage": false
     },
     "linux": {
       "icon": "assets/icon.png"
