@@ -1,0 +1,7 @@
+{
+  "name": "boolean",
+  "version": "3.2.0",
+  "description": "Local replacement for boolean to avoid deprecated dependency warnings.",
+  "main": "index.js",
+  "license": "MIT"
+}
