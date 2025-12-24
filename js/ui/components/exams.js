@@ -1105,9 +1105,8 @@ export async function renderExams(root, render) {
 
 function buildExamCard(exam, render, savedSession, statusEl, layout) {
   const layoutMode = layout?.mode === 'row' ? 'row' : 'grid';
-  const defaultExpanded = layout?.detailsVisible !== false;
   const expandedState = state.examAttemptExpanded[exam.id];
-  const isExpanded = expandedState != null ? expandedState : defaultExpanded;
+  const isExpanded = expandedState === true;
   const last = latestResult(exam);
   const best = bestResult(exam);
 
@@ -1124,23 +1123,13 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
   header.className = 'exam-card-header';
   card.appendChild(header);
 
-  const summaryButton = document.createElement('button');
-  summaryButton.type = 'button';
-  summaryButton.className = 'exam-card-summary';
-  summaryButton.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
-  summaryButton.addEventListener('click', () => {
-    const nextExpanded = !isExpanded;
-    if (nextExpanded) {
-      state.examAttemptExpanded = {};
-    }
-    setExamAttemptExpanded(exam.id, nextExpanded);
-    render();
-  });
-  header.appendChild(summaryButton);
+  const summary = document.createElement('div');
+  summary.className = 'exam-card-summary';
+  header.appendChild(summary);
 
   const summaryContent = document.createElement('div');
   summaryContent.className = 'exam-card-summary-content';
-  summaryButton.appendChild(summaryContent);
+  summary.appendChild(summaryContent);
 
   const titleGroup = document.createElement('div');
   titleGroup.className = 'exam-card-title-group';
@@ -1198,9 +1187,21 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     glance.appendChild(progressChip);
   }
 
-  const caret = document.createElement('span');
+  const caret = document.createElement('button');
+  caret.type = 'button';
   caret.className = 'exam-card-caret';
-  summaryButton.appendChild(caret);
+  caret.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+  caret.setAttribute('aria-label', isExpanded ? 'Collapse exam details' : 'Expand exam details');
+  caret.addEventListener('click', event => {
+    event.stopPropagation();
+    const nextExpanded = !isExpanded;
+    if (nextExpanded) {
+      state.examAttemptExpanded = {};
+    }
+    setExamAttemptExpanded(exam.id, nextExpanded);
+    render();
+  });
+  summary.appendChild(caret);
 
   const quickAction = document.createElement('div');
   quickAction.className = 'exam-card-cta';
@@ -1303,8 +1304,6 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     if (menuOpen) return;
     menuOpen = true;
     menuWrap.classList.add('exam-card-menu--open');
-    const panelHeight = menuPanel.scrollHeight || menuPanel.offsetHeight || 0;
-    menuWrap.style.setProperty('--menu-panel-gap', `${Math.round(panelHeight + 24)}px`);
     menuToggle.setAttribute('aria-expanded', 'true');
     menuPanel.setAttribute('aria-hidden', 'false');
     document.addEventListener('click', handleOutside, true);
@@ -1316,7 +1315,6 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     if (!menuOpen) return;
     menuOpen = false;
     menuWrap.classList.remove('exam-card-menu--open');
-    menuWrap.style.setProperty('--menu-panel-gap', '0px');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuPanel.setAttribute('aria-hidden', 'true');
     document.removeEventListener('click', handleOutside, true);
@@ -2595,7 +2593,7 @@ function renderSummary(root, render, sess) {
   actions.appendChild(reviewBtn);
 
   const reviewWrongBtn = document.createElement('button');
-  reviewWrongBtn.className = 'btn secondary';
+  reviewWrongBtn.className = 'btn secondary exam-action-incorrect';
   reviewWrongBtn.textContent = 'Review Incorrect';
   reviewWrongBtn.disabled = wrongIndices.length === 0;
   reviewWrongBtn.addEventListener('click', () => {
