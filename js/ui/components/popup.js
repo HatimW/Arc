@@ -83,7 +83,7 @@ function normalizeHex(value) {
 }
 
 export function showPopup(item, options = {}) {
-  const { onEdit, onColorChange, onLink, onGravityChange } = options;
+  const { onEdit, onColorChange, onLink } = options;
   const titleText = item?.name || item?.concept || 'Item';
   const accent = resolveAccentColor(item);
   const win = createFloatingWindow({ title: titleText, width: 560 });
@@ -149,54 +149,6 @@ export function showPopup(item, options = {}) {
         updateAccentPreview(colorInput.value, true);
       }
     });
-  }
-
-  if (typeof onGravityChange === 'function') {
-    const gravityBox = document.createElement('div');
-    gravityBox.className = 'popup-gravity';
-
-    const gravityLabel = document.createElement('label');
-    gravityLabel.className = 'popup-gravity-label';
-    gravityLabel.textContent = 'Simulated link boost';
-
-    const gravityInput = document.createElement('input');
-    gravityInput.type = 'number';
-    gravityInput.min = '0';
-    gravityInput.step = '1';
-    gravityInput.className = 'input popup-gravity-input';
-    const initialBoost = typeof item.mapGravityBoost === 'number' ? item.mapGravityBoost : 0;
-    let currentBoost = initialBoost;
-    gravityInput.value = String(initialBoost);
-    gravityLabel.appendChild(gravityInput);
-    gravityBox.appendChild(gravityLabel);
-
-    const gravityHint = document.createElement('p');
-    gravityHint.className = 'popup-gravity-hint';
-    gravityHint.textContent = 'Adds to link count when organizing maps.';
-    gravityBox.appendChild(gravityHint);
-
-    const applyBoost = async () => {
-      if (typeof onGravityChange !== 'function') return;
-      const raw = gravityInput.value;
-      try {
-        const normalized = await onGravityChange(raw);
-        const value = Number(normalized);
-        if (Number.isFinite(value)) {
-          currentBoost = value;
-          gravityInput.value = String(value);
-        } else {
-          gravityInput.value = String(currentBoost);
-        }
-      } catch (err) {
-        console.error(err);
-        gravityInput.value = String(currentBoost);
-      }
-    };
-
-    gravityInput.addEventListener('change', applyBoost);
-    gravityInput.addEventListener('blur', applyBoost);
-
-    card.appendChild(gravityBox);
   }
 
   const defs = fieldDefs[item.kind] || [];

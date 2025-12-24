@@ -16,10 +16,9 @@ export function createAppShell({
   renderBlockBoard,
   renderExams,
   renderExamRunner,
-  renderMap,
   createEntryAddControl
 }) {
-  const tabs = ["Block Board","Lists","Cards","Study","Exams","Map","Lectures"];
+  const tabs = ["Block Board","Lists","Cards","Study","Exams","Lectures"];
 
   const listTabConfig = [
     { label: 'Diseases', kind: 'disease' },
@@ -65,8 +64,7 @@ export function createAppShell({
       Lectures: 'tab-lectures',
       Cards: 'tab-cards',
       Study: 'tab-study',
-      Exams: 'tab-exams',
-      Map: 'tab-map'
+      Exams: 'tab-exams'
     };
     tabs.forEach(t => {
       const btn = document.createElement('button');
@@ -174,7 +172,6 @@ export function createAppShell({
     }
 
     const main = document.createElement('main');
-    if (state.tab === 'Map') main.className = 'map-main';
     root.appendChild(main);
     if (state.tab === 'Settings') {
       await renderSettings(main);
@@ -330,23 +327,6 @@ export function createAppShell({
           renderExams(content, renderApp)
         ]);
       }
-    } else if (state.tab === 'Map') {
-      const mapHost = document.createElement('div');
-      mapHost.className = 'tab-content map-host';
-      main.appendChild(mapHost);
-      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
-        .then(control => {
-          if (control) {
-            main.insertBefore(control, mapHost);
-          }
-        })
-        .catch(err => {
-          console.warn('Failed to create map entry control', err);
-        });
-      await Promise.all([
-        entryControlPromise,
-        renderMap(mapHost)
-      ]);
     } else {
       main.textContent = `Currently viewing: ${state.tab}`;
     }

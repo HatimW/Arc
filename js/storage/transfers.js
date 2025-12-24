@@ -7,9 +7,7 @@ import {
   listLecturesByBlock,
   lectureKey,
   DEFAULT_LECTURE_STATUS,
-  upsertItem,
-  getMapConfig,
-  saveMapConfig
+  upsertItem
 } from './storage.js';
 import { buildTokens, buildSearchMeta } from '../search.js';
 import { cleanItem } from '../validators.js';
@@ -91,24 +89,6 @@ function normalizeScopeValue(rawScope, lectures) {
   return 'lecture';
 }
 
-function normalizeTransferMap(rawMap) {
-  if (!rawMap || typeof rawMap !== 'object' || !Array.isArray(rawMap.tabs)) {
-    return { tabs: [] };
-  }
-  return {
-    tabs: rawMap.tabs.map(tab => ({
-      name: tab?.name || 'Imported map',
-      includeLinked: tab?.includeLinked !== false,
-      manualMode: Boolean(tab?.manualMode),
-      manualIds: Array.isArray(tab?.manualIds) ? tab.manualIds.filter(Boolean) : [],
-      layout: tab?.layout && typeof tab.layout === 'object' ? { ...tab.layout } : {},
-      layoutSeeded: tab?.layoutSeeded === true,
-      filter: tab?.filter && typeof tab.filter === 'object'
-        ? { ...tab.filter }
-        : { blockId: '', week: '', lectureKey: '' }
-    }))
-  };
-}
 
 function collectLectureKeys(lectures) {
   const keys = new Set();
@@ -178,32 +158,6 @@ async function fetchAllItems() {
   return Array.isArray(all) ? all : [];
 }
 
-function extractMapData(mapConfig, itemIds) {
-  if (!mapConfig || !Array.isArray(mapConfig.tabs)) return { tabs: [] };
-  const idSet = new Set(itemIds);
-  const tabs = mapConfig.tabs
-    .map(tab => {
-      const layoutEntries = Object.entries(tab.layout || {})
-        .filter(([id]) => idSet.has(id))
-        .map(([id, pos]) => [id, { x: Number(pos?.x) || 0, y: Number(pos?.y) || 0 }]);
-      const manualIds = Array.isArray(tab.manualIds)
-        ? tab.manualIds.filter(id => idSet.has(id))
-        : [];
-      if (!layoutEntries.length && !manualIds.length) return null;
-      return {
-        name: tab.name || 'Imported map',
-        includeLinked: tab.includeLinked !== false,
-        manualMode: Boolean(tab.manualMode),
-        manualIds,
-        layout: Object.fromEntries(layoutEntries),
-        layoutSeeded: tab.layoutSeeded === true,
-        filter: tab.filter ? { ...tab.filter } : { blockId: '', week: '', lectureKey: '' }
-      };
-    })
-    .filter(Boolean);
-  return { tabs };
-}
-
 function sanitizeItems(items) {
   return items.map(item => {
     const copy = deepClone(item);
@@ -213,25 +167,15 @@ function sanitizeItems(items) {
   });
 }
 
-function buildBundle({ scope, block, lectures, items, map }) {
+function buildBundle({ scope, block, lectures, items }) {
   return {
     version: TRANSFER_VERSION,
     scope,
     exportedAt: Date.now(),
     block: block ? sanitizeBlock(block) : null,
     lectures: Array.isArray(lectures) ? lectures.map(sanitizeLecture).filter(Boolean) : [],
-    items: sanitizeItems(items || []),
-    map: map || { tabs: [] }
+    items: sanitizeItems(items || [])
   };
-}
-async function readMapConfig() {
-  try {
-    const raw = await getMapConfig();
-    return deepClone(raw);
-  } catch (err) {
-    console.warn('Failed to read map config for transfer', err);
-    return { tabs: [] };
-  }
 }
 
 async function exportBundleForLectures(lectures, options = {}) {
@@ -250,9 +194,7 @@ async function exportBundleForLectures(lectures, options = {}) {
       includeLooseBlockItems: options.includeLooseBlockItems === true
     })
   );
-  const mapConfig = await readMapConfig();
-  const map = extractMapData(mapConfig, items.map(item => item.id));
-  return buildBundle({ scope: options.scope || 'lecture', block, lectures, items, map });
+  return buildBundle({ scope: options.scope || 'lecture', block, lectures, items });
 }
 
 export async function exportLectureTransfer(blockId, lectureId) {
@@ -359,10 +301,7 @@ function normalizeTransferPayload(bundle) {
       })
     : [];
 
-  const rawMap = readLegacyField(bundle, 'map');
-  const map = normalizeTransferMap(rawMap);
-
-  return { scope, block, lectures, items, map };
+  return { scope, block, lectures, items };
 }
 
 async function deleteExisting(scope, blockId, lectures, strategy) {
@@ -545,63 +484,8 @@ async function persistItems(items, lectureIdMap, strategy) {
   return itemIdMap;
 }
 
-function remapMapTabs(map, lectureIdMap, itemIdMap) {
-  if (!map || !Array.isArray(map.tabs)) return [];
-  return map.tabs.map(tab => {
-    const layout = {};
-    Object.entries(tab.layout || {}).forEach(([id, pos]) => {
-      const mapped = itemIdMap.get(id) || id;
-      layout[mapped] = {
-        x: Number(pos?.x) || 0,
-        y: Number(pos?.y) || 0
-      };
-    });
-    const manualIds = Array.isArray(tab.manualIds)
-      ? tab.manualIds.map(id => itemIdMap.get(id) || id)
-      : [];
-    let lectureKeyFilter = tab.filter?.lectureKey || '';
-    if (lectureKeyFilter) {
-      const mapping = lectureIdMap.get(lectureKeyFilter);
-      if (mapping) {
-        lectureKeyFilter = lectureKey(mapping.blockId, mapping.lectureId);
-      }
-    }
-    return {
-      id: uid(),
-      name: tab.name || 'Imported map',
-      includeLinked: tab.includeLinked !== false,
-      manualMode: Boolean(tab.manualMode),
-      manualIds,
-      layout,
-      layoutSeeded: tab.layoutSeeded === true,
-      filter: {
-        blockId: tab.filter?.blockId || '',
-        week: tab.filter?.week ?? '',
-        lectureKey: lectureKeyFilter
-      }
-    };
-  });
-}
-
-async function mergeMapConfig(map, lectureIdMap, itemIdMap) {
-  if (!map || !Array.isArray(map.tabs) || !map.tabs.length) return;
-  const config = await getMapConfig();
-  const copy = deepClone(config);
-  const appended = remapMapTabs(map, lectureIdMap, itemIdMap);
-  appended.forEach(tab => {
-    let name = tab.name;
-    const existingNames = new Set(copy.tabs.map(existing => existing.name));
-    while (existingNames.has(name)) {
-      name = `${tab.name} (import)`;
-      tab.name = name;
-    }
-    copy.tabs.push(tab);
-  });
-  await saveMapConfig(copy);
-}
-
 export async function importLectureTransfer(bundle, options = {}) {
-  const { scope, block, lectures, items, map } = normalizeTransferPayload(bundle);
+  const { scope, block, lectures, items } = normalizeTransferPayload(bundle);
   if (!block || !block.blockId) {
     throw new Error('Transfer missing block information');
   }
@@ -627,5 +511,4 @@ export async function importLectureTransfer(bundle, options = {}) {
   const { lectures: normalizedLectures, lectureIdMap } = remapLectureIds(blockId, lectures, existingLectures, strategy);
   await persistLectures(blockId, normalizedLectures, lectureIdMap);
   const itemIdMap = await persistItems(items, lectureIdMap, strategy);
-  await mergeMapConfig(map, lectureIdMap, itemIdMap);
 }

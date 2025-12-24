@@ -23,14 +23,11 @@ import { exportJSON, importJSON, exportAnkiCSV } from './export.js';
 import { DEFAULT_REVIEW_STEPS } from '../review/constants.js';
 import { normalizeReviewSteps } from '../review/settings.js';
 import { DEFAULT_PLANNER_DEFAULTS, normalizePlannerDefaults } from '../lectures/scheduler.js';
-import { deepClone } from '../utils.js';
 
 let dbPromise;
 
 const DEFAULT_KINDS = ['disease', 'drug', 'concept'];
 const RESULT_BATCH_SIZE = 50;
-const MAP_CONFIG_KEY = 'map-config';
-const MAP_CONFIG_BACKUP_KEY = 'arc-map-config-backup';
 const DATA_BACKUP_KEY = 'arc-backup-snapshot';
 const DATA_BACKUP_STORES = ['items', 'blocks', 'exams', 'settings', 'exam_sessions', 'study_sessions', 'lectures'];
 
@@ -43,22 +40,6 @@ const DEFAULT_APP_SETTINGS = {
 };
 
 let backupTimer = null;
-
-const DEFAULT_MAP_CONFIG = {
-  activeTabId: 'default',
-  tabs: [
-    {
-      id: 'default',
-      name: 'All concepts',
-      includeLinked: true,
-      manualMode: false,
-      manualIds: [],
-      layout: {},
-      layoutSeeded: true,
-      filter: { blockId: '', week: '', lectureKey: '' }
-    }
-  ]
-};
 
 function prom(req) {
   return new Promise((resolve, reject) => {
@@ -74,30 +55,6 @@ async function store(name, mode = 'readonly') {
 
 function canUseStorage() {
   return typeof localStorage !== 'undefined';
-}
-
-function readMapConfigBackup() {
-  if (!canUseStorage()) return null;
-  try {
-    const raw = localStorage.getItem(MAP_CONFIG_BACKUP_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      return parsed;
-    }
-  } catch (err) {
-    console.warn('Failed to read map backup', err);
-  }
-  return null;
-}
-
-function writeMapConfigBackup(config) {
-  if (!canUseStorage()) return;
-  try {
-    localStorage.setItem(MAP_CONFIG_BACKUP_KEY, JSON.stringify(config));
-  } catch (err) {
-    console.warn('Failed to persist map backup', err);
-  }
 }
 
 async function writeDataBackup() {
@@ -230,50 +187,6 @@ export async function saveSettings(patch) {
     plannerDefaults: mergedPlannerDefaults
   };
   await prom(s.put(next));
-  scheduleBackup();
-}
-
-function cloneConfig(config) {
-  return deepClone(config);
-}
-
-export async function getMapConfig() {
-  try {
-    const s = await store('settings', 'readwrite');
-    const existing = await prom(s.get(MAP_CONFIG_KEY));
-    if (existing && existing.config) {
-      const config = cloneConfig(existing.config);
-      writeMapConfigBackup(config);
-      return config;
-    }
-    const backup = readMapConfigBackup();
-    if (backup) {
-      const payload = cloneConfig(backup);
-      await prom(s.put({ id: MAP_CONFIG_KEY, config: payload }));
-      writeMapConfigBackup(payload);
-      scheduleBackup();
-      return payload;
-    }
-    const fallback = cloneConfig(DEFAULT_MAP_CONFIG);
-    await prom(s.put({ id: MAP_CONFIG_KEY, config: fallback }));
-    writeMapConfigBackup(fallback);
-    scheduleBackup();
-    return fallback;
-  } catch (err) {
-    console.warn('getMapConfig failed', err);
-    const backup = readMapConfigBackup();
-    if (backup) {
-      return cloneConfig(backup);
-    }
-    return cloneConfig(DEFAULT_MAP_CONFIG);
-  }
-}
-
-export async function saveMapConfig(config) {
-  const payload = config ? cloneConfig(config) : cloneConfig(DEFAULT_MAP_CONFIG);
-  const s = await store('settings', 'readwrite');
-  await prom(s.put({ id: MAP_CONFIG_KEY, config: payload }));
-  writeMapConfigBackup(payload);
   scheduleBackup();
 }
 
