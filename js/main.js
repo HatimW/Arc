@@ -42,7 +42,6 @@ const renderBlockMode = createLazyRenderer(() => import('./ui/components/block-m
 const renderBlockBoard = createLazyRenderer(() => import('./ui/components/block-board.js'), 'renderBlockBoard');
 const renderExams = createLazyRenderer(() => import('./ui/components/exams.js'), 'renderExams');
 const renderExamRunner = createLazyRenderer(() => import('./ui/components/exams.js'), 'renderExamRunner');
-const renderMap = createLazyRenderer(() => import('./ui/components/map.js'), 'renderMap');
 const createEntryAddControl = createLazyRenderer(() => import('./ui/components/entry-controls.js'), 'createEntryAddControl');
 
 const { renderApp, tabs, resolveListKind } = createAppShell({
@@ -63,7 +62,6 @@ const { renderApp, tabs, resolveListKind } = createAppShell({
   renderBlockBoard,
   renderExams,
   renderExamRunner,
-  renderMap,
   createEntryAddControl
 });
 
@@ -101,7 +99,6 @@ function schedulePrefetch() {
     () => renderBlockBoard.preload(),
     () => renderExams.preload(),
     () => renderExamRunner.preload(),
-    () => renderMap.preload(),
     () => createEntryAddControl.preload()
   ];
   const schedule = typeof window.requestIdleCallback === 'function'

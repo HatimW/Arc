@@ -22,7 +22,6 @@
  * @property {LectureRef[]} lectures     // chosen by number → resolves name+week
  * @property {number} createdAt
  * @property {number} updatedAt
- * @property {number} mapGravityBoost // simulated links for map layout
  * @property {SR} sr
  */
 

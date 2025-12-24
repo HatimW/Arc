@@ -3,7 +3,6 @@ import { buildTokens, buildSearchMeta } from '../search.js';
 import { lectureKey, normalizeLectureRecord } from './lecture-schema.js';
 import { uid, deepClone } from '../utils.js';
 
-const MAP_CONFIG_KEY = 'map-config';
 const TRANSACTION_STORES = [
   'items',
   'blocks',
@@ -185,11 +184,9 @@ export async function exportJSON(){
   ]);
 
   const settings = settingsArr.find(s => s?.id === 'app') || { id:'app', dailyCount:20, theme:'dark' };
-  const mapConfigEntry = settingsArr.find(s => s?.id === MAP_CONFIG_KEY);
-  const mapConfig = mapConfigEntry && typeof mapConfigEntry === 'object' ? mapConfigEntry.config : null;
   const additionalSettings = settingsArr.filter(entry => {
     if (!entry || typeof entry !== 'object') return false;
-    if (!entry.id || entry.id === 'app' || entry.id === MAP_CONFIG_KEY) return false;
+    if (!entry.id || entry.id === 'app') return false;
     return true;
   });
 
@@ -201,7 +198,6 @@ export async function exportJSON(){
     examSessions,
     studySessions,
     settings,
-    mapConfig,
     settingsEntries: additionalSettings
   };
 }
@@ -258,14 +254,6 @@ export async function importJSON(dbDump){
       } catch (err) {
         skipped.settings += 1;
         console.warn('Failed to persist default settings during import', err);
-      }
-    }
-    if (dbDump?.mapConfig && typeof dbDump.mapConfig === 'object') {
-      try {
-        await prom(settings.put({ id: MAP_CONFIG_KEY, config: dbDump.mapConfig }));
-      } catch (err) {
-        skipped.settings += 1;
-        console.warn('Failed to import saved map configuration', err);
       }
     }
     for (const entry of additionalSettings) {
@@ -491,4 +479,3 @@ export async function exportAnkiCSV(profile, cohort){
   const csv = rows.map(r => r.map(escapeCSV).join(',')).join('\n');
   return new Blob([csv], { type:'text/csv' });
 }
-

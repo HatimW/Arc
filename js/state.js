@@ -164,7 +164,6 @@ export const state = {
     Lists: "Diseases",
     Study: "Builder",
     Exams: "", // placeholder
-    Map: "",
     Settings: ""
   },
   query: "",
@@ -204,7 +203,6 @@ export const state = {
   examSession: null,
   examAttemptExpanded: {},
   examLayout: initialExamLayout,
-  map: { panzoom:false },
   blockMode: { section:"", assignments:{}, reveal:{}, order:{} },
   study: { selectedMode: 'Flashcards' },
   studySessions: {},
