@@ -69,10 +69,19 @@ async function bootstrap() {
   try {
     const performanceReady = import('./ui/performance.js');
     await initDB();
-    try {
-      await loadBlockCatalog();
-    } catch (err) {
-      console.warn('Failed to prime block catalog', err);
+    if (typeof window === 'undefined') {
+      loadBlockCatalog().catch(err => {
+        console.warn('Failed to prime block catalog', err);
+      });
+    } else {
+      const schedule = typeof window.requestIdleCallback === 'function'
+        ? window.requestIdleCallback.bind(window)
+        : (cb) => setTimeout(cb, 200);
+      schedule(() => {
+        loadBlockCatalog().catch(err => {
+          console.warn('Failed to prime block catalog', err);
+        });
+      });
     }
     await performanceReady;
     await renderApp();

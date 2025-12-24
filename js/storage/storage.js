@@ -19,12 +19,15 @@ export {
   DEFAULT_LECTURE_STATUS,
   lectureKey
 } from './lectures.js';
-import { exportJSON, importJSON, exportAnkiCSV } from './export.js';
+import { exportJSON, importJSON as rawImportJSON, exportAnkiCSV } from './export.js';
 import { DEFAULT_REVIEW_STEPS } from '../review/constants.js';
 import { normalizeReviewSteps } from '../review/settings.js';
 import { DEFAULT_PLANNER_DEFAULTS, normalizePlannerDefaults } from '../lectures/scheduler.js';
 
 let dbPromise;
+let itemsVersion = 0;
+const queryCache = new Map();
+const MAX_QUERY_CACHE = 20;
 
 const DEFAULT_KINDS = ['disease', 'drug', 'concept'];
 const RESULT_BATCH_SIZE = 50;
@@ -46,6 +49,11 @@ function prom(req) {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+function markItemsUpdated() {
+  itemsVersion += 1;
+  queryCache.clear();
 }
 
 async function store(name, mode = 'readonly') {
@@ -295,6 +303,7 @@ export async function upsertBlock(def) {
       }));
 
   const removedLectureIds = [];
+  let itemsTouched = false;
   let prunedLectures = incomingLectures;
 
   if (existing && typeof def.weeks === 'number' && def.weeks < existing.weeks) {
@@ -325,6 +334,7 @@ export async function upsertBlock(def) {
         it.tokens = buildTokens(it);
         it.searchMeta = buildSearchMeta(it);
         await prom(i.put(it));
+        itemsTouched = true;
       }
     }
   }
@@ -386,16 +396,21 @@ export async function upsertBlock(def) {
     await dropLectureRecord(blockId, lectureId);
   }
   if (uniqueRemoved.length) {
-    await removeLectureReferencesFromItems(blockId, uniqueRemoved);
+    const removed = await removeLectureReferencesFromItems(blockId, uniqueRemoved);
+    itemsTouched = itemsTouched || removed;
+  }
+  if (itemsTouched) {
+    markItemsUpdated();
   }
 
   scheduleBackup();
 }
 
 async function removeLectureReferencesFromItems(blockId, lectureIds) {
-  if (!lectureIds.length) return;
+  if (!lectureIds.length) return false;
   const i = await store('items', 'readwrite');
   const all = await prom(i.getAll());
+  let touched = false;
   for (const it of all) {
     const before = it.lectures?.length || 0;
     if (!before) continue;
@@ -407,8 +422,10 @@ async function removeLectureReferencesFromItems(blockId, lectureIds) {
       it.tokens = buildTokens(it);
       it.searchMeta = buildSearchMeta(it);
       await prom(i.put(it));
+      touched = true;
     }
   }
+  return touched;
 }
 
 export async function deleteBlock(blockId) {
@@ -418,6 +435,7 @@ export async function deleteBlock(blockId) {
   // remove references from items to keep them "unlabeled"
   const i = await store('items', 'readwrite');
   const all = await prom(i.getAll());
+  let itemsTouched = false;
   for (const it of all) {
     const beforeBlocks = it.blocks?.length || 0;
     const beforeLects = it.lectures?.length || 0;
@@ -433,15 +451,22 @@ export async function deleteBlock(blockId) {
         it.tokens = buildTokens(it);
         it.searchMeta = buildSearchMeta(it);
         await prom(i.put(it));
+        itemsTouched = true;
       }
     }
+  }
+  if (itemsTouched) {
+    markItemsUpdated();
   }
   scheduleBackup();
 }
 
 export async function deleteLecture(blockId, lectureId) {
   await dropLectureRecord(blockId, lectureId);
-  await removeLectureReferencesFromItems(blockId, [lectureId]);
+  const touched = await removeLectureReferencesFromItems(blockId, [lectureId]);
+  if (touched) {
+    markItemsUpdated();
+  }
   scheduleBackup();
 }
 
@@ -450,6 +475,7 @@ export async function updateLecture(blockId, lecture) {
   await persistLecture({ ...lecture, blockId });
   const i = await store('items', 'readwrite');
   const all = await prom(i.getAll());
+  let itemsTouched = false;
   for (const it of all) {
     let changed = false;
     if (it.lectures) {
@@ -467,7 +493,11 @@ export async function updateLecture(blockId, lecture) {
       it.tokens = buildTokens(it);
       it.searchMeta = buildSearchMeta(it);
       await prom(i.put(it));
+      itemsTouched = true;
     }
+  }
+  if (itemsTouched) {
+    markItemsUpdated();
   }
   scheduleBackup();
 }
@@ -574,8 +604,8 @@ async function keysForKinds(storeRef, kinds) {
   return allKeys;
 }
 
-async function executeItemQuery(filter) {
-  const normalized = normalizeFilter(filter);
+async function executeItemQuery(filter, options = {}) {
+  const normalized = options.normalized ? filter : normalizeFilter(filter);
   const itemsStore = await store('items');
 
   const blockSet = normalized.block && normalized.block !== '__unlabeled'
@@ -701,7 +731,21 @@ async function executeItemQuery(filter) {
 export function findItemsByFilter(filter) {
   let memo;
   const run = () => {
-    if (!memo) memo = executeItemQuery(filter);
+    if (!memo) {
+      const normalized = normalizeFilter(filter);
+      const cacheKey = JSON.stringify(normalized);
+      const cached = queryCache.get(cacheKey);
+      if (cached && cached.version === itemsVersion) {
+        memo = cached.promise;
+      } else {
+        memo = executeItemQuery(normalized, { normalized: true });
+        queryCache.set(cacheKey, { version: itemsVersion, promise: memo });
+        if (queryCache.size > MAX_QUERY_CACHE) {
+          const oldestKey = queryCache.keys().next().value;
+          if (oldestKey) queryCache.delete(oldestKey);
+        }
+      }
+    }
     return memo;
   };
   return {
@@ -748,6 +792,7 @@ export async function upsertItem(item) {
     }
   }
   await prom(i.put(next));
+  markItemsUpdated();
   scheduleBackup();
 }
 
@@ -763,6 +808,7 @@ export async function deleteItem(id) {
     }
   }
   await prom(i.delete(id));
+  markItemsUpdated();
   scheduleBackup();
 }
 
@@ -846,5 +892,11 @@ export async function clearAllStudySessionRecords() {
   scheduleBackup();
 }
 
+export async function importJSON(...args) {
+  const result = await rawImportJSON(...args);
+  markItemsUpdated();
+  return result;
+}
+
 // export/import helpers
-export { exportJSON, importJSON, exportAnkiCSV };
+export { exportJSON, exportAnkiCSV };
