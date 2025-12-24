@@ -389,6 +389,9 @@ export async function renderCardList(container, itemSource, kind, onChange){
   const perfMode = getPerformanceMode();
   const LIST_CHUNK_SIZE = perfMode === 'conservative' ? 48 : perfMode === 'balanced' ? 120 : 200;
   const layoutState = state.entryLayout;
+  const scheduleChunk = typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
+    ? (cb) => window.requestIdleCallback(() => cb(), { timeout: 120 })
+    : (cb) => requestAnimationFrame(cb);
 
   const toolbar = document.createElement('div');
   toolbar.className = 'entry-layout-toolbar';
@@ -753,11 +756,21 @@ export async function renderCardList(container, itemSource, kind, onChange){
     const blockKey = String(b);
     const bdef = blocks.find(bl => bl.blockId === b);
     if (bdef?.color) blockHeader.style.background = bdef.color;
+    const weekEntries = [];
+    const ensureVisibleWeeks = () => {
+      if (collapsedBlocks.has(blockKey)) return;
+      weekEntries.forEach(entry => {
+        if (!collapsedWeeks.has(entry.weekKey)) entry.ensureListRendered();
+      });
+    };
     function updateBlockState(){
       const isCollapsed = collapsedBlocks.has(blockKey);
       blockSec.classList.toggle('collapsed', isCollapsed);
       blockHeader.textContent = `${isCollapsed ? '▸' : '▾'} ${blockLabel}`;
       blockHeader.setAttribute('aria-expanded', String(!isCollapsed));
+      if (!isCollapsed) {
+        ensureVisibleWeeks();
+      }
     }
     blockUpdaters.set(blockKey, updateBlockState);
     updateBlockState();
@@ -790,11 +803,15 @@ export async function renderCardList(container, itemSource, kind, onChange){
       weekHeader.className = 'week-header';
       const weekLabel = w === '_' ? 'Unassigned' : `Week ${w}`;
       const weekKey = `${blockKey}__${w}`;
+      let listRendered = false;
       function updateWeekState(){
         const isCollapsed = collapsedWeeks.has(weekKey);
         weekSec.classList.toggle('collapsed', isCollapsed);
         weekHeader.textContent = `${isCollapsed ? '▸' : '▾'} ${weekLabel}`;
         weekHeader.setAttribute('aria-expanded', String(!isCollapsed));
+        if (!isCollapsed && !collapsedBlocks.has(blockKey)) {
+          ensureListRendered();
+        }
       }
       updateWeekState();
       weekHeader.addEventListener('click', () => {
@@ -817,12 +834,20 @@ export async function renderCardList(container, itemSource, kind, onChange){
           fragment.appendChild(createItemCard(it, onChange));
         });
         list.appendChild(fragment);
-        if (start + LIST_CHUNK_SIZE < rows.length) requestAnimationFrame(() => renderChunk(start + LIST_CHUNK_SIZE));
+        if (start + LIST_CHUNK_SIZE < rows.length) {
+          scheduleChunk(() => renderChunk(start + LIST_CHUNK_SIZE));
+        }
       }
-      renderChunk();
+      function ensureListRendered() {
+        if (listRendered) return;
+        listRendered = true;
+        renderChunk();
+      }
+      weekEntries.push({ weekKey, ensureListRendered });
       weekSec.appendChild(list);
       blockSec.appendChild(weekSec);
     });
+    ensureVisibleWeeks();
     container.appendChild(blockSec);
   });
 
