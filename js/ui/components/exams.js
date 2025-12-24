@@ -213,11 +213,24 @@ function ensureScrollPositions(sess) {
 
 function resolveScrollContainer(root) {
   const hasDocument = typeof document !== 'undefined';
-  if (hasDocument) {
-    if (root && typeof root.closest === 'function') {
+  if (root) {
+    if (typeof root.querySelector === 'function') {
+      const runner = root.querySelector('.exam-runner');
+      if (runner) return runner;
+    }
+    if (root.classList?.contains('exam-view') || root.classList?.contains('exam-session')) {
+      return root;
+    }
+    if (typeof root.closest === 'function') {
       const scoped = root.closest('.tab-content');
       if (scoped) return scoped;
     }
+  }
+  if (hasDocument) {
+    const runner = document.querySelector('.exam-session .exam-runner');
+    if (runner) return runner;
+    const view = document.querySelector('.exam-view');
+    if (view) return view;
     const main = document.querySelector('main');
     if (main) return main;
   }
@@ -1934,12 +1947,12 @@ export function renderExamRunner(root, render) {
   const hasWindow = typeof window !== 'undefined';
   const prevIdx = sess.__lastRenderedIdx;
   const prevMode = sess.__lastRenderedMode;
-  const scroller = resolveScrollContainer(root);
-  const prevScrollY = readScrollPosition(scroller);
+  const prevScroller = resolveScrollContainer(root);
+  const prevScrollY = readScrollPosition(prevScroller);
   const questionChanged = typeof prevIdx === 'number' ? prevIdx !== sess.idx : false;
-  if (scroller && questionChanged && typeof prevIdx === 'number') {
+  if (prevScroller && questionChanged && typeof prevIdx === 'number') {
     storeScrollPosition(sess, prevIdx, prevScrollY);
-  } else if (scroller && !questionChanged && typeof prevIdx !== 'number' && typeof sess.idx === 'number') {
+  } else if (prevScroller && !questionChanged && typeof prevIdx !== 'number' && typeof sess.idx === 'number') {
     storeScrollPosition(sess, sess.idx, prevScrollY);
   }
   root.innerHTML = '';
@@ -2275,8 +2288,9 @@ export function renderExamRunner(root, render) {
   navEnd.className = 'exam-nav-group exam-nav-group--end';
 
   const prev = document.createElement('button');
-  prev.className = 'btn secondary';
-  prev.textContent = 'Previous';
+  prev.className = 'btn secondary exam-nav-arrow';
+  prev.setAttribute('aria-label', 'Previous question');
+  prev.textContent = '←';
   prev.disabled = sess.idx === 0;
   prev.addEventListener('click', () => {
     if (sess.idx > 0) {
@@ -2287,8 +2301,9 @@ export function renderExamRunner(root, render) {
 
   if (sess.mode === 'taking') {
     const nextBtn = document.createElement('button');
-    nextBtn.className = 'btn secondary';
-    nextBtn.textContent = 'Next Question';
+    nextBtn.className = 'btn secondary exam-nav-arrow';
+    nextBtn.setAttribute('aria-label', 'Next question');
+    nextBtn.textContent = '→';
     nextBtn.disabled = sess.idx >= questionCount - 1;
     nextBtn.addEventListener('click', () => {
       if (sess.idx < questionCount - 1) {
@@ -2296,14 +2311,6 @@ export function renderExamRunner(root, render) {
       }
     });
     navStart.appendChild(nextBtn);
-
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'btn secondary';
-    saveBtn.textContent = 'Save & Exit';
-    saveBtn.addEventListener('click', async () => {
-      await saveProgressAndExit(sess, render);
-    });
-    navMiddle.appendChild(saveBtn);
 
     if (sess.exam.timerMode !== 'timed') {
       const checkBtn = document.createElement('button');
@@ -2328,11 +2335,19 @@ export function renderExamRunner(root, render) {
     submit.addEventListener('click', async () => {
       await finalizeExam(sess, render);
     });
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn secondary';
+    saveBtn.textContent = 'Save & Exit';
+    saveBtn.addEventListener('click', async () => {
+      await saveProgressAndExit(sess, render);
+    });
+    navEnd.appendChild(saveBtn);
     navEnd.appendChild(submit);
   } else {
     const nextBtn = document.createElement('button');
-    nextBtn.className = 'btn secondary';
-    nextBtn.textContent = 'Next';
+    nextBtn.className = 'btn secondary exam-nav-arrow';
+    nextBtn.setAttribute('aria-label', 'Next question');
+    nextBtn.textContent = '→';
     nextBtn.disabled = sess.idx >= questionCount - 1;
     nextBtn.addEventListener('click', () => {
       if (sess.idx < questionCount - 1) {
@@ -2362,6 +2377,7 @@ export function renderExamRunner(root, render) {
 
   root.appendChild(nav);
 
+  const scroller = resolveScrollContainer(root);
   const sameQuestion = prevIdx === sess.idx && prevMode === sess.mode;
   sess.__lastRenderedIdx = sess.idx;
   sess.__lastRenderedMode = sess.mode;
@@ -3150,7 +3166,7 @@ function openExamEditor(existing, render) {
   scheduleRenderQuestions();
 
   const actions = document.createElement('div');
-  actions.className = 'exam-editor-actions';
+  actions.className = 'exam-editor-actions exam-editor-actions--sidebar';
   const saveBtn = document.createElement('button');
   saveBtn.type = 'submit';
   saveBtn.className = 'btn';
@@ -3164,7 +3180,7 @@ function openExamEditor(existing, render) {
   closeBtn.addEventListener('click', () => { void floating.close('cancel'); });
   actions.appendChild(closeBtn);
 
-  form.appendChild(actions);
+  sidebar.appendChild(actions);
 
   async function persistExam() {
     error.textContent = '';
