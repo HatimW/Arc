@@ -2671,6 +2671,10 @@ function openExamEditor(existing, render) {
   error.className = 'exam-error';
   form.appendChild(error);
 
+  const metaSection = document.createElement('div');
+  metaSection.className = 'exam-editor-meta';
+  form.appendChild(metaSection);
+
   const titleField = document.createElement('label');
   titleField.className = 'exam-field';
   const titleLabel = document.createElement('span');
@@ -2681,11 +2685,11 @@ function openExamEditor(existing, render) {
   titleInput.value = exam.examTitle;
   titleInput.addEventListener('input', () => { exam.examTitle = titleInput.value; markDirty(); });
   titleField.append(titleLabel, titleInput);
-  form.appendChild(titleField);
+  metaSection.appendChild(titleField);
 
   const timerRow = document.createElement('div');
   timerRow.className = 'exam-timer-row';
-  form.appendChild(timerRow);
+  metaSection.appendChild(timerRow);
 
   const modeField = document.createElement('label');
   modeField.className = 'exam-field';
@@ -2730,6 +2734,29 @@ function openExamEditor(existing, render) {
   if (exam.timerMode !== 'timed') secondsField.classList.add('is-hidden');
   timerRow.appendChild(secondsField);
 
+  const bodySection = document.createElement('div');
+  bodySection.className = 'exam-editor-body';
+  form.appendChild(bodySection);
+
+  const sidebar = document.createElement('aside');
+  sidebar.className = 'exam-editor-sidebar';
+  const sidebarTitle = document.createElement('div');
+  sidebarTitle.className = 'exam-editor-sidebar-title';
+  const sidebarHeading = document.createElement('h4');
+  sidebarHeading.textContent = 'Jump to question';
+  const sidebarCount = document.createElement('span');
+  sidebarCount.className = 'exam-editor-sidebar-count';
+  sidebarTitle.append(sidebarHeading, sidebarCount);
+  sidebar.appendChild(sidebarTitle);
+  const navList = document.createElement('div');
+  navList.className = 'exam-editor-nav-list';
+  sidebar.appendChild(navList);
+  bodySection.appendChild(sidebar);
+
+  const mainColumn = document.createElement('div');
+  mainColumn.className = 'exam-editor-main';
+  bodySection.appendChild(mainColumn);
+
   const questionsHeader = document.createElement('div');
   questionsHeader.className = 'exam-question-header';
   const qTitle = document.createElement('h3');
@@ -2744,20 +2771,27 @@ function openExamEditor(existing, render) {
     scheduleRenderQuestions();
   });
   questionsHeader.append(qTitle, addQuestion);
-  form.appendChild(questionsHeader);
+  mainColumn.appendChild(questionsHeader);
 
   const questionSection = document.createElement('div');
   questionSection.className = 'exam-question-section';
-  form.appendChild(questionSection);
+  mainColumn.appendChild(questionSection);
 
   function renderQuestions() {
     disposeQuestions();
     questionSection.innerHTML = '';
+    navList.innerHTML = '';
+    sidebarCount.textContent = `${exam.questions.length} total`;
     if (!exam.questions.length) {
       const empty = document.createElement('p');
       empty.className = 'exam-question-empty';
       empty.textContent = 'No questions yet. Add your first question to get started.';
       questionSection.appendChild(empty);
+
+      const navEmpty = document.createElement('p');
+      navEmpty.className = 'exam-editor-nav-empty';
+      navEmpty.textContent = 'Add questions to jump around.';
+      navList.appendChild(navEmpty);
       return;
     }
 
@@ -2766,6 +2800,8 @@ function openExamEditor(existing, render) {
     exam.questions.forEach((question, idx) => {
       const card = document.createElement('div');
       card.className = 'exam-question-editor';
+      const questionId = question.id || `idx-${idx}`;
+      card.id = `exam-question-${questionId}`;
 
       const localDisposers = new Set();
       const optionDisposers = new Set();
@@ -3026,6 +3062,20 @@ function openExamEditor(existing, render) {
       card.appendChild(addOption);
 
       fragment.appendChild(card);
+
+      const navButton = document.createElement('button');
+      navButton.type = 'button';
+      navButton.className = 'exam-editor-nav-item';
+      navButton.textContent = String(idx + 1);
+      navButton.title = `Jump to Question ${idx + 1}`;
+      navButton.addEventListener('click', () => {
+        card.classList.add('exam-question-editor--highlight');
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        window.setTimeout(() => {
+          card.classList.remove('exam-question-editor--highlight');
+        }, 1200);
+      });
+      navList.appendChild(navButton);
 
       const disposeLocal = () => {
         cleanupOptionEditors();
