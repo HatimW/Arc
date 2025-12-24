@@ -213,11 +213,11 @@ function ensureScrollPositions(sess) {
 
 function resolveScrollContainer(root) {
   const hasDocument = typeof document !== 'undefined';
-  if (root && typeof root.closest === 'function') {
-    const scoped = root.closest('main');
-    if (scoped) return scoped;
-  }
   if (hasDocument) {
+    if (root && typeof root.closest === 'function') {
+      const scoped = root.closest('.tab-content');
+      if (scoped) return scoped;
+    }
     const main = document.querySelector('main');
     if (main) return main;
   }
@@ -1916,6 +1916,21 @@ export function renderExamRunner(root, render) {
     teardownKeyboardNavigation();
     return;
   }
+  if (sess.mode === 'review' && !sess.result) {
+    teardownKeyboardNavigation();
+    root.innerHTML = '';
+    root.className = 'exam-session';
+    const empty = document.createElement('div');
+    empty.className = 'exam-empty';
+    empty.innerHTML = '<p>This review session is missing data.</p>';
+    const back = document.createElement('button');
+    back.className = 'btn';
+    back.textContent = 'Back to Exams';
+    back.addEventListener('click', () => { setExamSession(null); render(); });
+    empty.appendChild(back);
+    root.appendChild(empty);
+    return;
+  }
   const hasWindow = typeof window !== 'undefined';
   const prevIdx = sess.__lastRenderedIdx;
   const prevMode = sess.__lastRenderedMode;
@@ -2027,6 +2042,22 @@ export function renderExamRunner(root, render) {
     top.appendChild(timerEl);
   } else {
     setTimerElement(sess, null);
+  }
+  if (sess.mode === 'review') {
+    const exitReview = document.createElement('button');
+    exitReview.type = 'button';
+    exitReview.className = 'btn secondary exam-top-exit';
+    if (sess.fromSummary) {
+      exitReview.textContent = 'Back to Summary';
+      exitReview.addEventListener('click', () => {
+        setExamSession({ mode: 'summary', exam: sess.exam, latestResult: sess.fromSummary });
+        render();
+      });
+    } else {
+      exitReview.textContent = 'Back to Exams';
+      exitReview.addEventListener('click', () => { teardownKeyboardNavigation(); setExamSession(null); render(); });
+    }
+    top.appendChild(exitReview);
   }
   main.appendChild(top);
 
@@ -2236,6 +2267,12 @@ export function renderExamRunner(root, render) {
 
   const nav = document.createElement('div');
   nav.className = 'exam-nav';
+  const navStart = document.createElement('div');
+  navStart.className = 'exam-nav-group exam-nav-group--start';
+  const navMiddle = document.createElement('div');
+  navMiddle.className = 'exam-nav-group exam-nav-group--middle';
+  const navEnd = document.createElement('div');
+  navEnd.className = 'exam-nav-group exam-nav-group--end';
 
   const prev = document.createElement('button');
   prev.className = 'btn secondary';
@@ -2246,16 +2283,27 @@ export function renderExamRunner(root, render) {
       navigateToQuestion(sess, sess.idx - 1, render);
     }
   });
-  nav.appendChild(prev);
+  navStart.appendChild(prev);
 
   if (sess.mode === 'taking') {
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'btn secondary';
+    nextBtn.textContent = 'Next Question';
+    nextBtn.disabled = sess.idx >= questionCount - 1;
+    nextBtn.addEventListener('click', () => {
+      if (sess.idx < questionCount - 1) {
+        navigateToQuestion(sess, sess.idx + 1, render);
+      }
+    });
+    navStart.appendChild(nextBtn);
+
     const saveBtn = document.createElement('button');
     saveBtn.className = 'btn secondary';
     saveBtn.textContent = 'Save & Exit';
     saveBtn.addEventListener('click', async () => {
       await saveProgressAndExit(sess, render);
     });
-    nav.appendChild(saveBtn);
+    navMiddle.appendChild(saveBtn);
 
     if (sess.exam.timerMode !== 'timed') {
       const checkBtn = document.createElement('button');
@@ -2271,19 +2319,8 @@ export function renderExamRunner(root, render) {
         }
         render();
       });
-      nav.appendChild(checkBtn);
+      navMiddle.appendChild(checkBtn);
     }
-
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'btn secondary';
-    nextBtn.textContent = 'Next Question';
-    nextBtn.disabled = sess.idx >= questionCount - 1;
-    nextBtn.addEventListener('click', () => {
-      if (sess.idx < questionCount - 1) {
-        navigateToQuestion(sess, sess.idx + 1, render);
-      }
-    });
-    nav.appendChild(nextBtn);
 
     const submit = document.createElement('button');
     submit.className = 'btn';
@@ -2291,7 +2328,7 @@ export function renderExamRunner(root, render) {
     submit.addEventListener('click', async () => {
       await finalizeExam(sess, render);
     });
-    nav.appendChild(submit);
+    navEnd.appendChild(submit);
   } else {
     const nextBtn = document.createElement('button');
     nextBtn.className = 'btn secondary';
@@ -2302,7 +2339,7 @@ export function renderExamRunner(root, render) {
         navigateToQuestion(sess, sess.idx + 1, render);
       }
     });
-    nav.appendChild(nextBtn);
+    navStart.appendChild(nextBtn);
 
     const exit = document.createElement('button');
     exit.className = 'btn';
@@ -2316,8 +2353,12 @@ export function renderExamRunner(root, render) {
       exit.textContent = 'Back to Exams';
       exit.addEventListener('click', () => { teardownKeyboardNavigation(); setExamSession(null); render(); });
     }
-    nav.appendChild(exit);
+    navEnd.appendChild(exit);
   }
+
+  nav.appendChild(navStart);
+  nav.appendChild(navMiddle);
+  nav.appendChild(navEnd);
 
   root.appendChild(nav);
 
