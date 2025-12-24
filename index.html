@@ -10,6 +10,23 @@
 <body>
   <div id="app">Loading…</div>
   <noscript>JavaScript is required to run Arc.</noscript>
-  <script src="./bundle.js" defer onerror="document.getElementById('app').textContent='Failed to load app';"></script>
+  <script>
+    (() => {
+      const root = document.getElementById('app');
+      const bundle = document.createElement('script');
+      bundle.src = './bundle.js';
+      bundle.defer = true;
+      bundle.onerror = () => {
+        const fallback = document.createElement('script');
+        fallback.type = 'module';
+        fallback.src = './js/main.js';
+        fallback.onerror = () => {
+          root.textContent = 'Failed to load app';
+        };
+        document.body.appendChild(fallback);
+      };
+      document.body.appendChild(bundle);
+    })();
+  </script>
 </body>
 </html>
