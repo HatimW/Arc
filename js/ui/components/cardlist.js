@@ -79,11 +79,6 @@ export function createItemCard(item, onChange){
   mainBtn.className = 'card-title-btn';
   mainBtn.textContent = item.name || item.concept || 'Untitled';
   mainBtn.setAttribute('aria-expanded', expanded.has(item.id));
-  mainBtn.addEventListener('click', () => {
-    if (expanded.has(item.id)) expanded.delete(item.id); else expanded.add(item.id);
-    card.classList.toggle('expanded');
-    mainBtn.setAttribute('aria-expanded', expanded.has(item.id));
-  });
   header.appendChild(mainBtn);
 
   const settings = document.createElement('div');
@@ -202,6 +197,7 @@ export function createItemCard(item, onChange){
   const body = document.createElement('div');
   body.className = 'card-body';
   card.appendChild(body);
+  let bodyRendered = false;
 
   function renderBody(){
     body.innerHTML = '';
@@ -270,19 +266,28 @@ export function createItemCard(item, onChange){
     }
   }
 
-  renderBody();
-  if (expanded.has(item.id)) card.classList.add('expanded');
-
-  function fit(){
-    const headerH = header.offsetHeight;
-    const maxH = card.clientHeight - headerH - 4;
-    let size = parseFloat(getComputedStyle(body).fontSize);
-    while(body.scrollHeight > maxH && size > 12){
-      size -= 1;
-      body.style.fontSize = size + 'px';
-    }
+  function ensureBodyRendered() {
+    if (bodyRendered) return;
+    renderBody();
+    bodyRendered = true;
   }
-  requestAnimationFrame(fit);
+
+  if (expanded.has(item.id)) {
+    ensureBodyRendered();
+    card.classList.add('expanded');
+  }
+
+  mainBtn.addEventListener('click', () => {
+    const isExpanded = expanded.has(item.id);
+    if (isExpanded) {
+      expanded.delete(item.id);
+    } else {
+      expanded.add(item.id);
+      ensureBodyRendered();
+    }
+    card.classList.toggle('expanded', !isExpanded);
+    mainBtn.setAttribute('aria-expanded', String(!isExpanded));
+  });
   return card;
 }
 
@@ -290,7 +295,8 @@ export async function renderCardList(container, itemSource, kind, onChange){
   container.innerHTML = '';
   const { blocks } = await loadBlockCatalog();
   const latestBlockId = resolveLatestBlockId(blocks);
-  const blockTitle = id => blocks.find(b => b.blockId === id)?.title || id;
+  const blockTitleMap = new Map(blocks.map(block => [block.blockId, block.title || block.blockId]));
+  const blockTitle = id => blockTitleMap.get(id) || id;
   const orderMap = new Map(blocks.map((b,i)=>[b.blockId,i]));
   const blockWeekMap = new Map();
   const allWeeks = new Set();
@@ -411,6 +417,9 @@ export async function renderCardList(container, itemSource, kind, onChange){
     }
   }
 
+  const filterGroup = document.createElement('div');
+  filterGroup.className = 'entry-toolbar-group entry-toolbar-filters';
+
   const filterControls = document.createElement('div');
   filterControls.className = 'entry-filter-controls';
 
@@ -485,7 +494,8 @@ export async function renderCardList(container, itemSource, kind, onChange){
     });
   }
 
-  toolbar.appendChild(filterControls);
+  filterGroup.appendChild(filterControls);
+  toolbar.appendChild(filterGroup);
   populateWeekFilter();
   const normalizedWeekFilter = currentWeekFilter === '' || currentWeekFilter == null
     ? ''
@@ -580,6 +590,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
   });
 
   sortControls.appendChild(directionBtn);
+  sortControls.classList.add('entry-toolbar-group');
   toolbar.appendChild(sortControls);
 
   const viewToggle = document.createElement('div');
@@ -611,6 +622,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
 
   viewToggle.appendChild(listBtn);
   viewToggle.appendChild(gridBtn);
+  viewToggle.classList.add('entry-toolbar-group');
   toolbar.appendChild(viewToggle);
 
   const controlsToggle = document.createElement('button');
@@ -621,6 +633,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
     setEntryLayout({ controlsVisible: !state.entryLayout.controlsVisible });
     updateToolbar();
   });
+  controlsToggle.classList.add('entry-toolbar-group');
   toolbar.appendChild(controlsToggle);
 
   const controlsWrap = document.createElement('div');
