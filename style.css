@@ -383,6 +383,7 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
   display: flex;
   flex-direction: column;
   gap: var(--pad);
+  min-width: 0;
 }
 
 .tab {
@@ -620,6 +621,7 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
+  min-width: 0;
 }
 
 .subtabs {
@@ -2853,11 +2855,11 @@ body[data-performance-mode='conservative'] .floating-header {
 }
 
 .block-section {
-  margin: var(--pad-sm) 0;
+  margin: calc(var(--pad-sm) * 0.8) 0;
 }
 
 .week-section {
-  margin-left: var(--pad-sm);
+  margin-left: calc(var(--pad-sm) * 0.6);
 }
 
 .chips {
@@ -3854,6 +3856,7 @@ button.builder-pill.builder-pill-outline {
   display: flex;
   flex-direction: column;
   gap: calc(var(--pad-sm) * var(--entry-scale));
+  min-width: 0;
 }
 
 .card-list.grid-layout {
@@ -4086,6 +4089,7 @@ button.builder-pill.builder-pill-outline {
   border-radius: var(--radius-lg);
   box-shadow: 0 14px 32px rgba(2, 6, 23, 0.4);
   width: 100%;
+  min-width: 0;
   font-size: calc(1rem * var(--card-scale));
   padding: calc(var(--pad) * 0.6 * var(--card-scale));
   transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
@@ -4141,6 +4145,8 @@ body[data-performance-mode='conservative'] .item-card:hover {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .card-title-btn:hover {
