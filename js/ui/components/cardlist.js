@@ -716,17 +716,6 @@ export async function renderCardList(container, itemSource, kind, onChange){
 
   updateToolbar();
 
-  if (!totalItems) {
-    const empty = document.createElement('div');
-    empty.className = 'cards-empty';
-    empty.innerHTML = `
-      <h3>No entries found</h3>
-      <p>Create a new entry or adjust your filters to get started.</p>
-    `;
-    container.appendChild(empty);
-    return;
-  }
-
   const blockKeys = sortedBlocks.map(b => String(b));
   function applyBlockActivation(nextKey) {
     const candidate = nextKey && blockKeys.includes(nextKey) ? nextKey : null;

@@ -228,12 +228,7 @@ function resolveScrollContainer(root) {
       const runner = root.querySelector('.exam-runner');
       if (runner) return runner;
     }
-    if (root.classList?.contains('exam-session')) {
-      return root;
-    }
-    if (root.classList?.contains('exam-view')) {
-      const scoped = root.closest?.('.tab-content');
-      if (scoped) return scoped;
+    if (root.classList?.contains('exam-view') || root.classList?.contains('exam-session')) {
       return root;
     }
     if (typeof root.closest === 'function') {
@@ -245,11 +240,7 @@ function resolveScrollContainer(root) {
     const runner = document.querySelector('.exam-session .exam-runner');
     if (runner) return runner;
     const view = document.querySelector('.exam-view');
-    if (view) {
-      const scoped = view.closest('.tab-content');
-      if (scoped) return scoped;
-      return view;
-    }
+    if (view) return view;
     const main = document.querySelector('main');
     if (main) return main;
   }
@@ -1681,48 +1672,6 @@ function enhanceExamMedia(container) {
   });
 }
 
-function captureExamMediaState(container) {
-  if (!container) return null;
-  const media = container.querySelector('.exam-main video, .exam-main audio, .exam-media video, .exam-media audio');
-  if (!media) return null;
-  const src = media.currentSrc || media.src || '';
-  if (!src) return null;
-  return {
-    src,
-    currentTime: Number.isFinite(media.currentTime) ? media.currentTime : 0,
-    paused: media.paused,
-    playbackRate: media.playbackRate,
-    volume: media.volume,
-    muted: media.muted
-  };
-}
-
-function restoreExamMediaState(container, state) {
-  if (!container || !state?.src) return;
-  const candidates = Array.from(container.querySelectorAll('video, audio'));
-  const target = candidates.find(el => (el.currentSrc || el.src) === state.src);
-  if (!target) return;
-  const apply = () => {
-    if (Number.isFinite(state.playbackRate)) target.playbackRate = state.playbackRate;
-    if (Number.isFinite(state.volume)) target.volume = state.volume;
-    target.muted = Boolean(state.muted);
-    if (Number.isFinite(state.currentTime)) {
-      const nextTime = Number.isFinite(target.duration)
-        ? Math.min(state.currentTime, Math.max(0, target.duration - 0.05))
-        : state.currentTime;
-      target.currentTime = Math.max(0, nextTime);
-    }
-    if (!state.paused) {
-      target.play().catch(() => {});
-    }
-  };
-  if (target.readyState >= 1) {
-    apply();
-  } else {
-    target.addEventListener('loadedmetadata', apply, { once: true });
-  }
-}
-
 function answerClass(question, selectedId, optionId) {
   const isCorrect = optionId === question.answer;
   if (selectedId == null) return isCorrect ? 'correct-answer' : '';
@@ -2050,7 +1999,6 @@ export function renderExamRunner(root, render) {
     ? Number(sess.__lastKnownScrollY) || 0
     : readScrollPosition(prevScroller);
   const questionChanged = typeof prevIdx === 'number' ? prevIdx !== sess.idx : false;
-  const mediaState = !questionChanged ? captureExamMediaState(root) : null;
   if (prevScroller && questionChanged && typeof prevIdx === 'number' && !hasPendingScroll) {
     storeScrollPosition(sess, prevIdx, prevScrollY);
   } else if (prevScroller && !questionChanged && typeof prevIdx !== 'number' && typeof sess.idx === 'number' && !hasPendingScroll) {
@@ -2479,7 +2427,7 @@ export function renderExamRunner(root, render) {
   nav.appendChild(navMiddle);
   nav.appendChild(navEnd);
 
-  root.appendChild(nav);
+  main.appendChild(nav);
 
   const scroller = resolveScrollContainer(root);
   const sameQuestion = prevIdx === sess.idx && prevMode === sess.mode;
@@ -2505,9 +2453,6 @@ export function renderExamRunner(root, render) {
       };
       queueFrame(restore);
     }
-  }
-  if (mediaState) {
-    restoreExamMediaState(root, mediaState);
   }
   sess.__pendingScrollRestore = false;
 }
