@@ -246,8 +246,8 @@ function resolveScrollContainer(root) {
     if (runner) return runner;
     const view = document.querySelector('.exam-view');
     if (view) return view;
-    const main = document.querySelector('main');
-    if (main) return main;
+    const mainElement = document.querySelector('main');
+    if (mainElement) return mainElement;
   }
   if (typeof window !== 'undefined') return window;
   return null;
