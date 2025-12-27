@@ -2113,6 +2113,10 @@ export function renderExamRunner(root, render) {
   sidebar.className = 'exam-sidebar';
   container.appendChild(sidebar);
 
+  const questionCard = document.createElement('div');
+  questionCard.className = 'exam-question-card';
+  main.appendChild(questionCard);
+
   const question = sess.exam.questions[sess.idx];
   const answers = sess.mode === 'review' ? sess.result.answers || {} : sess.answers || {};
   const selected = answers[sess.idx];
@@ -2172,16 +2176,16 @@ export function renderExamRunner(root, render) {
     }
     top.appendChild(exitReview);
   }
-  main.appendChild(top);
+  questionCard.appendChild(top);
 
   const stem = document.createElement('div');
   stem.className = 'exam-stem';
   const stemHtml = question.stem && !isEmptyHtml(question.stem) ? question.stem : '';
   stem.innerHTML = stemHtml || '<p class="exam-stem-empty">(No prompt)</p>';
-  main.appendChild(stem);
+  questionCard.appendChild(stem);
 
   const media = mediaElement(question.media);
-  if (media) main.appendChild(media);
+  if (media) questionCard.appendChild(media);
 
   if (question.tags?.length) {
     const tagWrap = document.createElement('div');
@@ -2192,7 +2196,7 @@ export function renderExamRunner(root, render) {
       chip.textContent = tag;
       tagWrap.appendChild(chip);
     });
-    main.appendChild(tagWrap);
+    questionCard.appendChild(tagWrap);
   }
 
   const optionsWrap = document.createElement('div');
@@ -2243,7 +2247,7 @@ export function renderExamRunner(root, render) {
     optionsWrap.appendChild(choice);
   });
 
-  main.appendChild(optionsWrap);
+  questionCard.appendChild(optionsWrap);
 
   if (showReview) {
     const verdict = document.createElement('div');
@@ -2261,7 +2265,7 @@ export function renderExamRunner(root, render) {
     }
     verdict.classList.add(verdictClass);
     verdict.textContent = sess.mode === 'review' ? verdictText : `Checked: ${verdictText}`;
-    main.appendChild(verdict);
+    questionCard.appendChild(verdict);
 
     const answerSummary = document.createElement('div');
     answerSummary.className = 'exam-answer-summary';
@@ -2287,7 +2291,7 @@ export function renderExamRunner(root, render) {
     answerSummaryList.appendChild(renderAnswerRow('Correct answer', optionHtml(question, question.answer)));
 
     answerSummary.appendChild(answerSummaryList);
-    main.appendChild(answerSummary);
+    questionCard.appendChild(answerSummary);
 
     if (sess.mode === 'review') {
       const stats = sess.result?.questionStats?.[sess.idx];
@@ -2356,7 +2360,7 @@ export function renderExamRunner(root, render) {
           changeInfo.append(message);
           insights.appendChild(changeInfo);
         }
-        main.appendChild(insights);
+        questionCard.appendChild(insights);
       }
     }
 
@@ -2370,7 +2374,7 @@ export function renderExamRunner(root, render) {
       body.innerHTML = question.explanation;
       explain.appendChild(title);
       explain.appendChild(body);
-      main.appendChild(explain);
+      questionCard.appendChild(explain);
     }
   }
 

@@ -297,6 +297,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
   collapsedWeeks.clear();
   activeBlockKey = null;
   const { blocks } = await loadBlockCatalog();
+  const blockIds = new Set((blocks || []).map(block => block?.blockId).filter(Boolean));
   const latestBlockId = resolveLatestBlockId(blocks);
   const blockTitleMap = new Map(blocks.map(block => [block.blockId, block.title || block.blockId]));
   const blockTitle = id => blockTitleMap.get(id) || id;
@@ -318,6 +319,37 @@ export async function renderCardList(container, itemSource, kind, onChange){
   });
   const sortedAllWeeks = Array.from(allWeeks).sort((a, b) => a - b);
   const groups = new Map();
+  const currentBlockFilter = typeof state.filters?.block === 'string' ? state.filters.block : '';
+  const currentWeekFilter = state.filters?.week ?? '';
+  const hasBlockFilter = Boolean(currentBlockFilter);
+  const isBlockValid = !hasBlockFilter || currentBlockFilter === '__unlabeled' || blockIds.has(currentBlockFilter);
+  let requestedWeek = null;
+  if (currentWeekFilter !== '' && currentWeekFilter != null) {
+    const parsed = Number(currentWeekFilter);
+    if (!Number.isNaN(parsed)) requestedWeek = parsed;
+  }
+  let shouldResetFilters = false;
+  const nextFilterPatch = {};
+  if (!isBlockValid) {
+    nextFilterPatch.block = '';
+    nextFilterPatch.week = '';
+    shouldResetFilters = true;
+  } else if (requestedWeek != null) {
+    const allowedWeeks = currentBlockFilter && currentBlockFilter !== '__unlabeled' && blockWeekMap.has(currentBlockFilter)
+      ? blockWeekMap.get(currentBlockFilter)
+      : sortedAllWeeks;
+    if (!allowedWeeks.includes(requestedWeek)) {
+      nextFilterPatch.week = '';
+      shouldResetFilters = true;
+    }
+  }
+  if (shouldResetFilters) {
+    setFilters(nextFilterPatch);
+    if (typeof onChange === 'function') {
+      onChange();
+      return;
+    }
+  }
 
   let totalItems = 0;
 
@@ -428,9 +460,6 @@ export async function renderCardList(container, itemSource, kind, onChange){
 
   const filterControls = document.createElement('div');
   filterControls.className = 'entry-filter-controls';
-
-  const currentBlockFilter = typeof state.filters?.block === 'string' ? state.filters.block : '';
-  const currentWeekFilter = state.filters?.week ?? '';
 
   const blockFilterLabel = document.createElement('label');
   blockFilterLabel.className = 'entry-filter-select';
