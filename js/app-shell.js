@@ -39,6 +39,46 @@ export function createAppShell({
   let main = null;
   let pendingQuery = '';
   let queryUpdateTimer = 0;
+  const tabScrollState = new Map();
+
+  function buildScrollKey() {
+    const activeTab = state.tab || '';
+    const subtab = state.subtab?.[activeTab] || '';
+    if (activeTab === 'Study') {
+      const mode = state.flashSession
+        ? 'flash'
+        : state.quizSession
+          ? 'quiz'
+          : (subtab || 'builder');
+      return `${activeTab}:${mode}`;
+    }
+    if (activeTab === 'Exams') {
+      return `${activeTab}:${state.examSession ? 'session' : 'list'}`;
+    }
+    return subtab ? `${activeTab}:${subtab}` : activeTab;
+  }
+
+  function captureTabScroll() {
+    if (!main) return;
+    const content = main.querySelector('.tab-content');
+    if (!content) return;
+    tabScrollState.set(buildScrollKey(), {
+      top: content.scrollTop,
+      left: content.scrollLeft
+    });
+  }
+
+  function restoreTabScroll(content) {
+    if (!content) return;
+    const snapshot = tabScrollState.get(buildScrollKey());
+    if (!snapshot) return;
+    if (typeof content.scrollTo === 'function') {
+      content.scrollTo({ top: snapshot.top, left: snapshot.left, behavior: 'auto' });
+    } else {
+      content.scrollTop = snapshot.top;
+      content.scrollLeft = snapshot.left;
+    }
+  }
 
   function ensureShell() {
     if (shell) return shell;
@@ -55,7 +95,18 @@ export function createAppShell({
     left.className = 'header-left';
     const brand = document.createElement('div');
     brand.className = 'brand';
-    brand.textContent = 'Arc';
+    brand.innerHTML = `
+      <svg class="brand-icon" viewBox="0 0 80 80" aria-hidden="true" focusable="false">
+        <defs>
+          <path id="brand-arc-path" d="M40 8a32 32 0 1 1 0 64a32 32 0 1 1 0-64Z" />
+        </defs>
+        <circle cx="40" cy="40" r="24" fill="#ffffff" />
+        <text class="brand-icon-text">
+          <textPath href="#brand-arc-path" startOffset="50%" text-anchor="middle">ARC</textPath>
+        </text>
+      </svg>
+      <span class="sr-only">Arc</span>
+    `;
     left.appendChild(brand);
 
     const nav = document.createElement('nav');
@@ -201,6 +252,7 @@ export function createAppShell({
       });
     }
 
+    captureTabScroll();
     main.innerHTML = '';
 
 
@@ -253,6 +305,7 @@ export function createAppShell({
       const query = findItemsByFilter(filter);
       const renderPromise = renderCardList(listHost, query, kind, renderApp);
       await Promise.all([entryControlPromise, renderPromise]);
+      restoreTabScroll(content);
     } else if (state.tab === 'Block Board') {
       const content = document.createElement('div');
       content.className = 'tab-content';
@@ -268,11 +321,13 @@ export function createAppShell({
         });
       const renderPromise = renderBlockBoard(content, renderApp);
       await Promise.all([entryControlPromise, renderPromise]);
+      restoreTabScroll(content);
     } else if (state.tab === 'Lectures') {
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
       await renderLectures(content, renderApp);
+      restoreTabScroll(content);
     } else if (state.tab === 'Cards') {
       const content = document.createElement('div');
       content.className = 'tab-content';
@@ -291,6 +346,7 @@ export function createAppShell({
       const itemsPromise = query.toArray();
       const cardsPromise = itemsPromise.then(items => renderCards(content, items, renderApp));
       await Promise.all([entryControlPromise, cardsPromise]);
+      restoreTabScroll(content);
     } else if (state.tab === 'Study') {
       const content = document.createElement('div');
       content.className = 'tab-content';
@@ -334,6 +390,7 @@ export function createAppShell({
           await Promise.all([entryControlPromise, builderPromise]);
         }
       }
+      restoreTabScroll(content);
     } else if (state.tab === 'Exams') {
       const content = document.createElement('div');
       content.className = 'tab-content';
@@ -358,6 +415,7 @@ export function createAppShell({
           renderExams(content, renderApp)
         ]);
       }
+      restoreTabScroll(content);
     } else {
       main.textContent = `Currently viewing: ${state.tab}`;
     }
