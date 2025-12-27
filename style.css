@@ -261,8 +261,8 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
 .brand-icon-text {
   font-family: 'Inter', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
   font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.4em;
+  font-size: 14px;
+  letter-spacing: 0.25em;
   text-transform: uppercase;
   fill: #8b5cf6;
 }
@@ -6322,12 +6322,23 @@ button.exam-card-caret::before {
   display: flex;
   flex-direction: column;
   gap: var(--pad);
-  padding-top: var(--pad);
-  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  padding-top: 0;
+  border-top: 1px solid transparent;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: max-height 0.35s ease, opacity 0.25s ease, transform 0.25s ease, padding-top 0.25s ease, border-color 0.25s ease;
 }
 
-.exam-card-details[hidden] {
-  display: none;
+.exam-card--expanded .exam-card-details {
+  padding-top: var(--pad);
+  border-top-color: rgba(148, 163, 184, 0.18);
+  max-height: 2000px;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
 .exam-stat {
@@ -6472,6 +6483,12 @@ button.exam-card-caret::before {
   transition: opacity 0.24s ease, transform 0.24s ease;
 }
 
+.exam-card-menu--up .exam-card-menu-panel {
+  top: auto;
+  bottom: calc(100% + 14px);
+  transform: translateY(10px) scale(0.98);
+}
+
 .exam-card-menu-panel::before {
   content: '';
   position: absolute;
@@ -6491,6 +6508,10 @@ button.exam-card-caret::before {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
+}
+
+.exam-card-menu--up.exam-card-menu--open .exam-card-menu-panel {
+  transform: translateY(0) scale(1);
 }
 
 .exam-card-menu-item {
@@ -6737,10 +6758,21 @@ button.exam-card-caret::before {
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+.exam-attempt-row--incorrect-review {
+  background: rgba(88, 7, 23, 0.45);
+  border-color: rgba(190, 18, 60, 0.55);
+  box-shadow: inset 0 1px 0 rgba(248, 113, 113, 0.35);
+}
+
 .exam-attempt-row:hover {
   transform: translateY(-1px);
   border-color: rgba(56, 189, 248, 0.4);
   box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.22);
+}
+
+.exam-attempt-row--incorrect-review:hover {
+  border-color: rgba(244, 63, 94, 0.75);
+  box-shadow: inset 0 1px 0 rgba(248, 113, 113, 0.55);
 }
 
 .exam-attempt-main {
@@ -6783,6 +6815,19 @@ button.exam-card-caret::before {
   min-width: 0;
 }
 
+.exam-attempt-review--incorrect {
+  border-color: rgba(190, 18, 60, 0.65);
+  color: rgba(254, 202, 202, 0.95);
+  background: rgba(127, 29, 29, 0.35);
+}
+
+.exam-attempt-review--incorrect:hover,
+.exam-attempt-review--incorrect:focus-visible {
+  border-color: rgba(225, 29, 72, 0.75);
+  background: rgba(190, 18, 60, 0.4);
+  color: rgba(254, 226, 226, 0.98);
+}
+
 .exam-attempt-actions {
   display: flex;
   flex-wrap: wrap;
@@ -6823,9 +6868,14 @@ button.exam-card-caret::before {
   min-height: 0;
 }
 
+.exam-editor-body.is-sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .exam-editor-sidebar {
   position: sticky;
   top: var(--pad-lg);
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: var(--pad);
@@ -6835,6 +6885,17 @@ button.exam-card-caret::before {
   background: rgba(15, 23, 42, 0.7);
   max-height: calc(100vh - 160px);
   overflow: auto;
+}
+
+.exam-editor-sidebar.is-collapsed {
+  display: none;
+}
+
+.exam-editor-sidebar-toggle {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 10px;
 }
 
 .exam-editor-sidebar-title {
@@ -7106,8 +7167,8 @@ button.exam-card-caret::before {
   flex-direction: column;
   gap: var(--pad-lg);
   padding: var(--pad-lg);
-  min-height: 100vh;
-  height: 100vh;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -7414,7 +7475,10 @@ button.exam-card-caret::before {
   padding: var(--pad);
   border-radius: var(--radius);
   border: 1px solid rgba(148, 163, 184, 0.2);
-  background: transparent;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  bottom: var(--pad);
   flex-shrink: 0;
   z-index: 5;
 }

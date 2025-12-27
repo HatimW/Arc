@@ -97,13 +97,8 @@ export function createAppShell({
     brand.className = 'brand';
     brand.innerHTML = `
       <svg class="brand-icon" viewBox="0 0 80 80" aria-hidden="true" focusable="false">
-        <defs>
-          <path id="brand-arc-path" d="M40 8a32 32 0 1 1 0 64a32 32 0 1 1 0-64Z" />
-        </defs>
         <circle cx="40" cy="40" r="24" fill="#ffffff" />
-        <text class="brand-icon-text">
-          <textPath href="#brand-arc-path" startOffset="50%" text-anchor="middle">ARC</textPath>
-        </text>
+        <text class="brand-icon-text" x="40" y="22" text-anchor="middle">ARC</text>
       </svg>
       <span class="sr-only">Arc</span>
     `;
