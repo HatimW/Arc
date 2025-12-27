@@ -717,10 +717,15 @@ export async function renderCardList(container, itemSource, kind, onChange){
   updateToolbar();
 
   const blockKeys = sortedBlocks.map(b => String(b));
-  function applyBlockActivation(nextKey) {
+  let showAllBlocks = false;
+  function applyBlockActivation(nextKey, { mode = 'single' } = {}) {
     const candidate = nextKey && blockKeys.includes(nextKey) ? nextKey : null;
-    activeBlockKey = candidate;
+    activeBlockKey = mode === 'single' ? candidate : null;
+    showAllBlocks = mode === 'all';
     collapsedBlocks.clear();
+    if (showAllBlocks) {
+      return;
+    }
     if (!activeBlockKey) {
       blockKeys.forEach(key => collapsedBlocks.add(key));
     } else {
@@ -739,9 +744,13 @@ export async function renderCardList(container, itemSource, kind, onChange){
     const initial = preferred
       || (activeBlockKey && blockKeys.includes(activeBlockKey) ? activeBlockKey : null)
       || blockKeys[0];
-    applyBlockActivation(initial);
+    if (!currentBlockFilter && !currentWeekFilter) {
+      applyBlockActivation(null, { mode: 'all' });
+    } else {
+      applyBlockActivation(initial);
+    }
   } else {
-    applyBlockActivation(null);
+    applyBlockActivation(null, { mode: 'all' });
   }
 
   const blockUpdaters = new Map();
@@ -779,7 +788,13 @@ export async function renderCardList(container, itemSource, kind, onChange){
     updateBlockState();
     blockHeader.addEventListener('click', () => {
       const isCollapsed = collapsedBlocks.has(blockKey);
-      if (isCollapsed) {
+      if (showAllBlocks) {
+        if (isCollapsed) {
+          collapsedBlocks.delete(blockKey);
+        } else {
+          collapsedBlocks.add(blockKey);
+        }
+      } else if (isCollapsed) {
         applyBlockActivation(blockKey);
       } else if (activeBlockKey === blockKey) {
         applyBlockActivation(null);
