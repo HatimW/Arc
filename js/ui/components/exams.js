@@ -2249,6 +2249,7 @@ export function renderExamRunner(root, render) {
 
   questionCard.appendChild(optionsWrap);
 
+  let explanationPanel = null;
   if (showReview) {
     const verdict = document.createElement('div');
     verdict.className = 'exam-verdict';
@@ -2374,8 +2375,12 @@ export function renderExamRunner(root, render) {
       body.innerHTML = question.explanation;
       explain.appendChild(title);
       explain.appendChild(body);
-      questionCard.appendChild(explain);
+      explanationPanel = explain;
     }
+  }
+
+  if (explanationPanel) {
+    main.appendChild(explanationPanel);
   }
 
   enhanceExamMedia(main);
