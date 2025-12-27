@@ -297,14 +297,19 @@ export async function renderCardList(container, itemSource, kind, onChange){
   collapsedWeeks.clear();
   activeBlockKey = null;
   const { blocks } = await loadBlockCatalog();
-  const blockIds = new Set((blocks || []).map(block => block?.blockId).filter(Boolean));
-  const latestBlockId = resolveLatestBlockId(blocks);
-  const blockTitleMap = new Map(blocks.map(block => [block.blockId, block.title || block.blockId]));
+  const normalizedBlocks = Array.isArray(blocks)
+    ? blocks.filter(block => block && typeof block === 'object')
+    : [];
+  const blockIds = new Set(normalizedBlocks.map(block => block?.blockId).filter(Boolean));
+  const latestBlockId = resolveLatestBlockId(normalizedBlocks);
+  const blockTitleMap = new Map(
+    normalizedBlocks.map(block => [block.blockId, block.title || block.blockId])
+  );
   const blockTitle = id => blockTitleMap.get(id) || id;
-  const orderMap = new Map(blocks.map((b,i)=>[b.blockId,i]));
+  const orderMap = new Map(normalizedBlocks.map((b,i)=>[b.blockId,i]));
   const blockWeekMap = new Map();
   const allWeeks = new Set();
-  blocks.forEach(block => {
+  normalizedBlocks.forEach(block => {
     if (!block) return;
     const weeks = new Set();
     if (Number.isFinite(block.weeks)) {
@@ -471,7 +476,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
     { value: '', label: 'All blocks' },
     { value: '__unlabeled', label: 'Unlabeled' }
   ];
-  blocks.forEach(block => {
+  normalizedBlocks.forEach(block => {
     if (!block) return;
     blockOptions.push({ value: block.blockId, label: blockTitle(block.blockId) });
   });
@@ -795,7 +800,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
     blockHeader.className = 'block-header';
     const blockLabel = b === '_' ? 'Unassigned' : blockTitle(b);
     const blockKey = String(b);
-    const bdef = blocks.find(bl => bl.blockId === b);
+    const bdef = normalizedBlocks.find(bl => bl.blockId === b);
     if (bdef?.color) blockHeader.style.background = bdef.color;
     const weekEntries = [];
     const ensureVisibleWeeks = () => {
