@@ -1202,15 +1202,6 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
   caret.className = 'exam-card-caret';
   caret.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
   caret.setAttribute('aria-label', isExpanded ? 'Collapse exam details' : 'Expand exam details');
-  caret.addEventListener('click', event => {
-    event.stopPropagation();
-    const nextExpanded = !isExpanded;
-    if (nextExpanded) {
-      state.examAttemptExpanded = {};
-    }
-    setExamAttemptExpanded(exam.id, nextExpanded);
-    render();
-  });
   summary.appendChild(caret);
 
   const quickAction = document.createElement('div');
@@ -1312,6 +1303,13 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
 
   function openMenu() {
     if (menuOpen) return;
+    const toggleRect = menuToggle.getBoundingClientRect();
+    const panelHeight = menuPanel.scrollHeight;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const spaceBelow = viewportHeight - toggleRect.bottom;
+    const spaceAbove = toggleRect.top;
+    const shouldOpenUp = panelHeight > spaceBelow && spaceAbove > spaceBelow;
+    menuWrap.classList.toggle('exam-card-menu--up', shouldOpenUp);
     menuOpen = true;
     menuWrap.classList.add('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'true');
@@ -1418,9 +1416,7 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
 
   const details = document.createElement('div');
   details.className = 'exam-card-details';
-  if (!isExpanded) {
-    details.setAttribute('hidden', 'true');
-  }
+  details.setAttribute('aria-hidden', isExpanded ? 'false' : 'true');
   card.appendChild(details);
 
   if (savedSession) {
@@ -1462,12 +1458,51 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
 
   details.appendChild(attemptsWrap);
 
+  const setExpandedState = expanded => {
+    card.classList.toggle('exam-card--expanded', expanded);
+    details.setAttribute('aria-hidden', expanded ? 'false' : 'true');
+    caret.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    caret.setAttribute('aria-label', expanded ? 'Collapse exam details' : 'Expand exam details');
+  };
+
+  setExpandedState(isExpanded);
+
+  caret.addEventListener('click', event => {
+    event.stopPropagation();
+    const nextExpanded = !card.classList.contains('exam-card--expanded');
+    if (nextExpanded) {
+      state.examAttemptExpanded = {};
+    }
+    setExamAttemptExpanded(exam.id, nextExpanded);
+    const gridEl = card.closest('.exam-grid');
+    if (gridEl) {
+      gridEl.querySelectorAll('.exam-card--expanded').forEach(other => {
+        if (other === card) return;
+        other.classList.remove('exam-card--expanded');
+        const otherDetails = other.querySelector('.exam-card-details');
+        if (otherDetails) {
+          otherDetails.setAttribute('aria-hidden', 'true');
+        }
+        const otherCaret = other.querySelector('.exam-card-caret');
+        if (otherCaret) {
+          otherCaret.setAttribute('aria-expanded', 'false');
+          otherCaret.setAttribute('aria-label', 'Expand exam details');
+        }
+      });
+    }
+    setExpandedState(nextExpanded);
+  });
+
   return card;
 }
 
 function buildAttemptRow(exam, result, render) {
   const row = document.createElement('div');
   row.className = 'exam-attempt-row';
+  const isIncorrectReview = Array.isArray(result.subsetIndices) && result.subsetIndices.length > 0;
+  if (isIncorrectReview) {
+    row.classList.add('exam-attempt-row--incorrect-review');
+  }
 
   const wrongIndices = incorrectQuestionIndices(exam, result);
 
@@ -1503,6 +1538,9 @@ function buildAttemptRow(exam, result, render) {
 
   const review = document.createElement('button');
   review.className = 'btn secondary exam-attempt-review';
+  if (isIncorrectReview) {
+    review.classList.add('exam-attempt-review--incorrect');
+  }
   review.textContent = 'Review';
   review.addEventListener('click', () => {
     const reviewPacket = resolveReviewPacket(exam, result);
@@ -2820,7 +2858,10 @@ function openExamEditor(existing, render) {
   sidebarHeading.textContent = 'Jump to question';
   const sidebarCount = document.createElement('span');
   sidebarCount.className = 'exam-editor-sidebar-count';
-  sidebarTitle.append(sidebarHeading, sidebarCount);
+  const sidebarToggle = document.createElement('button');
+  sidebarToggle.type = 'button';
+  sidebarToggle.className = 'btn subtle exam-editor-sidebar-toggle';
+  sidebarTitle.append(sidebarHeading, sidebarCount, sidebarToggle);
   sidebar.appendChild(sidebarTitle);
   const navList = document.createElement('div');
   navList.className = 'exam-editor-nav-list';
@@ -2835,6 +2876,9 @@ function openExamEditor(existing, render) {
   questionsHeader.className = 'exam-question-header';
   const qTitle = document.createElement('h3');
   qTitle.textContent = 'Questions';
+  const mainSidebarToggle = document.createElement('button');
+  mainSidebarToggle.type = 'button';
+  mainSidebarToggle.className = 'btn secondary exam-editor-sidebar-toggle';
   const addQuestion = document.createElement('button');
   addQuestion.type = 'button';
   addQuestion.className = 'btn secondary';
@@ -2844,7 +2888,7 @@ function openExamEditor(existing, render) {
     markDirty();
     scheduleRenderQuestions();
   });
-  questionsHeader.append(qTitle, addQuestion);
+  questionsHeader.append(qTitle, mainSidebarToggle, addQuestion);
   mainColumn.appendChild(questionsHeader);
 
   const questionSection = document.createElement('div');
@@ -3167,9 +3211,17 @@ function openExamEditor(existing, render) {
 
   const scheduleRenderQuestions = (() => {
     let scheduled = false;
-    const schedule = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
-      ? window.requestAnimationFrame.bind(window)
-      : (cb) => setTimeout(cb, 0);
+    const schedule = (cb) => {
+      if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(cb, { timeout: 200 });
+        return;
+      }
+      if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(cb);
+        return;
+      }
+      setTimeout(cb, 0);
+    };
     return () => {
       if (scheduled) return;
       scheduled = true;
@@ -3198,6 +3250,29 @@ function openExamEditor(existing, render) {
   actions.appendChild(closeBtn);
 
   sidebar.appendChild(actions);
+
+  let isSidebarCollapsed = false;
+  const syncSidebarState = () => {
+    sidebar.classList.toggle('is-collapsed', isSidebarCollapsed);
+    bodySection.classList.toggle('is-sidebar-collapsed', isSidebarCollapsed);
+    const label = isSidebarCollapsed ? 'Show jump list' : 'Hide jump list';
+    const text = isSidebarCollapsed ? 'Show Jump List' : 'Hide Jump List';
+    [sidebarToggle, mainSidebarToggle].forEach(btn => {
+      btn.textContent = text;
+      btn.setAttribute('aria-expanded', isSidebarCollapsed ? 'false' : 'true');
+      btn.setAttribute('aria-label', label);
+    });
+  };
+
+  const toggleSidebar = () => {
+    isSidebarCollapsed = !isSidebarCollapsed;
+    syncSidebarState();
+  };
+
+  [sidebarToggle, mainSidebarToggle].forEach(btn => {
+    btn.addEventListener('click', toggleSidebar);
+  });
+  syncSidebarState();
 
   async function persistExam() {
     error.textContent = '';
