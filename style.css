@@ -261,8 +261,8 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
 .brand-icon-text {
   font-family: 'Inter', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
   font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.25em;
+  font-size: 16px;
+  letter-spacing: 0.32em;
   text-transform: uppercase;
   fill: #8b5cf6;
 }
@@ -6866,10 +6866,12 @@ button.exam-card-caret::before {
   gap: var(--pad-lg);
   align-items: start;
   min-height: 0;
+  position: relative;
 }
 
 .exam-editor-body.is-sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 0 minmax(0, 1fr);
+  gap: var(--pad);
 }
 
 .exam-editor-sidebar {
@@ -6884,11 +6886,15 @@ button.exam-card-caret::before {
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(15, 23, 42, 0.7);
   max-height: calc(100vh - 160px);
-  overflow: auto;
+  overflow: visible;
 }
 
 .exam-editor-sidebar.is-collapsed {
-  display: none;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
 }
 
 .exam-editor-sidebar-toggle {
@@ -6896,6 +6902,37 @@ button.exam-card-caret::before {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 6px 10px;
+}
+
+.exam-editor-sidebar.is-collapsed > :not(.exam-editor-sidebar-handle) {
+  display: none;
+}
+
+.exam-editor-sidebar-handle {
+  position: absolute;
+  top: 50%;
+  right: -14px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 64px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.9);
+  color: rgba(226, 232, 240, 0.95);
+  font-size: 1.15rem;
+  line-height: 1;
+  box-shadow: 0 18px 30px rgba(2, 6, 23, 0.5);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.exam-editor-sidebar-handle:hover,
+.exam-editor-sidebar-handle:focus-visible {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(30, 64, 175, 0.85);
 }
 
 .exam-editor-sidebar-title {
@@ -6920,6 +6957,10 @@ button.exam-card-caret::before {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
   gap: var(--pad-sm);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .exam-editor-nav-item {
@@ -7180,7 +7221,7 @@ button.exam-card-caret::before {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: var(--pad);
+  padding-bottom: calc(var(--pad-lg) * 1.4);
   scrollbar-gutter: stable both-edges;
 }
 
@@ -7481,6 +7522,7 @@ button.exam-card-caret::before {
   bottom: var(--pad);
   flex-shrink: 0;
   z-index: 5;
+  grid-column: 1 / -1;
 }
 
 .exam-nav-arrow {
@@ -7795,16 +7837,18 @@ button.question-map__item[data-change-direction="returned"] {
   color: rgba(254, 226, 226, 0.98);
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .exam-runner {
     grid-template-columns: 1fr;
   }
 
   .exam-sidebar {
+    order: 2;
     max-height: none;
   }
 
   .exam-main {
+    order: 1;
     max-height: none;
     overflow: visible;
   }

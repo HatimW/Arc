@@ -28,7 +28,7 @@ export function createAppShell({
 
   function resolveListKind() {
     const active = state?.subtab?.Lists;
-    const match = listTabConfig.find(cfg => cfg.label === active);
+    const match = listTabConfig.find(cfg => cfg.label === active || cfg.kind === active);
     return match ? match.kind : 'disease';
   }
 
@@ -98,7 +98,12 @@ export function createAppShell({
     brand.innerHTML = `
       <svg class="brand-icon" viewBox="0 0 80 80" aria-hidden="true" focusable="false">
         <circle cx="40" cy="40" r="24" fill="#ffffff" />
-        <text class="brand-icon-text" x="40" y="22" text-anchor="middle">ARC</text>
+        <defs>
+          <path id="brand-text-path" d="M40 40m-22 0a22 22 0 1 1 44 0a22 22 0 1 1-44 0" />
+        </defs>
+        <text class="brand-icon-text">
+          <textPath href="#brand-text-path" startOffset="50%" text-anchor="middle">ARC</textPath>
+        </text>
       </svg>
       <span class="sr-only">Arc</span>
     `;
