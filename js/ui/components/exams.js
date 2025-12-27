@@ -2427,7 +2427,7 @@ export function renderExamRunner(root, render) {
   nav.appendChild(navMiddle);
   nav.appendChild(navEnd);
 
-  container.appendChild(nav);
+  root.appendChild(nav);
 
   const scroller = resolveScrollContainer(root);
   const sameQuestion = prevIdx === sess.idx && prevMode === sess.mode;
@@ -2775,16 +2775,6 @@ function openExamEditor(existing, render) {
     }
   });
 
-  if (typeof window !== 'undefined') {
-    const element = floating.element;
-    const width = element.offsetWidth || 980;
-    const height = element.offsetHeight || 640;
-    const left = Math.max(24, Math.round((window.innerWidth - width) / 2));
-    const top = Math.max(24, Math.round((window.innerHeight - height) / 2));
-    element.style.left = `${left}px`;
-    element.style.top = `${top}px`;
-  }
-
   const form = document.createElement('form');
   form.className = 'exam-editor';
   floating.body.appendChild(form);
@@ -2868,7 +2858,10 @@ function openExamEditor(existing, render) {
   sidebarHeading.textContent = 'Jump to question';
   const sidebarCount = document.createElement('span');
   sidebarCount.className = 'exam-editor-sidebar-count';
-  sidebarTitle.append(sidebarHeading, sidebarCount);
+  const sidebarToggle = document.createElement('button');
+  sidebarToggle.type = 'button';
+  sidebarToggle.className = 'btn subtle exam-editor-sidebar-toggle';
+  sidebarTitle.append(sidebarHeading, sidebarCount, sidebarToggle);
   sidebar.appendChild(sidebarTitle);
   const navList = document.createElement('div');
   navList.className = 'exam-editor-nav-list';
@@ -2883,6 +2876,9 @@ function openExamEditor(existing, render) {
   questionsHeader.className = 'exam-question-header';
   const qTitle = document.createElement('h3');
   qTitle.textContent = 'Questions';
+  const mainSidebarToggle = document.createElement('button');
+  mainSidebarToggle.type = 'button';
+  mainSidebarToggle.className = 'btn secondary exam-editor-sidebar-toggle';
   const addQuestion = document.createElement('button');
   addQuestion.type = 'button';
   addQuestion.className = 'btn secondary';
@@ -2892,7 +2888,7 @@ function openExamEditor(existing, render) {
     markDirty();
     scheduleRenderQuestions();
   });
-  questionsHeader.append(qTitle, addQuestion);
+  questionsHeader.append(qTitle, mainSidebarToggle, addQuestion);
   mainColumn.appendChild(questionsHeader);
 
   const questionSection = document.createElement('div');
@@ -3216,6 +3212,10 @@ function openExamEditor(existing, render) {
   const scheduleRenderQuestions = (() => {
     let scheduled = false;
     const schedule = (cb) => {
+      if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(cb, { timeout: 200 });
+        return;
+      }
       if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
         window.requestAnimationFrame(cb);
         return;
@@ -3232,7 +3232,7 @@ function openExamEditor(existing, render) {
     };
   })();
 
-  renderQuestions();
+  scheduleRenderQuestions();
 
   const actions = document.createElement('div');
   actions.className = 'exam-editor-actions exam-editor-actions--sidebar';
@@ -3251,20 +3251,17 @@ function openExamEditor(existing, render) {
 
   sidebar.appendChild(actions);
 
-  const sidebarHandle = document.createElement('button');
-  sidebarHandle.type = 'button';
-  sidebarHandle.className = 'exam-editor-sidebar-handle';
-  sidebar.appendChild(sidebarHandle);
-
   let isSidebarCollapsed = false;
   const syncSidebarState = () => {
     sidebar.classList.toggle('is-collapsed', isSidebarCollapsed);
     bodySection.classList.toggle('is-sidebar-collapsed', isSidebarCollapsed);
     const label = isSidebarCollapsed ? 'Show jump list' : 'Hide jump list';
-    const icon = isSidebarCollapsed ? '›' : '‹';
-    sidebarHandle.setAttribute('aria-expanded', isSidebarCollapsed ? 'false' : 'true');
-    sidebarHandle.setAttribute('aria-label', label);
-    sidebarHandle.textContent = icon;
+    const text = isSidebarCollapsed ? 'Show Jump List' : 'Hide Jump List';
+    [sidebarToggle, mainSidebarToggle].forEach(btn => {
+      btn.textContent = text;
+      btn.setAttribute('aria-expanded', isSidebarCollapsed ? 'false' : 'true');
+      btn.setAttribute('aria-label', label);
+    });
   };
 
   const toggleSidebar = () => {
@@ -3272,7 +3269,9 @@ function openExamEditor(existing, render) {
     syncSidebarState();
   };
 
-  sidebarHandle.addEventListener('click', toggleSidebar);
+  [sidebarToggle, mainSidebarToggle].forEach(btn => {
+    btn.addEventListener('click', toggleSidebar);
+  });
   syncSidebarState();
 
   async function persistExam() {
