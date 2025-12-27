@@ -261,8 +261,8 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
 .brand-icon-text {
   font-family: 'Inter', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
   font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.25em;
+  font-size: 18px;
+  letter-spacing: 0.28em;
   text-transform: uppercase;
   fill: #8b5cf6;
 }
@@ -6866,6 +6866,7 @@ button.exam-card-caret::before {
   gap: var(--pad-lg);
   align-items: start;
   min-height: 0;
+  position: relative;
 }
 
 .exam-editor-body.is-sidebar-collapsed {
@@ -6891,11 +6892,30 @@ button.exam-card-caret::before {
   display: none;
 }
 
-.exam-editor-sidebar-toggle {
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 6px 10px;
+.exam-editor-window .exam-editor-sidebar-handle {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 68px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.8);
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 1.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.4);
+}
+
+.exam-editor-window .exam-editor-sidebar-handle:hover,
+.exam-editor-window .exam-editor-sidebar-handle:focus-visible {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(30, 64, 175, 0.35);
+  color: rgba(224, 242, 254, 0.95);
 }
 
 .exam-editor-sidebar-title {
@@ -7175,7 +7195,7 @@ button.exam-card-caret::before {
 .exam-runner {
   display: grid;
   gap: var(--pad-lg);
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
   align-items: start;
   flex: 1;
   min-height: 0;
@@ -7795,16 +7815,18 @@ button.question-map__item[data-change-direction="returned"] {
   color: rgba(254, 226, 226, 0.98);
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .exam-runner {
     grid-template-columns: 1fr;
   }
 
   .exam-sidebar {
+    order: 2;
     max-height: none;
   }
 
   .exam-main {
+    order: 1;
     max-height: none;
     overflow: visible;
   }

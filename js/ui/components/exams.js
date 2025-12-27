@@ -2427,7 +2427,7 @@ export function renderExamRunner(root, render) {
   nav.appendChild(navMiddle);
   nav.appendChild(navEnd);
 
-  root.appendChild(nav);
+  main.appendChild(nav);
 
   const scroller = resolveScrollContainer(root);
   const sameQuestion = prevIdx === sess.idx && prevMode === sess.mode;
@@ -2774,6 +2774,7 @@ function openExamEditor(existing, render) {
       return false;
     }
   });
+  floating.element.classList.add('exam-editor-window');
 
   const form = document.createElement('form');
   form.className = 'exam-editor';
@@ -2852,16 +2853,14 @@ function openExamEditor(existing, render) {
 
   const sidebar = document.createElement('aside');
   sidebar.className = 'exam-editor-sidebar';
+  sidebar.id = `exam-editor-sidebar-${exam.id}`;
   const sidebarTitle = document.createElement('div');
   sidebarTitle.className = 'exam-editor-sidebar-title';
   const sidebarHeading = document.createElement('h4');
   sidebarHeading.textContent = 'Jump to question';
   const sidebarCount = document.createElement('span');
   sidebarCount.className = 'exam-editor-sidebar-count';
-  const sidebarToggle = document.createElement('button');
-  sidebarToggle.type = 'button';
-  sidebarToggle.className = 'btn subtle exam-editor-sidebar-toggle';
-  sidebarTitle.append(sidebarHeading, sidebarCount, sidebarToggle);
+  sidebarTitle.append(sidebarHeading, sidebarCount);
   sidebar.appendChild(sidebarTitle);
   const navList = document.createElement('div');
   navList.className = 'exam-editor-nav-list';
@@ -2876,9 +2875,6 @@ function openExamEditor(existing, render) {
   questionsHeader.className = 'exam-question-header';
   const qTitle = document.createElement('h3');
   qTitle.textContent = 'Questions';
-  const mainSidebarToggle = document.createElement('button');
-  mainSidebarToggle.type = 'button';
-  mainSidebarToggle.className = 'btn secondary exam-editor-sidebar-toggle';
   const addQuestion = document.createElement('button');
   addQuestion.type = 'button';
   addQuestion.className = 'btn secondary';
@@ -2888,7 +2884,7 @@ function openExamEditor(existing, render) {
     markDirty();
     scheduleRenderQuestions();
   });
-  questionsHeader.append(qTitle, mainSidebarToggle, addQuestion);
+  questionsHeader.append(qTitle, addQuestion);
   mainColumn.appendChild(questionsHeader);
 
   const questionSection = document.createElement('div');
@@ -2913,9 +2909,16 @@ function openExamEditor(existing, render) {
       return;
     }
 
-    const fragment = document.createDocumentFragment();
+    let renderIndex = 0;
+    const QUESTION_CHUNK_SIZE = 3;
 
-    exam.questions.forEach((question, idx) => {
+    function renderChunk() {
+      const fragment = document.createDocumentFragment();
+      const navFragment = document.createDocumentFragment();
+      const slice = exam.questions.slice(renderIndex, renderIndex + QUESTION_CHUNK_SIZE);
+
+      slice.forEach((question, offset) => {
+        const idx = renderIndex + offset;
       const card = document.createElement('div');
       card.className = 'exam-question-editor';
       const questionId = question.id || `idx-${idx}`;
@@ -3193,7 +3196,7 @@ function openExamEditor(existing, render) {
           card.classList.remove('exam-question-editor--highlight');
         }, 1200);
       });
-      navList.appendChild(navButton);
+      navFragment.appendChild(navButton);
 
       const disposeLocal = () => {
         cleanupOptionEditors();
@@ -3204,9 +3207,18 @@ function openExamEditor(existing, render) {
       };
 
       questionDisposers.push(disposeLocal);
-    });
+      });
 
-    questionSection.appendChild(fragment);
+      questionSection.appendChild(fragment);
+      navList.appendChild(navFragment);
+      renderIndex += slice.length;
+
+      if (renderIndex < exam.questions.length) {
+        scheduleRender(renderChunk);
+      }
+    }
+
+    renderChunk();
   }
 
   const scheduleRenderQuestions = (() => {
@@ -3232,6 +3244,18 @@ function openExamEditor(existing, render) {
     };
   })();
 
+  const scheduleRender = (cb) => {
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(cb, { timeout: 200 });
+      return;
+    }
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(cb);
+      return;
+    }
+    setTimeout(cb, 0);
+  };
+
   scheduleRenderQuestions();
 
   const actions = document.createElement('div');
@@ -3252,16 +3276,18 @@ function openExamEditor(existing, render) {
   sidebar.appendChild(actions);
 
   let isSidebarCollapsed = false;
+  const sidebarHandle = document.createElement('button');
+  sidebarHandle.type = 'button';
+  sidebarHandle.className = 'exam-editor-sidebar-handle';
+  sidebarHandle.setAttribute('aria-controls', sidebar.id);
+  floating.element.appendChild(sidebarHandle);
   const syncSidebarState = () => {
     sidebar.classList.toggle('is-collapsed', isSidebarCollapsed);
     bodySection.classList.toggle('is-sidebar-collapsed', isSidebarCollapsed);
     const label = isSidebarCollapsed ? 'Show jump list' : 'Hide jump list';
-    const text = isSidebarCollapsed ? 'Show Jump List' : 'Hide Jump List';
-    [sidebarToggle, mainSidebarToggle].forEach(btn => {
-      btn.textContent = text;
-      btn.setAttribute('aria-expanded', isSidebarCollapsed ? 'false' : 'true');
-      btn.setAttribute('aria-label', label);
-    });
+    sidebarHandle.textContent = isSidebarCollapsed ? '›' : '‹';
+    sidebarHandle.setAttribute('aria-expanded', isSidebarCollapsed ? 'false' : 'true');
+    sidebarHandle.setAttribute('aria-label', label);
   };
 
   const toggleSidebar = () => {
@@ -3269,9 +3295,7 @@ function openExamEditor(existing, render) {
     syncSidebarState();
   };
 
-  [sidebarToggle, mainSidebarToggle].forEach(btn => {
-    btn.addEventListener('click', toggleSidebar);
-  });
+  sidebarHandle.addEventListener('click', toggleSidebar);
   syncSidebarState();
 
   async function persistExam() {
