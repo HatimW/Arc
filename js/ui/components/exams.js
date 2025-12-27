@@ -2908,14 +2908,17 @@ function openExamEditor(existing, render) {
   const sidebarTitle = document.createElement('div');
   sidebarTitle.className = 'exam-editor-sidebar-title';
   const sidebarHeading = document.createElement('h4');
-  sidebarHeading.textContent = 'Jump to question';
+  sidebarHeading.textContent = 'Jump';
   const sidebarCount = document.createElement('span');
   sidebarCount.className = 'exam-editor-sidebar-count';
   sidebarTitle.append(sidebarHeading, sidebarCount);
-  sidebar.appendChild(sidebarTitle);
+  const jumpSection = document.createElement('div');
+  jumpSection.className = 'exam-editor-sidebar-jump';
+  jumpSection.appendChild(sidebarTitle);
   const navList = document.createElement('div');
   navList.className = 'exam-editor-nav-list';
-  sidebar.appendChild(navList);
+  jumpSection.appendChild(navList);
+  sidebar.appendChild(jumpSection);
   bodySection.appendChild(sidebar);
 
   const mainColumn = document.createElement('div');
@@ -3242,7 +3245,7 @@ function openExamEditor(existing, render) {
       navButton.title = `Jump to Question ${idx + 1}`;
       navButton.addEventListener('click', () => {
         card.classList.add('exam-question-editor--highlight');
-        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        card.scrollIntoView({ behavior: 'auto', block: 'start' });
         window.setTimeout(() => {
           card.classList.remove('exam-question-editor--highlight');
         }, 1200);
