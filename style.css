@@ -1484,7 +1484,7 @@ body[data-performance-mode='conservative'] .floating-header {
 }
 
 .exam-editor-window .floating-body {
-  overflow: auto;
+  overflow: hidden;
   height: 100%;
 }
 
@@ -6875,7 +6875,7 @@ button.exam-card-caret::before {
   display: grid;
   grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
   gap: var(--pad-lg);
-  align-items: start;
+  align-items: stretch;
   min-height: 0;
   position: relative;
   flex: 1;
@@ -6887,9 +6887,7 @@ button.exam-card-caret::before {
 }
 
 .exam-editor-sidebar {
-  position: sticky;
-  top: var(--pad);
-  align-self: start;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   gap: var(--pad);
@@ -6897,8 +6895,8 @@ button.exam-card-caret::before {
   border-radius: var(--radius-lg);
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(15, 23, 42, 0.7);
-  max-height: calc(100% - var(--pad));
-  overflow: auto;
+  max-height: 100%;
+  overflow: hidden;
   scrollbar-gutter: stable;
 }
 
@@ -6937,6 +6935,16 @@ button.exam-card-caret::before {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--pad-sm);
+}
+
+.exam-editor-sidebar-jump {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .exam-editor-sidebar-title h4 {
@@ -6989,6 +6997,7 @@ button.exam-card-caret::before {
   gap: var(--pad);
   min-width: 0;
   min-height: 0;
+  flex: 1;
   overflow: visible;
   padding-right: 4px;
 }
@@ -6998,6 +7007,17 @@ button.exam-card-caret::before {
   align-items: center;
   justify-content: space-between;
   gap: var(--pad);
+}
+
+.exam-question-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .exam-question-empty {
@@ -7132,12 +7152,8 @@ button.exam-card-caret::before {
 }
 
 .exam-editor-actions--sidebar {
-  position: sticky;
-  bottom: 0;
   margin-top: auto;
-  padding-bottom: var(--pad);
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0) 0%, rgba(15, 23, 42, 0.9) 35%);
-  z-index: 2;
+  padding-top: var(--pad);
 }
 
 .exam-media {
@@ -7215,7 +7231,7 @@ button.exam-card-caret::before {
   gap: var(--pad-lg);
   grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
   grid-template-rows: auto auto;
-  align-items: start;
+  align-items: stretch;
   flex: 1;
   min-height: 0;
   overflow: visible;
@@ -7233,6 +7249,7 @@ button.exam-card-caret::before {
   background: rgba(12, 18, 32, 0.78);
   box-shadow: 0 22px 44px rgba(2, 6, 23, 0.5);
   min-height: 100%;
+  flex: 1;
   min-width: 0;
   overflow: visible;
   scrollbar-gutter: stable both-edges;
@@ -7548,6 +7565,7 @@ button.exam-card-caret::before {
 
 .exam-nav-group--end {
   justify-content: flex-end;
+  flex-wrap: nowrap;
 }
 
 .exam-sidebar-info {
