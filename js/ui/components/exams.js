@@ -226,6 +226,8 @@ function resolveScrollContainer(root) {
   const hasDocument = typeof document !== 'undefined';
   if (root) {
     if (typeof root.querySelector === 'function') {
+      const main = root.querySelector('.exam-main');
+      if (main) return main;
       const runner = root.querySelector('.exam-runner');
       if (runner) return runner;
     }
@@ -238,6 +240,8 @@ function resolveScrollContainer(root) {
     }
   }
   if (hasDocument) {
+    const main = document.querySelector('.exam-session .exam-main');
+    if (main) return main;
     const runner = document.querySelector('.exam-session .exam-runner');
     if (runner) return runner;
     const view = document.querySelector('.exam-view');
