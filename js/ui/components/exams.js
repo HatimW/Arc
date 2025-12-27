@@ -2478,7 +2478,7 @@ export function renderExamRunner(root, render) {
   nav.appendChild(navMiddle);
   nav.appendChild(navEnd);
 
-  container.appendChild(nav);
+  main.appendChild(nav);
 
   const scroller = resolveScrollContainer(root);
   const sameQuestion = prevIdx === sess.idx && prevMode === sess.mode;
