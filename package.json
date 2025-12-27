@@ -43,10 +43,12 @@
       "icon": "assets/icon.png"
     }
   },
-  "devDependencies": {
+  "dependencies": {
     "electron": "^39.2.7",
+    "esbuild": "^0.25.9"
+  },
+  "devDependencies": {
     "electron-builder": "^26.0.12",
-    "esbuild": "^0.25.9",
     "fake-indexeddb": "^5.0.2",
     "jsdom": "^24.1.3"
   },
