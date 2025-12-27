@@ -26,7 +26,6 @@
     ],
     "mac": {
       "icon": "assets/icon.icns",
-      "identity": "${MAC_IDENTITY}",
       "hardenedRuntime": true,
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist"
@@ -35,10 +34,7 @@
       "writeUpdateInfo": false
     },
     "win": {
-      "icon": "assets/icon.ico",
-      "certificateFile": "${WIN_CERTIFICATE_FILE}",
-      "certificatePassword": "${WIN_CERTIFICATE_PASSWORD}",
-      "certificateSubjectName": "${WIN_CERTIFICATE_SUBJECT_NAME}"
+      "icon": "assets/icon.ico"
     },
     "nsis": {
       "differentialPackage": false

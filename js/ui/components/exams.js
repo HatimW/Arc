@@ -211,6 +211,16 @@ function ensureScrollPositions(sess) {
   }
 }
 
+function captureExamScroll(sess) {
+  if (!sess || typeof sess.idx !== 'number') return;
+  const scroller = resolveScrollContainer();
+  if (!scroller) return;
+  const scrollPos = readScrollPosition(scroller);
+  storeScrollPosition(sess, sess.idx, scrollPos);
+  sess.__lastKnownScrollY = scrollPos;
+  sess.__pendingScrollRestore = true;
+}
+
 function resolveScrollContainer(root) {
   const hasDocument = typeof document !== 'undefined';
   if (root) {
@@ -1945,12 +1955,15 @@ export function renderExamRunner(root, render) {
   const hasWindow = typeof window !== 'undefined';
   const prevIdx = sess.__lastRenderedIdx;
   const prevMode = sess.__lastRenderedMode;
+  const hasPendingScroll = Boolean(sess.__pendingScrollRestore);
   const prevScroller = resolveScrollContainer(root);
-  const prevScrollY = readScrollPosition(prevScroller);
+  const prevScrollY = hasPendingScroll
+    ? Number(sess.__lastKnownScrollY) || 0
+    : readScrollPosition(prevScroller);
   const questionChanged = typeof prevIdx === 'number' ? prevIdx !== sess.idx : false;
-  if (prevScroller && questionChanged && typeof prevIdx === 'number') {
+  if (prevScroller && questionChanged && typeof prevIdx === 'number' && !hasPendingScroll) {
     storeScrollPosition(sess, prevIdx, prevScrollY);
-  } else if (prevScroller && !questionChanged && typeof prevIdx !== 'number' && typeof sess.idx === 'number') {
+  } else if (prevScroller && !questionChanged && typeof prevIdx !== 'number' && typeof sess.idx === 'number' && !hasPendingScroll) {
     storeScrollPosition(sess, sess.idx, prevScrollY);
   }
   root.innerHTML = '';
@@ -2037,6 +2050,7 @@ export function renderExamRunner(root, render) {
     flagBtn.addEventListener('click', () => {
       if (!sess.flagged) sess.flagged = {};
       sess.flagged[sess.idx] = !isFlagged;
+      captureExamScroll(sess);
       render();
     });
   } else {
@@ -2125,6 +2139,7 @@ export function renderExamRunner(root, render) {
         if (sess.exam.timerMode !== 'timed' && sess.checked) {
           delete sess.checked[sess.idx];
         }
+        captureExamScroll(sess);
         render();
       });
       if (isInstantCheck) {
@@ -2322,6 +2337,7 @@ export function renderExamRunner(root, render) {
         } else {
           sess.checked[sess.idx] = true;
         }
+        captureExamScroll(sess);
         render();
       });
       navMiddle.appendChild(checkBtn);
@@ -2384,8 +2400,10 @@ export function renderExamRunner(root, render) {
     : cb => setTimeout(cb, 0);
   if (scroller) {
     if (sameQuestion) {
-      storeScrollPosition(sess, sess.idx, prevScrollY);
-      applyScrollPosition(scroller, prevScrollY);
+      const storedScroll = getStoredScroll(sess, sess.idx);
+      const targetY = storedScroll ?? prevScrollY ?? 0;
+      storeScrollPosition(sess, sess.idx, targetY);
+      applyScrollPosition(scroller, targetY);
     } else {
       const storedScroll = getStoredScroll(sess, sess.idx);
       const targetY = storedScroll ?? 0;
@@ -2398,6 +2416,7 @@ export function renderExamRunner(root, render) {
       queueFrame(restore);
     }
   }
+  sess.__pendingScrollRestore = false;
 }
 function renderSidebarMeta(sidebar, sess, changeSummary) {
   const info = document.createElement('div');

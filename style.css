@@ -245,35 +245,26 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
 }
 
 .brand {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  font-family: 'Brush Script MT', 'Pacifico', 'Segoe Script', 'Lobster', cursive;
-  font-weight: 600;
-  font-size: 1.9rem;
-  letter-spacing: 0.04em;
-  color: transparent;
-  background: linear-gradient(120deg, #ff8cb8, #8b5cf6);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  text-shadow:
-    0 0 12px rgba(255, 130, 182, 0.6),
-    0 0 22px rgba(114, 88, 255, 0.45);
-  padding: 6px 12px;
-  margin-left: -12px;
-  isolation: isolate;
+  gap: 10px;
+  margin-left: -6px;
 }
 
-.brand::before {
-  content: '';
-  position: absolute;
-  inset: 2px 6px;
-  border-radius: 28px;
-  background: radial-gradient(circle at 20% 30%, rgba(255, 138, 189, 0.45), transparent 60%),
-              radial-gradient(circle at 80% 70%, rgba(122, 86, 255, 0.45), transparent 65%);
-  filter: blur(22px);
-  z-index: -1;
+.brand-icon {
+  width: 48px;
+  height: 48px;
+  display: block;
+  filter: drop-shadow(0 8px 16px rgba(76, 29, 149, 0.35));
+}
+
+.brand-icon-text {
+  font-family: 'Inter', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  fill: #8b5cf6;
 }
 
 .tabs {
@@ -7420,8 +7411,11 @@ button.exam-card-caret::before {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: center;
   margin-top: auto;
-  padding: var(--pad) 0 0;
-  background: linear-gradient(180deg, transparent 0%, rgba(12, 18, 32, 0.9) 30%);
+  padding: var(--pad);
+  border-radius: var(--radius);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: transparent;
+  flex-shrink: 0;
   z-index: 5;
 }
 
