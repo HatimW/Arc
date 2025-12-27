@@ -293,6 +293,9 @@ export function createItemCard(item, onChange){
 
 export async function renderCardList(container, itemSource, kind, onChange){
   container.innerHTML = '';
+  collapsedBlocks.clear();
+  collapsedWeeks.clear();
+  activeBlockKey = null;
   const { blocks } = await loadBlockCatalog();
   const latestBlockId = resolveLatestBlockId(blocks);
   const blockTitleMap = new Map(blocks.map(block => [block.blockId, block.title || block.blockId]));
