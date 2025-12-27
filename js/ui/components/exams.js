@@ -219,6 +219,7 @@ function captureExamScroll(sess) {
   storeScrollPosition(sess, sess.idx, scrollPos);
   sess.__lastKnownScrollY = scrollPos;
   sess.__pendingScrollRestore = true;
+  captureExamMediaState(sess);
 }
 
 function resolveScrollContainer(root) {
@@ -276,6 +277,47 @@ function applyScrollPosition(scroller, value) {
   }
 }
 
+function captureExamMediaState(sess) {
+  if (!sess || typeof sess.idx !== 'number' || typeof document === 'undefined') return;
+  const container = document.querySelector('.exam-main');
+  if (!container) return;
+  const media = container.querySelector('video, audio');
+  if (!media) return;
+  if (!sess.mediaState || typeof sess.mediaState !== 'object') {
+    sess.mediaState = {};
+  }
+  sess.mediaState[sess.idx] = {
+    currentTime: Number.isFinite(media.currentTime) ? media.currentTime : 0,
+    paused: media.paused,
+    src: media.currentSrc || media.src || ''
+  };
+}
+
+function restoreExamMediaState(sess, container) {
+  if (!sess || typeof sess.idx !== 'number' || !container) return;
+  const state = sess.mediaState?.[sess.idx];
+  if (!state) return;
+  const media = container.querySelector('video, audio');
+  if (!media) return;
+  const currentSrc = media.currentSrc || media.src || '';
+  if (state.src && currentSrc && state.src !== currentSrc) return;
+  if (Number.isFinite(state.currentTime)) {
+    try {
+      const duration = Number.isFinite(media.duration) ? media.duration : null;
+      const targetTime = duration != null ? Math.min(state.currentTime, duration) : state.currentTime;
+      media.currentTime = Math.max(0, targetTime);
+    } catch (err) {
+      console.warn('Failed to restore media time', err);
+    }
+  }
+  if (state.paused === false && typeof media.play === 'function') {
+    const playPromise = media.play();
+    if (playPromise?.catch) {
+      playPromise.catch(() => {});
+    }
+  }
+}
+
 function storeScrollPosition(sess, idx, value) {
   if (!sess || typeof idx !== 'number') return;
   ensureScrollPositions(sess);
@@ -301,6 +343,7 @@ function navigateToQuestion(sess, nextIdx, render) {
     const scroller = resolveScrollContainer();
     const scrollPos = readScrollPosition(scroller);
     storeScrollPosition(sess, sess.idx, scrollPos);
+    captureExamMediaState(sess);
   }
   if (sess.mode === 'taking') {
     finalizeActiveQuestionTiming(sess);
@@ -933,7 +976,7 @@ export async function renderExams(root, render) {
   const scroller = resolveScrollContainer(root);
   examViewScrollTop = readScrollPosition(scroller);
   root.innerHTML = '';
-  root.className = 'exam-view';
+  root.className = 'tab-content exam-view';
 
   const controls = document.createElement('div');
   controls.className = 'exam-controls';
@@ -1978,7 +2021,7 @@ export function renderExamRunner(root, render) {
   if (sess.mode === 'review' && !sess.result) {
     teardownKeyboardNavigation();
     root.innerHTML = '';
-    root.className = 'exam-session';
+    root.className = 'tab-content exam-session';
     const empty = document.createElement('div');
     empty.className = 'exam-empty';
     empty.innerHTML = '<p>This review session is missing data.</p>';
@@ -2004,8 +2047,11 @@ export function renderExamRunner(root, render) {
   } else if (prevScroller && !questionChanged && typeof prevIdx !== 'number' && typeof sess.idx === 'number' && !hasPendingScroll) {
     storeScrollPosition(sess, sess.idx, prevScrollY);
   }
+  if (!questionChanged) {
+    captureExamMediaState(sess);
+  }
   root.innerHTML = '';
-  root.className = 'exam-session';
+  root.className = 'tab-content exam-session';
 
   if (sess.mode === 'summary') {
     teardownKeyboardNavigation();
@@ -2325,6 +2371,7 @@ export function renderExamRunner(root, render) {
   }
 
   enhanceExamMedia(main);
+  restoreExamMediaState(sess, main);
 
   const paletteSummary = renderQuestionMap(sidebar, sess, render);
   renderSidebarMeta(sidebar, sess, paletteSummary);
@@ -2427,7 +2474,7 @@ export function renderExamRunner(root, render) {
   nav.appendChild(navMiddle);
   nav.appendChild(navEnd);
 
-  main.appendChild(nav);
+  container.appendChild(nav);
 
   const scroller = resolveScrollContainer(root);
   const sameQuestion = prevIdx === sess.idx && prevMode === sess.mode;
