@@ -301,9 +301,27 @@ export function createAppShell({
       listHost.className = 'list-host';
       content.appendChild(listHost);
 
-      const filter = { ...state.filters, types:[kind], query: state.query };
+      const filter = { ...state.filters, types: [kind], query: state.query };
       const query = findItemsByFilter(filter);
-      const renderPromise = renderCardList(listHost, query, kind, renderApp);
+      let items = await query.toArray();
+      const hasActiveFilters = Boolean(state.query || state.filters.block || state.filters.week || state.filters.onlyFav);
+      if (!items.length && hasActiveFilters) {
+        const fallbackFilter = {
+          ...state.filters,
+          types: [kind],
+          block: '',
+          week: '',
+          onlyFav: false,
+          query: ''
+        };
+        const fallbackItems = await findItemsByFilter(fallbackFilter).toArray();
+        if (fallbackItems.length) {
+          setFilters({ block: '', week: '', onlyFav: false });
+          if (state.query) setQuery('');
+          items = fallbackItems;
+        }
+      }
+      const renderPromise = renderCardList(listHost, items, kind, renderApp);
       await Promise.all([entryControlPromise, renderPromise]);
       restoreTabScroll(content);
     } else if (state.tab === 'Block Board') {
@@ -332,7 +350,7 @@ export function createAppShell({
       const content = document.createElement('div');
       content.className = 'tab-content';
       main.appendChild(content);
-      const filter = { ...state.filters, query: state.query };
+      const filter = { types: state.filters?.types, sort: state.filters?.sort, query: state.query };
       const query = findItemsByFilter(filter);
       const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
         .then(control => {
