@@ -7241,7 +7241,7 @@ button.exam-card-caret::before {
   flex-direction: column;
   gap: var(--pad-lg);
   padding: var(--pad-lg);
-  min-height: 100vh;
+  min-height: 0;
   height: auto;
   overflow: visible;
 }
@@ -7250,8 +7250,8 @@ button.exam-card-caret::before {
   display: grid;
   gap: var(--pad-lg);
   grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
-  grid-template-rows: minmax(0, 1fr);
-  align-items: stretch;
+  grid-template-rows: auto;
+  align-items: start;
   flex: 1;
   min-height: 0;
   overflow: visible;
@@ -7263,11 +7263,12 @@ button.exam-card-caret::before {
   display: flex;
   flex-direction: column;
   gap: var(--pad);
-  min-height: 100%;
+  min-height: 0;
   flex: 1;
   min-width: 0;
   overflow: visible;
   scrollbar-gutter: stable both-edges;
+  align-self: start;
 }
 
 .exam-question-card {
@@ -7293,6 +7294,7 @@ button.exam-card-caret::before {
   background: rgba(15, 23, 42, 0.72);
   max-height: none;
   overflow: visible;
+  align-self: start;
 }
 
 .exam-topbar {
