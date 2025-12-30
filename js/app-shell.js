@@ -6,6 +6,8 @@ export function createAppShell({
   setListQuery,
   setFilters,
   setListFilters,
+  listAllItems,
+  filterItemsLocally,
   findItemsByFilter,
   renderSettings,
   renderCardList,
@@ -44,6 +46,30 @@ export function createAppShell({
   let pendingQueryTab = '';
   let queryUpdateTimer = 0;
   const tabScrollState = new Map();
+
+  async function loadListItems(filter) {
+    let items = [];
+    try {
+      items = await findItemsByFilter(filter).toArray();
+    } catch (err) {
+      console.warn('List query failed, falling back to local filtering', err);
+    }
+    if (
+      !items.length
+      && typeof listAllItems === 'function'
+      && typeof filterItemsLocally === 'function'
+    ) {
+      try {
+        const allItems = await listAllItems();
+        if (allItems.length) {
+          items = await filterItemsLocally(allItems, filter);
+        }
+      } catch (err) {
+        console.warn('Failed to load list items from fallback query', err);
+      }
+    }
+    return items;
+  }
 
   function buildScrollKey() {
     const activeTab = state.tab || '';
@@ -314,8 +340,7 @@ export function createAppShell({
 
       const listFilters = state.listFilters || {};
       const filter = { ...listFilters, types: [kind], query: state.listQuery };
-      const query = findItemsByFilter(filter);
-      let items = await query.toArray();
+      let items = await loadListItems(filter);
       const hasActiveFilters = Boolean(
         state.listQuery || listFilters.block || listFilters.week || listFilters.onlyFav
       );
@@ -328,7 +353,7 @@ export function createAppShell({
           onlyFav: false,
           query: ''
         };
-        const fallbackItems = await findItemsByFilter(fallbackFilter).toArray();
+        const fallbackItems = await loadListItems(fallbackFilter);
         if (fallbackItems.length) {
           if (typeof setListFilters === 'function') {
             setListFilters({ block: '', week: '', onlyFav: false });
