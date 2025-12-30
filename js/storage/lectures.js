@@ -107,11 +107,28 @@ function buildNormalizedLecture(blockId, input, existing, now) {
   return normalized;
 }
 
+function ensureLectureSchedule(lecture, now = Date.now()) {
+  if (!lecture || typeof lecture !== 'object') return lecture;
+  const schedule = Array.isArray(lecture?.passPlan?.schedule) ? lecture.passPlan.schedule : [];
+  const hasSchedule = schedule.length > 0;
+  const hasPasses = Array.isArray(lecture?.passes) && lecture.passes.length > 0;
+  const hasNextDue = Number.isFinite(lecture?.nextDueAt);
+  if (!hasSchedule || (hasPasses && hasNextDue)) {
+    return lecture;
+  }
+  const normalized = normalizeLectureRecord(lecture.blockId, lecture, now);
+  if (!normalized) return lecture;
+  if (lecture.createdAt != null) normalized.createdAt = lecture.createdAt;
+  if (lecture.updatedAt != null) normalized.updatedAt = lecture.updatedAt;
+  return normalized;
+}
+
 export async function listLecturesByBlock(blockId) {
   try {
     const store = await lectureStore();
     const rows = await fetchLecturesForBlock(store, blockId);
-    return rows.map(clone);
+    const now = Date.now();
+    return rows.map(row => ensureLectureSchedule(clone(row), now));
   } catch (err) {
     console.warn('listLecturesByBlock failed', err);
     return [];
@@ -122,7 +139,8 @@ export async function listAllLectures() {
   try {
     const store = await lectureStore();
     const rows = await prom(store.getAll());
-    return Array.isArray(rows) ? rows.map(clone) : [];
+    const now = Date.now();
+    return Array.isArray(rows) ? rows.map(row => ensureLectureSchedule(clone(row), now)) : [];
   } catch (err) {
     console.warn('listAllLectures failed', err);
     return [];
@@ -208,4 +226,3 @@ export {
   DEFAULT_LECTURE_STATUS,
   lectureKey
 } from './lecture-schema.js';
-

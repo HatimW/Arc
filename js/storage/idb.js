@@ -2,7 +2,7 @@ import { normalizeLectureRecord } from './lecture-schema.js';
 import { deepClone } from '../utils.js';
 
 const DB_NAME = 'arc-db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const MEMORY_STORAGE_KEY = 'arc-memory-db';
 
 const STORE_KEY_PATHS = {
@@ -359,6 +359,36 @@ export function openDB(options = {}) {
         items.createIndex('by_weeks', 'weeks', { multiEntry: true });
         items.createIndex('by_lecture_ids', 'lectures.id', { multiEntry: true });
         items.createIndex('by_search', 'tokens');
+      } else if (tx) {
+        try {
+          const items = tx.objectStore('items');
+          if (items) {
+            const indexNames = Array.from(items.indexNames || []);
+            if (!indexNames.includes('by_kind')) {
+              items.createIndex('by_kind', 'kind');
+            }
+            if (!indexNames.includes('by_updatedAt')) {
+              items.createIndex('by_updatedAt', 'updatedAt');
+            }
+            if (!indexNames.includes('by_favorite')) {
+              items.createIndex('by_favorite', 'favorite');
+            }
+            if (!indexNames.includes('by_blocks')) {
+              items.createIndex('by_blocks', 'blocks', { multiEntry: true });
+            }
+            if (!indexNames.includes('by_weeks')) {
+              items.createIndex('by_weeks', 'weeks', { multiEntry: true });
+            }
+            if (!indexNames.includes('by_lecture_ids')) {
+              items.createIndex('by_lecture_ids', 'lectures.id', { multiEntry: true });
+            }
+            if (!indexNames.includes('by_search')) {
+              items.createIndex('by_search', 'tokens');
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to ensure item indexes', err);
+        }
       }
 
       if (!db.objectStoreNames.contains('blocks')) {

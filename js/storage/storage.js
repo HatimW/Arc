@@ -582,25 +582,45 @@ async function getKeySet(storeRef, indexName, value) {
 }
 
 async function keysForKinds(storeRef, kinds) {
-  const idx = typeof storeRef.index === 'function' ? storeRef.index('by_kind') : null;
-  const seen = new Set();
-  const allKeys = [];
-  for (const kind of kinds) {
-    if (!kind) continue;
-    let keys = [];
-    if (idx && typeof idx.getAllKeys === 'function') {
-      keys = await prom(idx.getAllKeys(kind));
-    } else if (idx && typeof idx.getAll === 'function') {
-      const values = await prom(idx.getAll(kind));
-      keys = values.map(v => v?.id).filter(Boolean);
-    }
-    for (const key of keys) {
-      if (!seen.has(key)) {
-        seen.add(key);
-        allKeys.push(key);
-      }
+  let idx = null;
+  if (typeof storeRef.index === 'function') {
+    try {
+      idx = storeRef.index('by_kind');
+    } catch (err) {
+      idx = null;
     }
   }
+  const seen = new Set();
+  const allKeys = [];
+  if (idx && (typeof idx.getAllKeys === 'function' || typeof idx.getAll === 'function')) {
+    for (const kind of kinds) {
+      if (!kind) continue;
+      let keys = [];
+      if (typeof idx.getAllKeys === 'function') {
+        keys = await prom(idx.getAllKeys(kind));
+      } else if (typeof idx.getAll === 'function') {
+        const values = await prom(idx.getAll(kind));
+        keys = values.map(v => v?.id).filter(Boolean);
+      }
+      for (const key of keys) {
+        if (!seen.has(key)) {
+          seen.add(key);
+          allKeys.push(key);
+        }
+      }
+    }
+    return allKeys;
+  }
+
+  const all = await prom(storeRef.getAll());
+  const kindsSet = new Set(kinds.filter(Boolean));
+  (Array.isArray(all) ? all : []).forEach(item => {
+    if (!item || !kindsSet.has(item.kind)) return;
+    if (!seen.has(item.id)) {
+      seen.add(item.id);
+      allKeys.push(item.id);
+    }
+  });
   return allKeys;
 }
 
