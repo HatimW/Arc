@@ -3,6 +3,7 @@ export function createAppShell({
   setTab,
   setSubtab,
   setQuery,
+  setFilters,
   findItemsByFilter,
   renderSettings,
   renderCardList,
@@ -316,7 +317,9 @@ export function createAppShell({
         };
         const fallbackItems = await findItemsByFilter(fallbackFilter).toArray();
         if (fallbackItems.length) {
-          setFilters({ block: '', week: '', onlyFav: false });
+          if (typeof setFilters === 'function') {
+            setFilters({ block: '', week: '', onlyFav: false });
+          }
           if (state.query) setQuery('');
           items = fallbackItems;
         }
