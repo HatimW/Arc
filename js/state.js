@@ -198,7 +198,6 @@ export const state = {
     Settings: ""
   },
   query: "",
-  listQuery: "",
   filters: initialFilters,
   listFilters: initialListFilters,
   lectures: initialLectures,
@@ -267,13 +266,6 @@ export function setQuery(value) {
   const next = value == null ? '' : String(value);
   if (state.query === next) return false;
   state.query = next;
-  return true;
-}
-
-export function setListQuery(value) {
-  const next = value == null ? '' : String(value);
-  if (state.listQuery === next) return false;
-  state.listQuery = next;
   return true;
 }
 export function setFilters(patch) {

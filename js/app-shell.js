@@ -3,7 +3,6 @@ export function createAppShell({
   setTab,
   setSubtab,
   setQuery,
-  setListQuery,
   setFilters,
   setListFilters,
   findItemsByFilter,
@@ -41,7 +40,6 @@ export function createAppShell({
   let settingsBtn = null;
   let main = null;
   let pendingQuery = '';
-  let pendingQueryTab = '';
   let queryUpdateTimer = 0;
   const tabScrollState = new Map();
 
@@ -165,44 +163,38 @@ export function createAppShell({
     searchInput = document.createElement('input');
     searchInput.type = 'search';
     searchInput.placeholder = 'Search entries';
-    searchInput.value = state.tab === 'Lists' ? state.listQuery : state.query;
+    searchInput.value = state.query;
     searchInput.autocomplete = 'off';
     searchInput.spellcheck = false;
     searchInput.className = 'search-input';
     searchInput.dataset.role = 'global-search';
     pendingQuery = searchInput.value;
-    pendingQueryTab = state.tab;
-    const commitQuery = (value, tabContext = state.tab) => {
+    const commitQuery = value => {
       const next = typeof value === 'string' ? value : '';
-      const didUpdate = tabContext === 'Lists'
-        ? (typeof setListQuery === 'function' && setListQuery(next))
-        : setQuery(next);
-      if (didUpdate) {
+      if (setQuery(next)) {
         renderApp();
       }
     };
-    const scheduleQueryUpdate = (value, tabContext) => {
+    const scheduleQueryUpdate = value => {
       pendingQuery = typeof value === 'string' ? value : '';
-      pendingQueryTab = tabContext;
       if (queryUpdateTimer) {
         clearTimeout(queryUpdateTimer);
       }
       queryUpdateTimer = setTimeout(() => {
         queryUpdateTimer = 0;
-        commitQuery(pendingQuery, pendingQueryTab);
+        commitQuery(pendingQuery);
       }, 120);
     };
     searchInput.addEventListener('input', e => {
-      scheduleQueryUpdate(e.target.value, state.tab);
+      scheduleQueryUpdate(e.target.value);
     });
     searchInput.addEventListener('search', e => {
       pendingQuery = typeof e.target.value === 'string' ? e.target.value : '';
-      pendingQueryTab = state.tab;
       if (queryUpdateTimer) {
         clearTimeout(queryUpdateTimer);
         queryUpdateTimer = 0;
       }
-      commitQuery(pendingQuery, pendingQueryTab);
+      commitQuery(pendingQuery);
     });
     searchField.appendChild(searchInput);
     right.appendChild(searchField);
@@ -246,9 +238,8 @@ export function createAppShell({
     if (settingsBtn) {
       settingsBtn.classList.toggle('active', state.tab === 'Settings');
     }
-    const activeQueryValue = state.tab === 'Lists' ? state.listQuery : state.query;
-    if (searchInput && document.activeElement !== searchInput && searchInput.value !== activeQueryValue) {
-      searchInput.value = activeQueryValue;
+    if (searchInput && document.activeElement !== searchInput && searchInput.value !== state.query) {
+      searchInput.value = state.query;
     }
 
     if (shouldRestoreSearch && searchInput) {
@@ -313,11 +304,11 @@ export function createAppShell({
       content.appendChild(listHost);
 
       const listFilters = state.listFilters || {};
-      const filter = { ...listFilters, types: [kind], query: state.listQuery };
+      const filter = { ...listFilters, types: [kind], query: state.query };
       const query = findItemsByFilter(filter);
       let items = await query.toArray();
       const hasActiveFilters = Boolean(
-        state.listQuery || listFilters.block || listFilters.week || listFilters.onlyFav
+        state.query || listFilters.block || listFilters.week || listFilters.onlyFav
       );
       if (!items.length && hasActiveFilters) {
         const fallbackFilter = {
@@ -333,7 +324,7 @@ export function createAppShell({
           if (typeof setListFilters === 'function') {
             setListFilters({ block: '', week: '', onlyFav: false });
           }
-          if (state.listQuery && typeof setListQuery === 'function') setListQuery('');
+          if (state.query) setQuery('');
           items = fallbackItems;
         }
       }

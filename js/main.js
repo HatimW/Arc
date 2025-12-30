@@ -1,4 +1,4 @@
-import { state, setTab, setSubtab, setQuery, setListQuery, setFilters, setListFilters } from './state.js';
+import { state, setTab, setSubtab, setQuery, setFilters, setListFilters } from './state.js';
 import { initDB, findItemsByFilter } from './storage/storage.js';
 import { loadBlockCatalog } from './storage/block-catalog.js';
 import { createAppShell } from './app-shell.js';
@@ -49,7 +49,6 @@ const { renderApp, tabs, resolveListKind } = createAppShell({
   setTab,
   setSubtab,
   setQuery,
-  setListQuery,
   setFilters,
   setListFilters,
   findItemsByFilter,

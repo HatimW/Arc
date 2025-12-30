@@ -1,6 +1,6 @@
 import { upsertItem, deleteItem } from '../../storage/storage.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
-import { state, setEntryLayout, setListFilters, setListQuery } from '../../state.js';
+import { state, setEntryLayout, setListFilters } from '../../state.js';
 import { resolveLatestBlockId, setToggleState } from '../../utils.js';
 import { openEditor } from './editor.js';
 import { confirmModal } from './confirm.js';
@@ -755,7 +755,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
     empty.className = 'cards-empty entry-empty';
     const title = document.createElement('h3');
     const hasFilters = Boolean(
-      state.listQuery || state.listFilters.block || state.listFilters.week || state.listFilters.onlyFav
+      state.query || state.listFilters.block || state.listFilters.week || state.listFilters.onlyFav
     );
     title.textContent = hasFilters ? 'No entries match your filters' : 'No entries yet';
     empty.appendChild(title);
@@ -771,9 +771,6 @@ export async function renderCardList(container, itemSource, kind, onChange){
       clear.textContent = 'Clear filters';
       clear.addEventListener('click', () => {
         setListFilters({ block: '', week: '', onlyFav: false });
-        if (state.listQuery) {
-          setListQuery('');
-        }
         onChange && onChange();
       });
       empty.appendChild(clear);
