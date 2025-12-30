@@ -719,12 +719,23 @@ async function executeItemQuery(filter, options = {}) {
   const normalized = options.normalized ? filter : normalizeFilter(filter);
   const itemsStore = await store('items');
 
-  const blockSet = normalized.block && normalized.block !== '__unlabeled'
-    ? await getKeySet(itemsStore, 'by_blocks', normalized.block)
-    : null;
-  const weekSet = normalized.week != null
-    ? await getKeySet(itemsStore, 'by_weeks', normalized.week)
-    : null;
+  let blockSet = null;
+  if (normalized.block && normalized.block !== '__unlabeled') {
+    blockSet = await getKeySet(itemsStore, 'by_blocks', normalized.block);
+    if (!blockSet?.size) {
+      const numericBlock = Number(normalized.block);
+      if (Number.isFinite(numericBlock)) {
+        blockSet = await getKeySet(itemsStore, 'by_blocks', numericBlock);
+      }
+    }
+  }
+  let weekSet = null;
+  if (normalized.week != null) {
+    weekSet = await getKeySet(itemsStore, 'by_weeks', normalized.week);
+    if (!weekSet?.size) {
+      weekSet = await getKeySet(itemsStore, 'by_weeks', String(normalized.week));
+    }
+  }
   const favoriteSet = normalized.onlyFav
     ? await getKeySet(itemsStore, 'by_favorite', true)
     : null;
@@ -745,8 +756,11 @@ async function executeItemQuery(filter, options = {}) {
     for (const item of fetched) {
       if (!item) continue;
       const normalizedItem = normalizeItemKind(item);
-      if (normalized.block === '__unlabeled' && Array.isArray(normalizedItem.blocks) && normalizedItem.blocks.length) {
-        continue;
+      if (normalized.block === '__unlabeled') {
+        const blocks = Array.isArray(normalizedItem.blocks)
+          ? normalizedItem.blocks.map(block => String(block))
+          : [];
+        if (blocks.length) continue;
       }
       if (normalized.tokens) {
         const tokenField = normalizedItem.tokens || '';
@@ -851,14 +865,18 @@ export async function filterItemsLocally(items, filter) {
     const normalizedItem = ensureItemKind(item);
     const kind = normalizedItem?.kind;
     if (!kind || !kindsSet.has(kind)) continue;
+    const blocks = Array.isArray(normalizedItem.blocks)
+      ? normalizedItem.blocks.map(block => String(block))
+      : [];
     if (normalized.block === '__unlabeled') {
-      if (Array.isArray(normalizedItem.blocks) && normalizedItem.blocks.length) continue;
+      if (blocks.length) continue;
     } else if (normalized.block) {
-      const blocks = Array.isArray(normalizedItem.blocks) ? normalizedItem.blocks : [];
-      if (!blocks.includes(normalized.block)) continue;
+      if (!blocks.includes(String(normalized.block))) continue;
     }
     if (normalized.week != null) {
-      const weeks = Array.isArray(normalizedItem.weeks) ? normalizedItem.weeks : [];
+      const weeks = Array.isArray(normalizedItem.weeks)
+        ? normalizedItem.weeks.map(week => Number(week)).filter(value => Number.isFinite(value))
+        : [];
       if (!weeks.includes(normalized.week)) continue;
     }
     if (normalized.onlyFav && !normalizedItem.favorite) continue;
