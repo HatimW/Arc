@@ -1,7 +1,7 @@
 import { upsertItem, deleteItem } from '../../storage/storage.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
 import { state, setEntryLayout, setListFilters, setListQuery } from '../../state.js';
-import { resolveLatestBlockId, setToggleState } from '../../utils.js';
+import { setToggleState } from '../../utils.js';
 import { openEditor } from './editor.js';
 import { confirmModal } from './confirm.js';
 import { openLinker } from './linker.js';
@@ -61,10 +61,7 @@ function ensureExtras(item) {
   return [];
 }
 
-const expanded = new Set();
-const collapsedBlocks = new Set();
-const collapsedWeeks = new Set();
-let activeBlockKey = null;
+const expandedEntries = new Set();
 
 function normalizeList(value) {
   if (Array.isArray(value)) return value.filter(entry => entry != null);
@@ -82,12 +79,14 @@ function normalizeLectureList(value) {
       name: entry.name ?? entry.title ?? '',
       week: entry.week ?? null
     }))
-    .filter(entry => entry.id != null);
+    .filter(entry => entry.id != null || entry.blockId);
 }
 
 function normalizeItemForDisplay(item) {
   if (!item || typeof item !== 'object') return item;
-  const blocks = normalizeList(item.blocks).map(block => String(block));
+  const blocks = normalizeList(item.blocks)
+    .map(block => String(block))
+    .filter(Boolean);
   const weeks = normalizeList(item.weeks)
     .map(value => Number(value))
     .filter(value => Number.isFinite(value));
@@ -95,22 +94,7 @@ function normalizeItemForDisplay(item) {
   return { ...item, blocks, weeks, lectures };
 }
 
-export function createItemCard(item, onChange){
-  const safeItem = normalizeItemForDisplay(item);
-  const card = document.createElement('div');
-  card.className = `item-card card--${safeItem.kind}`;
-  const color = safeItem.color || kindColors[safeItem.kind] || 'var(--gray)';
-  card.style.borderTop = `3px solid ${color}`;
-
-  const header = document.createElement('div');
-  header.className = 'card-header';
-
-  const mainBtn = document.createElement('button');
-  mainBtn.className = 'card-title-btn';
-  mainBtn.textContent = safeItem.name || safeItem.concept || 'Untitled';
-  mainBtn.setAttribute('aria-expanded', expanded.has(safeItem.id));
-  header.appendChild(mainBtn);
-
+function buildSettingsMenu(safeItem, onChange) {
   const settings = document.createElement('div');
   settings.className = 'card-settings';
   const menu = document.createElement('div');
@@ -123,9 +107,8 @@ export function createItemCard(item, onChange){
   gear.title = 'Entry options';
   gear.setAttribute('aria-haspopup', 'true');
   gear.setAttribute('aria-expanded', 'false');
-  gear.innerHTML = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.8" stroke="currentColor" stroke-width="1.6"/></svg>';
+  gear.innerHTML = '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.582.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.8" stroke="currentColor" stroke-width="1.6"/></svg>';
   settings.append(gear, menu);
-  header.appendChild(settings);
 
   function closeMenu() {
     menu.classList.add('hidden');
@@ -222,10 +205,52 @@ export function createItemCard(item, onChange){
   });
   menu.appendChild(del);
 
+  return settings;
+}
+
+export function createItemCard(item, onChange){
+  const safeItem = normalizeItemForDisplay(item);
+  const card = document.createElement('article');
+  card.className = `item-card entry-card entry-card--${safeItem.kind}`;
+  const color = safeItem.color || kindColors[safeItem.kind] || 'var(--gray)';
+  card.style.borderTop = `3px solid ${color}`;
+
+  const header = document.createElement('div');
+  header.className = 'entry-card-header';
+
+  const mainBtn = document.createElement('button');
+  mainBtn.className = 'entry-title-wrap';
+  mainBtn.setAttribute('aria-expanded', expandedEntries.has(safeItem.id));
+  mainBtn.type = 'button';
+
+  const titleText = document.createElement('span');
+  titleText.className = 'entry-title-text';
+  titleText.textContent = safeItem.name || safeItem.concept || 'Untitled';
+
+  const titleMeta = document.createElement('span');
+  titleMeta.className = 'entry-title-meta';
+  const metaParts = [];
+  if (safeItem.blocks?.length) metaParts.push(`${safeItem.blocks.length} block${safeItem.blocks.length === 1 ? '' : 's'}`);
+  if (safeItem.weeks?.length) metaParts.push(`Week ${safeItem.weeks.join(', ')}`);
+  if (safeItem.lectures?.length) metaParts.push(`${safeItem.lectures.length} lecture${safeItem.lectures.length === 1 ? '' : 's'}`);
+  titleMeta.textContent = metaParts.length ? metaParts.join(' · ') : 'Unassigned';
+
+  const caret = document.createElement('span');
+  caret.className = 'entry-title-caret';
+  caret.textContent = expandedEntries.has(safeItem.id) ? '▾' : '▸';
+
+  mainBtn.appendChild(titleText);
+  mainBtn.appendChild(titleMeta);
+  mainBtn.appendChild(caret);
+  header.appendChild(mainBtn);
+
+  const settings = buildSettingsMenu(safeItem, onChange);
+  header.appendChild(settings);
+
   card.appendChild(header);
 
   const body = document.createElement('div');
-  body.className = 'card-body';
+  body.className = 'entry-card-body card-body';
   card.appendChild(body);
   let bodyRendered = false;
 
@@ -249,11 +274,13 @@ export function createItemCard(item, onChange){
       safeItem.lectures.forEach(l => {
         const chip = document.createElement('span');
         chip.className = 'chip';
-        chip.textContent = '📚 ' + (l.name || l.id);
+        chip.textContent = '📚 ' + (l.name || l.id || l.blockId || 'Lecture');
         identifiers.appendChild(chip);
       });
     }
-    body.appendChild(identifiers);
+    if (identifiers.childElementCount) {
+      body.appendChild(identifiers);
+    }
 
     const defs = fieldDefs[safeItem.kind] || [];
     defs.forEach(([f,label,icon]) => {
@@ -302,36 +329,69 @@ export function createItemCard(item, onChange){
     bodyRendered = true;
   }
 
-  if (expanded.has(safeItem.id)) {
+  if (expandedEntries.has(safeItem.id)) {
     ensureBodyRendered();
     card.classList.add('expanded');
   }
 
   mainBtn.addEventListener('click', () => {
-    const isExpanded = expanded.has(safeItem.id);
+    const isExpanded = expandedEntries.has(safeItem.id);
     if (isExpanded) {
-      expanded.delete(safeItem.id);
+      expandedEntries.delete(safeItem.id);
     } else {
-      expanded.add(safeItem.id);
+      expandedEntries.add(safeItem.id);
       ensureBodyRendered();
     }
     card.classList.toggle('expanded', !isExpanded);
     mainBtn.setAttribute('aria-expanded', String(!isExpanded));
+    caret.textContent = !isExpanded ? '▾' : '▸';
   });
   return card;
 }
 
+function registerPlacement(map, blockKey, weekValue) {
+  const normalizedBlock = blockKey || '_';
+  const normalizedWeek = typeof weekValue === 'number' && Number.isFinite(weekValue) ? weekValue : '_';
+  if (!map.has(normalizedBlock)) {
+    map.set(normalizedBlock, new Set());
+  }
+  map.get(normalizedBlock).add(normalizedWeek);
+}
+
+function collectPlacements(item) {
+  const placements = new Map();
+  const blocks = Array.isArray(item.blocks) ? item.blocks : [];
+  const weeks = Array.isArray(item.weeks) ? item.weeks : [];
+
+  if (blocks.length) {
+    if (weeks.length) {
+      blocks.forEach(blockId => {
+        weeks.forEach(week => registerPlacement(placements, blockId, week));
+      });
+    } else {
+      blocks.forEach(blockId => registerPlacement(placements, blockId, '_'));
+    }
+  } else if (weeks.length) {
+    weeks.forEach(week => registerPlacement(placements, '_', week));
+  } else {
+    registerPlacement(placements, '_', '_');
+  }
+
+  const lectures = Array.isArray(item.lectures) ? item.lectures : [];
+  lectures.forEach(lecture => {
+    if (!lecture) return;
+    registerPlacement(placements, lecture.blockId || '_', lecture.week ?? '_');
+  });
+
+  return placements;
+}
+
 export async function renderCardList(container, itemSource, kind, onChange){
   container.innerHTML = '';
-  collapsedBlocks.clear();
-  collapsedWeeks.clear();
-  activeBlockKey = null;
   const { blocks } = await loadBlockCatalog();
   const normalizedBlocks = Array.isArray(blocks)
     ? blocks.filter(block => block && typeof block === 'object')
     : [];
-  const blockIds = new Set(normalizedBlocks.map(block => block?.blockId).filter(Boolean));
-  const latestBlockId = resolveLatestBlockId(normalizedBlocks);
   const blockTitleMap = new Map(
     normalizedBlocks.map(block => [block.blockId, block.title || block.blockId])
   );
@@ -353,116 +413,6 @@ export async function renderCardList(container, itemSource, kind, onChange){
     sortedWeeks.forEach(weekNumber => allWeeks.add(weekNumber));
   });
   const sortedAllWeeks = Array.from(allWeeks).sort((a, b) => a - b);
-  const groups = new Map();
-  const currentBlockFilter = typeof state.listFilters?.block === 'string' ? state.listFilters.block : '';
-  const currentWeekFilter = state.listFilters?.week ?? '';
-  const hasBlockFilter = Boolean(currentBlockFilter);
-  const isBlockValid = !hasBlockFilter || currentBlockFilter === '__unlabeled' || blockIds.has(currentBlockFilter);
-  let requestedWeek = null;
-  if (currentWeekFilter !== '' && currentWeekFilter != null) {
-    const parsed = Number(currentWeekFilter);
-    if (!Number.isNaN(parsed)) requestedWeek = parsed;
-  }
-  let shouldResetFilters = false;
-  const nextFilterPatch = {};
-  if (!isBlockValid) {
-    nextFilterPatch.block = '';
-    nextFilterPatch.week = '';
-    shouldResetFilters = true;
-  } else if (requestedWeek != null) {
-    const allowedWeeks = currentBlockFilter && currentBlockFilter !== '__unlabeled' && blockWeekMap.has(currentBlockFilter)
-      ? blockWeekMap.get(currentBlockFilter)
-      : sortedAllWeeks;
-    if (!allowedWeeks.includes(requestedWeek)) {
-      nextFilterPatch.week = '';
-      shouldResetFilters = true;
-    }
-  }
-  if (shouldResetFilters) {
-    setListFilters(nextFilterPatch);
-    if (typeof onChange === 'function') {
-      onChange();
-      return;
-    }
-  }
-
-  let totalItems = 0;
-
-  function addItem(it) {
-    if (!it) return;
-    const normalized = normalizeItemForDisplay(it);
-    totalItems += 1;
-    let block = '_';
-    let week = '_';
-    if (Array.isArray(normalized.lectures) && normalized.lectures.length) {
-      let bestOrd = Infinity;
-      let bestWeek = -Infinity;
-      let bestLec = -Infinity;
-      normalized.lectures.forEach(l => {
-        if (!l) return;
-        const ord = orderMap.has(l.blockId) ? orderMap.get(l.blockId) : Infinity;
-        if (
-          ord < bestOrd ||
-          (ord === bestOrd && (l.week > bestWeek || (l.week === bestWeek && l.id > bestLec)))
-        ) {
-          block = l.blockId;
-          week = l.week;
-          bestOrd = ord;
-          bestWeek = l.week;
-          bestLec = l.id;
-        }
-      });
-    } else {
-      let bestOrd = Infinity;
-      (Array.isArray(normalized.blocks) ? normalized.blocks : []).forEach(id => {
-        const ord = orderMap.has(id) ? orderMap.get(id) : Infinity;
-        if (ord < bestOrd) {
-          block = id;
-          bestOrd = ord;
-        }
-      });
-      if (Array.isArray(normalized.weeks) && normalized.weeks.length) {
-        week = Math.max(...normalized.weeks);
-      }
-    }
-    if (!groups.has(block)) {
-      groups.set(block, new Map());
-    }
-    const wkMap = groups.get(block);
-    const current = wkMap.get(week) || [];
-    current.push(normalized);
-    wkMap.set(week, current);
-  }
-
-  if (itemSource) {
-    if (typeof itemSource?.toArray === 'function') {
-      const collected = await itemSource.toArray();
-      collected.forEach(addItem);
-    } else if (typeof itemSource?.[Symbol.asyncIterator] === 'function') {
-      for await (const batch of itemSource) {
-        if (Array.isArray(batch)) {
-          batch.forEach(addItem);
-        } else if (batch) {
-          addItem(batch);
-        }
-      }
-    } else if (Array.isArray(itemSource)) {
-      itemSource.forEach(addItem);
-    }
-  }
-
-  const sortedBlocks = Array.from(groups.keys()).sort((a,b)=>{
-    const ao = orderMap.has(a) ? orderMap.get(a) : Infinity;
-    const bo = orderMap.has(b) ? orderMap.get(b) : Infinity;
-    return ao - bo;
-  });
-  reportListComplexity('cardlist', { items: totalItems, columns: state.entryLayout?.columns || 1 });
-  const perfMode = getPerformanceMode();
-  const LIST_CHUNK_SIZE = perfMode === 'conservative' ? 48 : perfMode === 'balanced' ? 120 : 200;
-  const layoutState = state.entryLayout;
-  const scheduleChunk = typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
-    ? (cb) => window.requestIdleCallback(() => cb(), { timeout: 120 })
-    : (cb) => requestAnimationFrame(cb);
 
   const toolbar = document.createElement('div');
   toolbar.className = 'entry-layout-toolbar';
@@ -517,6 +467,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
     option.textContent = opt.label;
     blockFilterSelect.appendChild(option);
   });
+  const currentBlockFilter = typeof state.listFilters?.block === 'string' ? state.listFilters.block : '';
   if (blockOptions.some(opt => opt.value === currentBlockFilter)) {
     blockFilterSelect.value = currentBlockFilter;
   } else {
@@ -568,6 +519,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
   filterGroup.appendChild(filterControls);
   toolbar.appendChild(filterGroup);
   populateWeekFilter();
+  const currentWeekFilter = state.listFilters?.week ?? '';
   const normalizedWeekFilter = currentWeekFilter === '' || currentWeekFilter == null
     ? ''
     : String(currentWeekFilter);
@@ -667,6 +619,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
   const viewToggle = document.createElement('div');
   viewToggle.className = 'layout-toggle';
 
+  const layoutState = state.entryLayout;
   const listBtn = document.createElement('button');
   listBtn.type = 'button';
   listBtn.className = 'layout-btn';
@@ -781,7 +734,45 @@ export async function renderCardList(container, itemSource, kind, onChange){
 
   updateToolbar();
 
-  if (!totalItems) {
+  const items = Array.isArray(itemSource) ? itemSource : [];
+  const placementsByBlock = new Map();
+  const normalizedBlockFilter = state.listFilters?.block === '__unlabeled'
+    ? '_'
+    : (typeof state.listFilters?.block === 'string' ? state.listFilters.block : '');
+  const weekFilterValue = state.listFilters?.week ?? '';
+  const normalizedWeekFilter = weekFilterValue === '' || weekFilterValue == null
+    ? null
+    : Number(weekFilterValue);
+
+  items.forEach(raw => {
+    if (!raw) return;
+    const normalized = normalizeItemForDisplay(raw);
+    if (state.listFilters?.onlyFav && !normalized.favorite) return;
+    const placements = collectPlacements(normalized);
+    placements.forEach((weeksSet, blockKey) => {
+      if (normalizedBlockFilter && normalizedBlockFilter !== blockKey) return;
+      weeksSet.forEach(weekKey => {
+        if (normalizedWeekFilter != null && weekKey !== normalizedWeekFilter) return;
+        if (!placementsByBlock.has(blockKey)) {
+          placementsByBlock.set(blockKey, new Map());
+        }
+        const weekMap = placementsByBlock.get(blockKey);
+        const list = weekMap.get(weekKey) || [];
+        list.push(normalized);
+        weekMap.set(weekKey, list);
+      });
+    });
+  });
+
+  const totalItems = items.length;
+  reportListComplexity('cardlist', { items: totalItems, columns: state.entryLayout?.columns || 1 });
+  const perfMode = getPerformanceMode();
+  const LIST_CHUNK_SIZE = perfMode === 'conservative' ? 48 : perfMode === 'balanced' ? 120 : 200;
+  const scheduleChunk = typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
+    ? (cb) => window.requestIdleCallback(() => cb(), { timeout: 120 })
+    : (cb) => requestAnimationFrame(cb);
+
+  if (!placementsByBlock.size) {
     const empty = document.createElement('div');
     empty.className = 'cards-empty entry-empty';
     const title = document.createElement('h3');
@@ -813,133 +804,81 @@ export async function renderCardList(container, itemSource, kind, onChange){
     return;
   }
 
-  const blockKeys = sortedBlocks.map(b => String(b));
-  let showAllBlocks = false;
-  function applyBlockActivation(nextKey, { mode = 'single' } = {}) {
-    const candidate = nextKey && blockKeys.includes(nextKey) ? nextKey : null;
-    activeBlockKey = mode === 'single' ? candidate : null;
-    showAllBlocks = mode === 'all';
-    collapsedBlocks.clear();
-    if (showAllBlocks) {
-      return;
-    }
-    if (!activeBlockKey) {
-      blockKeys.forEach(key => collapsedBlocks.add(key));
-    } else {
-      blockKeys.forEach(key => {
-        if (key !== activeBlockKey) {
-          collapsedBlocks.add(key);
-        }
-      });
-    }
-  }
+  const blockKeys = Array.from(placementsByBlock.keys());
+  blockKeys.sort((a, b) => {
+    if (a === '_' && b !== '_') return 1;
+    if (b === '_' && a !== '_') return -1;
+    const ao = orderMap.has(a) ? orderMap.get(a) : Infinity;
+    const bo = orderMap.has(b) ? orderMap.get(b) : Infinity;
+    if (ao !== bo) return ao - bo;
+    return String(a).localeCompare(String(b));
+  });
 
-  if (blockKeys.length) {
-    const preferred = latestBlockId && blockKeys.includes(String(latestBlockId))
-      ? String(latestBlockId)
-      : null;
-    const initial = preferred
-      || (activeBlockKey && blockKeys.includes(activeBlockKey) ? activeBlockKey : null)
-      || blockKeys[0];
-    if (!currentBlockFilter && !currentWeekFilter) {
-      applyBlockActivation(null, { mode: 'all' });
-    } else {
-      applyBlockActivation(initial);
-    }
-  } else {
-    applyBlockActivation(null, { mode: 'all' });
-  }
+  const collapsedBlocks = new Set();
+  const collapsedWeeks = new Set();
 
-  const blockUpdaters = new Map();
-  const refreshBlocks = () => {
-    blockUpdaters.forEach(fn => fn());
-  };
-
-  sortedBlocks.forEach(b => {
-    const blockSec = document.createElement('section');
-    blockSec.className = 'block-section';
+  blockKeys.forEach(blockKey => {
+    const blockSection = document.createElement('section');
+    blockSection.className = 'block-section entry-block-section';
     const blockHeader = document.createElement('button');
     blockHeader.type = 'button';
-    blockHeader.className = 'block-header';
-    const blockLabel = b === '_' ? 'Unassigned' : blockTitle(b);
-    const blockKey = String(b);
-    const bdef = normalizedBlocks.find(bl => bl.blockId === b);
+    blockHeader.className = 'block-header entry-block-header';
+    const blockLabel = blockKey === '_' ? 'Unassigned' : blockTitle(blockKey);
+    const bdef = normalizedBlocks.find(bl => bl.blockId === blockKey);
     if (bdef?.color) blockHeader.style.background = bdef.color;
-    const weekEntries = [];
-    const ensureVisibleWeeks = () => {
-      if (collapsedBlocks.has(blockKey)) return;
-      weekEntries.forEach(entry => {
-        if (!collapsedWeeks.has(entry.weekKey)) entry.ensureListRendered();
-      });
-    };
-    function updateBlockState(){
-      const isCollapsed = collapsedBlocks.has(blockKey);
-      blockSec.classList.toggle('collapsed', isCollapsed);
-      blockHeader.textContent = `${isCollapsed ? '▸' : '▾'} ${blockLabel}`;
-      blockHeader.setAttribute('aria-expanded', String(!isCollapsed));
-      if (!isCollapsed) {
-        ensureVisibleWeeks();
-      }
-    }
-    blockUpdaters.set(blockKey, updateBlockState);
-    updateBlockState();
+    blockHeader.textContent = `▾ ${blockLabel}`;
+    blockHeader.setAttribute('aria-expanded', 'true');
     blockHeader.addEventListener('click', () => {
-      const isCollapsed = collapsedBlocks.has(blockKey);
-      if (showAllBlocks) {
-        if (isCollapsed) {
-          collapsedBlocks.delete(blockKey);
-        } else {
-          collapsedBlocks.add(blockKey);
-        }
-      } else if (isCollapsed) {
-        applyBlockActivation(blockKey);
-      } else if (activeBlockKey === blockKey) {
-        applyBlockActivation(null);
+      if (collapsedBlocks.has(blockKey)) {
+        collapsedBlocks.delete(blockKey);
       } else {
         collapsedBlocks.add(blockKey);
       }
-      refreshBlocks();
+      const isCollapsed = collapsedBlocks.has(blockKey);
+      blockSection.classList.toggle('collapsed', isCollapsed);
+      blockHeader.textContent = `${isCollapsed ? '▸' : '▾'} ${blockLabel}`;
+      blockHeader.setAttribute('aria-expanded', String(!isCollapsed));
     });
-    blockSec.appendChild(blockHeader);
-    const wkMap = groups.get(b);
-    if (!wkMap) {
-      return;
-    }
-    const sortedWeeks = Array.from(wkMap.keys()).sort((a,b)=>{
+    blockSection.appendChild(blockHeader);
+
+    const weekMap = placementsByBlock.get(blockKey);
+    const weekKeys = Array.from(weekMap.keys());
+    weekKeys.sort((a, b) => {
       if (a === '_' && b !== '_') return 1;
       if (b === '_' && a !== '_') return -1;
-      return Number(b) - Number(a);
+      if (typeof a === 'number' && typeof b === 'number') return a - b;
+      return String(a).localeCompare(String(b));
     });
-    sortedWeeks.forEach(w => {
-      const weekSec = document.createElement('div');
-      weekSec.className = 'week-section';
+
+    weekKeys.forEach(weekKey => {
+      const weekSection = document.createElement('div');
+      weekSection.className = 'week-section entry-week-section';
       const weekHeader = document.createElement('button');
       weekHeader.type = 'button';
-      weekHeader.className = 'week-header';
-      const weekLabel = w === '_' ? 'Unassigned' : `Week ${w}`;
-      const weekKey = `${blockKey}__${w}`;
-      let listRendered = false;
-      function updateWeekState(){
-        const isCollapsed = collapsedWeeks.has(weekKey);
-        weekSec.classList.toggle('collapsed', isCollapsed);
+      weekHeader.className = 'week-header entry-week-header';
+      const weekLabel = weekKey === '_' ? 'Unassigned' : `Week ${weekKey}`;
+      const collapseKey = `${blockKey}__${weekKey}`;
+      weekHeader.textContent = `▾ ${weekLabel}`;
+      weekHeader.setAttribute('aria-expanded', 'true');
+      weekHeader.addEventListener('click', () => {
+        if (collapsedWeeks.has(collapseKey)) {
+          collapsedWeeks.delete(collapseKey);
+        } else {
+          collapsedWeeks.add(collapseKey);
+        }
+        const isCollapsed = collapsedWeeks.has(collapseKey);
+        weekSection.classList.toggle('collapsed', isCollapsed);
         weekHeader.textContent = `${isCollapsed ? '▸' : '▾'} ${weekLabel}`;
         weekHeader.setAttribute('aria-expanded', String(!isCollapsed));
-        if (!isCollapsed && !collapsedBlocks.has(blockKey)) {
-          ensureListRendered();
-        }
-      }
-      updateWeekState();
-      weekHeader.addEventListener('click', () => {
-        if (collapsedWeeks.has(weekKey)) collapsedWeeks.delete(weekKey); else collapsedWeeks.add(weekKey);
-        updateWeekState();
       });
-      weekSec.appendChild(weekHeader);
+      weekSection.appendChild(weekHeader);
+
       const list = document.createElement('div');
       list.className = 'card-list';
       list.style.setProperty('--entry-scale', state.entryLayout.scale);
       list.style.setProperty('--entry-columns', state.entryLayout.columns);
       list.classList.toggle('grid-layout', state.entryLayout.mode === 'grid');
-      const rows = wkMap.get(w) || [];
+      const rows = weekMap.get(weekKey) || [];
       function renderChunk(start = 0) {
         if (!rows.length) return;
         const slice = rows.slice(start, start + LIST_CHUNK_SIZE);
@@ -953,17 +892,12 @@ export async function renderCardList(container, itemSource, kind, onChange){
           scheduleChunk(() => renderChunk(start + LIST_CHUNK_SIZE));
         }
       }
-      function ensureListRendered() {
-        if (listRendered) return;
-        listRendered = true;
-        renderChunk();
-      }
-      weekEntries.push({ weekKey, ensureListRendered });
-      weekSec.appendChild(list);
-      blockSec.appendChild(weekSec);
+      renderChunk();
+      weekSection.appendChild(list);
+      blockSection.appendChild(weekSection);
     });
-    ensureVisibleWeeks();
-    container.appendChild(blockSec);
+
+    container.appendChild(blockSection);
   });
 
   applyLayout();
