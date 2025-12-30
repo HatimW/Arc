@@ -6,6 +6,9 @@ export function createAppShell({
   setListQuery,
   setFilters,
   setListFilters,
+  listAllItems,
+  repairItemKinds,
+  filterItemsLocally,
   findItemsByFilter,
   renderSettings,
   renderCardList,
@@ -44,6 +47,35 @@ export function createAppShell({
   let pendingQueryTab = '';
   let queryUpdateTimer = 0;
   const tabScrollState = new Map();
+  let listRepairAttempted = false;
+
+  async function loadListItems(filter) {
+    let items = [];
+    if (!listRepairAttempted && typeof repairItemKinds === 'function') {
+      listRepairAttempted = true;
+      try {
+        await repairItemKinds();
+      } catch (err) {
+        console.warn('Failed to repair list items', err);
+      }
+    }
+    if (typeof listAllItems === 'function' && typeof filterItemsLocally === 'function') {
+      try {
+        const allItems = await listAllItems();
+        items = await filterItemsLocally(allItems, filter);
+      } catch (err) {
+        console.warn('List query failed, falling back to indexed query', err);
+      }
+    }
+    if (!items.length) {
+      try {
+        items = await findItemsByFilter(filter).toArray();
+      } catch (err) {
+        console.warn('List query failed', err);
+      }
+    }
+    return items;
+  }
 
   function buildScrollKey() {
     const activeTab = state.tab || '';
@@ -314,8 +346,7 @@ export function createAppShell({
 
       const listFilters = state.listFilters || {};
       const filter = { ...listFilters, types: [kind], query: state.listQuery };
-      const query = findItemsByFilter(filter);
-      let items = await query.toArray();
+      let items = await loadListItems(filter);
       const hasActiveFilters = Boolean(
         state.listQuery || listFilters.block || listFilters.week || listFilters.onlyFav
       );
@@ -328,7 +359,7 @@ export function createAppShell({
           onlyFav: false,
           query: ''
         };
-        const fallbackItems = await findItemsByFilter(fallbackFilter).toArray();
+        const fallbackItems = await loadListItems(fallbackFilter);
         if (fallbackItems.length) {
           if (typeof setListFilters === 'function') {
             setListFilters({ block: '', week: '', onlyFav: false });
@@ -337,6 +368,43 @@ export function createAppShell({
           items = fallbackItems;
         }
       }
+      const summary = document.createElement('div');
+      summary.className = 'list-summary';
+      const count = document.createElement('div');
+      count.className = 'list-summary-count';
+      count.textContent = `${items.length} ${listMeta.label.toLowerCase()} entr${items.length === 1 ? 'y' : 'ies'}`;
+      summary.appendChild(count);
+      const chips = document.createElement('div');
+      chips.className = 'list-summary-chips';
+      const addChip = (label) => {
+        const chip = document.createElement('span');
+        chip.className = 'list-summary-chip';
+        chip.textContent = label;
+        chips.appendChild(chip);
+      };
+      if (state.listQuery) addChip(`Search: ${state.listQuery}`);
+      if (listFilters.block) addChip(`Block: ${listFilters.block}`);
+      if (listFilters.week) addChip(`Week: ${listFilters.week}`);
+      if (listFilters.onlyFav) addChip('Favorites only');
+      if (chips.childElementCount) {
+        summary.appendChild(chips);
+      }
+      const actions = document.createElement('div');
+      actions.className = 'list-summary-actions';
+      if (hasActiveFilters) {
+        const clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'btn secondary';
+        clearBtn.textContent = 'Clear list filters';
+        clearBtn.addEventListener('click', () => {
+          setListFilters({ block: '', week: '', onlyFav: false });
+          if (state.listQuery) setListQuery('');
+          renderApp();
+        });
+        actions.appendChild(clearBtn);
+      }
+      summary.appendChild(actions);
+      content.insertBefore(summary, listHost);
       const renderPromise = renderCardList(listHost, items, kind, renderApp);
       await Promise.all([entryControlPromise, renderPromise]);
       restoreTabScroll(content);
