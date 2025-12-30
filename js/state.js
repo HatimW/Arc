@@ -8,6 +8,13 @@ const DEFAULT_ENTRY_FILTERS = {
   sort: 'updated-desc'
 };
 
+const DEFAULT_LIST_FILTERS = {
+  block: '',
+  week: '',
+  onlyFav: false,
+  sort: 'updated-desc'
+};
+
 const DEFAULT_LECTURE_STATE = {
   query: '',
   blockId: '',
@@ -62,6 +69,29 @@ function sanitizeEntryFilters(value) {
     );
     if (unique.length) next.types = unique;
   }
+  if (Object.prototype.hasOwnProperty.call(value, 'block')) {
+    next.block = String(value.block ?? '');
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'week')) {
+    const raw = value.week;
+    if (raw === '' || raw === null || typeof raw === 'undefined') {
+      next.week = '';
+    } else if (Number.isFinite(Number(raw))) {
+      next.week = String(Number(raw));
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'onlyFav')) {
+    next.onlyFav = Boolean(value.onlyFav);
+  }
+  if (Object.prototype.hasOwnProperty.call(value, 'sort')) {
+    next.sort = String(value.sort ?? '');
+  }
+  return next;
+}
+
+function sanitizeListFilters(value) {
+  if (!value || typeof value !== 'object') return {};
+  const next = {};
   if (Object.prototype.hasOwnProperty.call(value, 'block')) {
     next.block = String(value.block ?? '');
   }
@@ -151,6 +181,7 @@ function sanitizeExamLayout(value) {
 }
 
 const initialFilters = { ...DEFAULT_ENTRY_FILTERS, ...sanitizeEntryFilters(preferences.filters) };
+const initialListFilters = { ...DEFAULT_LIST_FILTERS, ...sanitizeListFilters(preferences.listFilters) };
 const initialLectures = { ...DEFAULT_LECTURE_STATE, ...sanitizeLectureState(preferences.lectures || {}) };
 const initialEntryLayout = { ...DEFAULT_ENTRY_LAYOUT, ...sanitizeEntryLayout(preferences.entryLayout) };
 const initialExamLayout = { ...DEFAULT_EXAM_LAYOUT, ...sanitizeExamLayout(preferences.examLayout) };
@@ -168,6 +199,7 @@ export const state = {
   },
   query: "",
   filters: initialFilters,
+  listFilters: initialListFilters,
   lectures: initialLectures,
   entryLayout: initialEntryLayout,
   blockBoard: {
@@ -304,6 +336,60 @@ export function setFilters(patch) {
 
   state.filters = next;
   updateUIPreferences({ filters: sanitizeEntryFilters(next) });
+}
+
+export function setListFilters(patch) {
+  if (!patch) return;
+  const current = state.listFilters && typeof state.listFilters === 'object'
+    ? state.listFilters
+    : { ...DEFAULT_LIST_FILTERS };
+  const next = { ...current };
+  let changed = false;
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'block')) {
+    const value = String(patch.block ?? '');
+    if ((current.block ?? '') !== value) {
+      next.block = value;
+      changed = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'week')) {
+    const raw = patch.week;
+    let normalized;
+    if (raw === '' || raw === null || typeof raw === 'undefined') {
+      normalized = '';
+    } else if (Number.isFinite(Number(raw))) {
+      normalized = String(Number(raw));
+    }
+    if (typeof normalized !== 'undefined' && (current.week ?? '') !== normalized) {
+      next.week = normalized;
+      changed = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'onlyFav')) {
+    const value = Boolean(patch.onlyFav);
+    if (Boolean(current.onlyFav) !== value) {
+      next.onlyFav = value;
+      changed = true;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(patch, 'sort')) {
+    const value = String(patch.sort ?? '');
+    if ((current.sort ?? '') !== value) {
+      next.sort = value;
+      changed = true;
+    }
+  }
+
+  if (!changed) {
+    return;
+  }
+
+  state.listFilters = next;
+  updateUIPreferences({ listFilters: sanitizeListFilters(next) });
 }
 export function setBuilder(patch){ Object.assign(state.builder, patch); }
 export function setBlockBoardState(patch) {
