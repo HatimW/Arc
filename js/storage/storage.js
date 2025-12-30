@@ -83,9 +83,18 @@ function expandKindVariants(types = []) {
 
 function normalizeItemKind(item) {
   if (!item || typeof item !== 'object') return item;
-  const normalized = normalizeKindValue(item.kind);
+  const normalized = normalizeKindValue(item.kind || item.type || item.category);
   if (!normalized || normalized === item.kind) return item;
   return { ...item, kind: normalized };
+}
+
+function normalizeKindKey(value) {
+  return normalizeKindValue(value);
+}
+
+function resolveKindFromLegacy(item) {
+  if (!item || typeof item !== 'object') return '';
+  return normalizeKindValue(item.kind || item.type || item.category);
 }
 
 function markItemsUpdated() {
@@ -544,8 +553,28 @@ import { cleanItem } from '../validators.js';
 
 export async function listItemsByKind(kind) {
   const i = await store('items');
-  const idx = i.index('by_kind');
-  return await prom(idx.getAll(kind));
+  let list = [];
+  try {
+    const idx = i.index('by_kind');
+    list = await prom(idx.getAll(kind));
+  } catch (err) {
+    list = [];
+  }
+  if (!Array.isArray(list) || !list.length) {
+    try {
+      const all = await prom(i.getAll());
+      const resolvedKind = normalizeKindValue(kind);
+      list = (Array.isArray(all) ? all : []).filter(item => {
+        if (!item) return false;
+        const candidate = resolveKindFromLegacy(item);
+        return candidate && candidate === resolvedKind;
+      });
+    } catch (err) {
+      console.warn('listItemsByKind failed', err);
+      return [];
+    }
+  }
+  return list.map(normalizeItemKind);
 }
 
 function titleOf(item){
@@ -651,9 +680,15 @@ async function keysForKinds(storeRef, kinds) {
   }
 
   const all = await prom(storeRef.getAll());
-  const kindsSet = new Set(kinds.filter(Boolean));
+  const normalizedKinds = new Set(kinds.map(normalizeKindKey).filter(Boolean));
+  const rawKinds = new Set(kinds.filter(Boolean));
   (Array.isArray(all) ? all : []).forEach(item => {
-    if (!item || !kindsSet.has(item.kind)) return;
+    if (!item) return;
+    const resolvedKind = resolveKindFromLegacy(item);
+    const matches =
+      (item.kind && rawKinds.has(item.kind)) ||
+      (resolvedKind && normalizedKinds.has(resolvedKind));
+    if (!matches) return;
     if (!seen.has(item.id)) {
       seen.add(item.id);
       allKeys.push(item.id);
@@ -676,7 +711,19 @@ async function executeItemQuery(filter, options = {}) {
     ? await getKeySet(itemsStore, 'by_favorite', true)
     : null;
 
-  const baseKeys = await keysForKinds(itemsStore, normalized.types);
+  let baseKeys = await keysForKinds(itemsStore, normalized.types);
+  if (!baseKeys.length && normalized.types.length) {
+    const allItems = await prom(itemsStore.getAll());
+    const normalizedKinds = new Set(normalized.types.map(normalizeKindKey).filter(Boolean));
+    const fallbackKeys = [];
+    (Array.isArray(allItems) ? allItems : []).forEach(item => {
+      if (!item || !item.id) return;
+      const resolved = resolveKindFromLegacy(item);
+      if (!resolved || !normalizedKinds.has(resolved)) return;
+      fallbackKeys.push(item.id);
+    });
+    baseKeys = fallbackKeys;
+  }
   const filteredKeys = baseKeys.filter(id => {
     if (!id) return false;
     if (blockSet && !blockSet.has(id)) return false;
@@ -686,12 +733,16 @@ async function executeItemQuery(filter, options = {}) {
   });
 
   const results = [];
+  const legacyKindFixes = [];
   for (let i = 0; i < filteredKeys.length; i += RESULT_BATCH_SIZE) {
     const chunk = filteredKeys.slice(i, i + RESULT_BATCH_SIZE);
     const fetched = await Promise.all(chunk.map(id => prom(itemsStore.get(id))));
     for (const item of fetched) {
       if (!item) continue;
       const normalizedItem = normalizeItemKind(item);
+      if (normalizedItem !== item && normalizedItem?.id != null) {
+        legacyKindFixes.push(normalizedItem);
+      }
       if (normalized.block === '__unlabeled' && Array.isArray(normalizedItem.blocks) && normalizedItem.blocks.length) {
         continue;
       }
@@ -702,6 +753,24 @@ async function executeItemQuery(filter, options = {}) {
         if (!matches) continue;
       }
       results.push(normalizedItem);
+    }
+  }
+  if (legacyKindFixes.length) {
+    try {
+      const writeStore = await store('items', 'readwrite');
+      for (const entry of legacyKindFixes) {
+        if (!entry || entry.id == null) continue;
+        const updated = {
+          ...entry,
+          kind: normalizeKindValue(entry.kind || entry.type || entry.category),
+          tokens: buildTokens(entry),
+          searchMeta: buildSearchMeta(entry)
+        };
+        await prom(writeStore.put(updated));
+      }
+      markItemsUpdated();
+    } catch (err) {
+      console.warn('Failed to normalize legacy item kinds', err);
     }
   }
 
