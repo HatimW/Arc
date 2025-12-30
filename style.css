@@ -624,6 +624,43 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
   min-width: 0;
 }
 
+.list-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pad-sm);
+  padding: 10px var(--pad);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.list-summary-count {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.list-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.list-summary-chip {
+  background: rgba(56, 189, 248, 0.18);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.list-summary-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--pad-sm);
+}
+
 .subtabs {
   margin-top: var(--pad-sm);
   column-gap: 8px;
