@@ -81,11 +81,38 @@ function expandKindVariants(types = []) {
   return Array.from(expanded);
 }
 
+function inferKindFromItem(item) {
+  if (!item || typeof item !== 'object') return '';
+  if (typeof item.concept === 'string' && item.concept.trim()) return 'concept';
+  const drugSignals = ['moa', 'uses', 'sideEffects', 'contraindications', 'source', 'class'];
+  if (drugSignals.some(key => typeof item[key] === 'string' && item[key].trim())) {
+    return 'drug';
+  }
+  const conceptSignals = ['definition', 'mechanism', 'clinicalRelevance', 'example', 'type'];
+  if (conceptSignals.some(key => typeof item[key] === 'string' && item[key].trim())) {
+    return 'concept';
+  }
+  const diseaseSignals = ['etiology', 'pathophys', 'clinical', 'diagnosis', 'treatment', 'complications', 'mnemonic'];
+  if (diseaseSignals.some(key => typeof item[key] === 'string' && item[key].trim())) {
+    return 'disease';
+  }
+  return 'disease';
+}
+
 function normalizeItemKind(item) {
   if (!item || typeof item !== 'object') return item;
   const normalized = normalizeKindValue(item.kind);
   if (!normalized || normalized === item.kind) return item;
   return { ...item, kind: normalized };
+}
+
+function ensureItemKind(item) {
+  if (!item || typeof item !== 'object') return item;
+  const normalized = normalizeItemKind(item);
+  if (normalized?.kind) return normalized;
+  const inferred = inferKindFromItem(normalized);
+  if (!inferred) return normalized;
+  return { ...normalized, kind: inferred };
 }
 
 function markItemsUpdated() {
@@ -548,6 +575,32 @@ export async function listItemsByKind(kind) {
   return await prom(idx.getAll(kind));
 }
 
+export async function listAllItems() {
+  const i = await store('items');
+  return await prom(i.getAll());
+}
+
+export async function repairItemKinds() {
+  const i = await store('items', 'readwrite');
+  const all = await prom(i.getAll());
+  let updated = 0;
+  for (const item of Array.isArray(all) ? all : []) {
+    if (!item || typeof item !== 'object') continue;
+    const cleaned = cleanItem(item);
+    if (cleaned.kind !== item.kind) {
+      cleaned.tokens = buildTokens(cleaned);
+      cleaned.searchMeta = buildSearchMeta(cleaned);
+      await prom(i.put(cleaned));
+      updated += 1;
+    }
+  }
+  if (updated) {
+    markItemsUpdated();
+    scheduleBackup();
+  }
+  return updated;
+}
+
 function titleOf(item){
   return item.name || item.concept || '';
 }
@@ -703,6 +756,119 @@ async function executeItemQuery(filter, options = {}) {
       }
       results.push(normalizedItem);
     }
+  }
+
+  let lectureDateIndex = null;
+  if (normalized.sort.mode === 'lecture') {
+    const lectures = await fetchAllLectures();
+    lectureDateIndex = new Map();
+    (lectures || []).forEach(lecture => {
+      if (!lecture || lecture.blockId == null || lecture.id == null) return;
+      const key = composeLectureKey(lecture.blockId, lecture.id);
+      const created = typeof lecture.createdAt === 'number' ? lecture.createdAt : 0;
+      lectureDateIndex.set(key, created);
+    });
+  }
+
+  const lectureSortCache = new Map();
+  function lectureTimestamp(item) {
+    if (!lectureDateIndex) return 0;
+    const cacheKey = item?.id ?? null;
+    if (cacheKey != null && lectureSortCache.has(cacheKey)) {
+      return lectureSortCache.get(cacheKey);
+    }
+    const links = Array.isArray(item?.lectures) ? item.lectures : [];
+    let latest = 0;
+    for (const link of links) {
+      if (!link || link.blockId == null || link.id == null) continue;
+      const key = composeLectureKey(link.blockId, link.id);
+      const created = lectureDateIndex.get(key);
+      if (typeof created === 'number' && created > latest) {
+        latest = created;
+      }
+    }
+    if (cacheKey != null) lectureSortCache.set(cacheKey, latest);
+    return latest;
+  }
+
+  const queryString = typeof normalized.query === 'string' ? normalized.query : '';
+  const hasQueryString = queryString.length > 0;
+
+  function nameMatchScore(item) {
+    if (!hasQueryString) return 0;
+    const title = titleOf(item).toLowerCase();
+    if (!title) return 0;
+    if (title.startsWith(queryString)) return 2;
+    if (title.includes(queryString)) return 1;
+    return 0;
+  }
+
+  results.sort((a, b) => {
+    if (hasQueryString) {
+      const aScore = nameMatchScore(a);
+      const bScore = nameMatchScore(b);
+      if (aScore !== bScore) {
+        return bScore - aScore;
+      }
+    }
+    let cmp = 0;
+    switch (normalized.sort.mode) {
+      case 'name':
+        cmp = titleOf(a).localeCompare(titleOf(b));
+        break;
+      case 'created': {
+        const av = typeof a.createdAt === 'number' ? a.createdAt : 0;
+        const bv = typeof b.createdAt === 'number' ? b.createdAt : 0;
+        cmp = av - bv;
+        break;
+      }
+      case 'lecture':
+        cmp = lectureTimestamp(a) - lectureTimestamp(b);
+        break;
+      case 'updated':
+      default: {
+        const av = typeof a.updatedAt === 'number' ? a.updatedAt : 0;
+        const bv = typeof b.updatedAt === 'number' ? b.updatedAt : 0;
+        cmp = av - bv;
+        break;
+      }
+    }
+    if (cmp === 0 && normalized.sort.mode !== 'name') {
+      cmp = titleOf(a).localeCompare(titleOf(b));
+    }
+    return normalized.sort.direction === 'asc' ? cmp : -cmp;
+  });
+
+  return results;
+}
+
+export async function filterItemsLocally(items, filter) {
+  const normalized = normalizeFilter(filter);
+  const kindsSet = new Set(normalized.types.filter(Boolean));
+  const results = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item) continue;
+    const normalizedItem = ensureItemKind(item);
+    const kind = normalizedItem?.kind;
+    if (!kind || !kindsSet.has(kind)) continue;
+    if (normalized.block === '__unlabeled') {
+      if (Array.isArray(normalizedItem.blocks) && normalizedItem.blocks.length) continue;
+    } else if (normalized.block) {
+      const blocks = Array.isArray(normalizedItem.blocks) ? normalizedItem.blocks : [];
+      if (!blocks.includes(normalized.block)) continue;
+    }
+    if (normalized.week != null) {
+      const weeks = Array.isArray(normalizedItem.weeks) ? normalizedItem.weeks : [];
+      if (!weeks.includes(normalized.week)) continue;
+    }
+    if (normalized.onlyFav && !normalizedItem.favorite) continue;
+    if (normalized.tokens) {
+      const tokenField = normalizedItem.tokens || '';
+      const metaField = normalizedItem.searchMeta || buildSearchMeta(normalizedItem);
+      const matches = normalized.tokens.every(tok => tokenField.includes(tok) || metaField.includes(tok));
+      if (!matches) continue;
+    }
+    results.push(normalizedItem);
   }
 
   let lectureDateIndex = null;

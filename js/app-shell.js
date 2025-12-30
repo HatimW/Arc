@@ -6,6 +6,9 @@ export function createAppShell({
   setListQuery,
   setFilters,
   setListFilters,
+  listAllItems,
+  repairItemKinds,
+  filterItemsLocally,
   findItemsByFilter,
   renderSettings,
   renderCardList,
@@ -44,6 +47,35 @@ export function createAppShell({
   let pendingQueryTab = '';
   let queryUpdateTimer = 0;
   const tabScrollState = new Map();
+  let listRepairAttempted = false;
+
+  async function loadListItems(filter) {
+    let items = [];
+    if (!listRepairAttempted && typeof repairItemKinds === 'function') {
+      listRepairAttempted = true;
+      try {
+        await repairItemKinds();
+      } catch (err) {
+        console.warn('Failed to repair list items', err);
+      }
+    }
+    if (typeof listAllItems === 'function' && typeof filterItemsLocally === 'function') {
+      try {
+        const allItems = await listAllItems();
+        items = await filterItemsLocally(allItems, filter);
+      } catch (err) {
+        console.warn('List query failed, falling back to indexed query', err);
+      }
+    }
+    if (!items.length) {
+      try {
+        items = await findItemsByFilter(filter).toArray();
+      } catch (err) {
+        console.warn('List query failed', err);
+      }
+    }
+    return items;
+  }
 
   function buildScrollKey() {
     const activeTab = state.tab || '';
@@ -306,6 +338,10 @@ export function createAppShell({
         });
         selector.appendChild(btn);
       });
+      const countBadge = document.createElement('span');
+      countBadge.className = 'list-count-badge';
+      countBadge.setAttribute('aria-live', 'polite');
+      selector.appendChild(countBadge);
       content.appendChild(selector);
 
       const listHost = document.createElement('div');
@@ -314,8 +350,7 @@ export function createAppShell({
 
       const listFilters = state.listFilters || {};
       const filter = { ...listFilters, types: [kind], query: state.listQuery };
-      const query = findItemsByFilter(filter);
-      let items = await query.toArray();
+      let items = await loadListItems(filter);
       const hasActiveFilters = Boolean(
         state.listQuery || listFilters.block || listFilters.week || listFilters.onlyFav
       );
@@ -328,7 +363,7 @@ export function createAppShell({
           onlyFav: false,
           query: ''
         };
-        const fallbackItems = await findItemsByFilter(fallbackFilter).toArray();
+        const fallbackItems = await loadListItems(fallbackFilter);
         if (fallbackItems.length) {
           if (typeof setListFilters === 'function') {
             setListFilters({ block: '', week: '', onlyFav: false });
@@ -337,6 +372,7 @@ export function createAppShell({
           items = fallbackItems;
         }
       }
+      countBadge.textContent = `${items.length}`;
       const renderPromise = renderCardList(listHost, items, kind, renderApp);
       await Promise.all([entryControlPromise, renderPromise]);
       restoreTabScroll(content);
