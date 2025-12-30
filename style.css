@@ -4168,7 +4168,7 @@ body[data-performance-mode='conservative'] .item-card:hover {
   background: rgba(15, 23, 42, 0.88);
 }
 
-.entry-card-header {
+.item-card .card-header {
   display: flex;
   justify-content: flex-start;
   align-items: center;
@@ -4177,67 +4177,37 @@ body[data-performance-mode='conservative'] .item-card:hover {
   position: relative;
 }
 
-.entry-title-wrap {
+.card-title-btn {
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: calc(10px * var(--card-scale)) calc(14px * var(--card-scale));
-  padding-right: calc(40px * var(--card-scale));
-  border-radius: calc(var(--radius) * 1.1);
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.92));
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
-  overflow: hidden;
-}
-
-.entry-card.expanded .entry-title-wrap {
-  border-color: rgba(56, 189, 248, 0.5);
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(15, 23, 42, 0.88));
-  box-shadow: 0 14px 26px rgba(2, 6, 23, 0.35);
-}
-
-.entry-title-wrap:hover,
-.entry-title-wrap:focus-visible {
-  border-color: rgba(56, 189, 248, 0.6);
-  box-shadow: 0 10px 22px rgba(2, 6, 23, 0.35);
-}
-
-.entry-title-wrap:focus-visible {
-  outline: 2px solid rgba(56, 189, 248, 0.45);
-  outline-offset: 2px;
-}
-
-.entry-title-text {
-  font-size: calc(1.25rem * var(--card-scale));
+  font-size: calc(1.35rem * var(--card-scale));
   font-weight: 700;
+  cursor:pointer;
   line-height: 1.2;
-  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px 4px 0;
+  transition: color 0.2s ease, background 0.2s ease;
+  overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  overflow: hidden;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-.entry-title-meta {
-  font-size: calc(0.78rem * var(--card-scale));
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+.card-title-btn:hover {
+  color: var(--accent);
 }
 
-.entry-title-caret {
-  position: absolute;
-  right: calc(18px * var(--card-scale));
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: calc(1rem * var(--card-scale));
-  color: var(--text-muted);
+.card-title-btn:focus-visible {
+  outline: none;
+  background: rgba(56, 189, 248, 0.12);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35);
+  color: var(--accent);
 }
 
 
