@@ -338,6 +338,10 @@ export function createAppShell({
         });
         selector.appendChild(btn);
       });
+      const countBadge = document.createElement('span');
+      countBadge.className = 'list-count-badge';
+      countBadge.setAttribute('aria-live', 'polite');
+      selector.appendChild(countBadge);
       content.appendChild(selector);
 
       const listHost = document.createElement('div');

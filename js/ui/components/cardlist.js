@@ -66,10 +66,40 @@ const collapsedBlocks = new Set();
 const collapsedWeeks = new Set();
 let activeBlockKey = null;
 
+function normalizeList(value) {
+  if (Array.isArray(value)) return value.filter(entry => entry != null);
+  if (typeof value === 'string' || typeof value === 'number') return [value];
+  return [];
+}
+
+function normalizeLectureList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(entry => entry && typeof entry === 'object')
+    .map(entry => ({
+      blockId: entry.blockId ?? entry.block ?? '',
+      id: entry.id ?? entry.lectureId ?? entry.lecId ?? entry.lecture ?? null,
+      name: entry.name ?? entry.title ?? '',
+      week: entry.week ?? null
+    }))
+    .filter(entry => entry.id != null);
+}
+
+function normalizeItemForDisplay(item) {
+  if (!item || typeof item !== 'object') return item;
+  const blocks = normalizeList(item.blocks).map(block => String(block));
+  const weeks = normalizeList(item.weeks)
+    .map(value => Number(value))
+    .filter(value => Number.isFinite(value));
+  const lectures = normalizeLectureList(item.lectures);
+  return { ...item, blocks, weeks, lectures };
+}
+
 export function createItemCard(item, onChange){
+  const safeItem = normalizeItemForDisplay(item);
   const card = document.createElement('div');
-  card.className = `item-card card--${item.kind}`;
-  const color = item.color || kindColors[item.kind] || 'var(--gray)';
+  card.className = `item-card card--${safeItem.kind}`;
+  const color = safeItem.color || kindColors[safeItem.kind] || 'var(--gray)';
   card.style.borderTop = `3px solid ${color}`;
 
   const header = document.createElement('div');
@@ -77,8 +107,8 @@ export function createItemCard(item, onChange){
 
   const mainBtn = document.createElement('button');
   mainBtn.className = 'card-title-btn';
-  mainBtn.textContent = item.name || item.concept || 'Untitled';
-  mainBtn.setAttribute('aria-expanded', expanded.has(item.id));
+  mainBtn.textContent = safeItem.name || safeItem.concept || 'Untitled';
+  mainBtn.setAttribute('aria-expanded', expanded.has(safeItem.id));
   header.appendChild(mainBtn);
 
   const settings = document.createElement('div');
@@ -128,15 +158,15 @@ export function createItemCard(item, onChange){
 
   const fav = document.createElement('button');
   fav.className = 'icon-btn';
-  fav.textContent = item.favorite ? '★' : '☆';
+  fav.textContent = safeItem.favorite ? '★' : '☆';
   fav.title = 'Toggle Favorite';
   fav.setAttribute('aria-label','Toggle Favorite');
   fav.addEventListener('click', async e => {
     e.stopPropagation();
     closeMenu();
-    item.favorite = !item.favorite;
-    await upsertItem(item);
-    fav.textContent = item.favorite ? '★' : '☆';
+    safeItem.favorite = !safeItem.favorite;
+    await upsertItem(safeItem);
+    fav.textContent = safeItem.favorite ? '★' : '☆';
     onChange && onChange();
   });
   menu.appendChild(fav);
@@ -149,7 +179,7 @@ export function createItemCard(item, onChange){
   link.addEventListener('click', e => {
     e.stopPropagation();
     closeMenu();
-    openLinker(item, onChange);
+    openLinker(safeItem, onChange);
   });
   menu.appendChild(link);
 
@@ -161,7 +191,7 @@ export function createItemCard(item, onChange){
   edit.addEventListener('click', e => {
     e.stopPropagation();
     closeMenu();
-    openEditor(item.kind, onChange, item);
+    openEditor(safeItem.kind, onChange, safeItem);
   });
   menu.appendChild(edit);
 
@@ -173,7 +203,7 @@ export function createItemCard(item, onChange){
   copy.addEventListener('click', e => {
     e.stopPropagation();
     closeMenu();
-    navigator.clipboard && navigator.clipboard.writeText(item.name || item.concept || '');
+    navigator.clipboard && navigator.clipboard.writeText(safeItem.name || safeItem.concept || '');
   });
   menu.appendChild(copy);
 
@@ -186,7 +216,7 @@ export function createItemCard(item, onChange){
     e.stopPropagation();
     closeMenu();
     if (await confirmModal('Delete this item?')) {
-      await deleteItem(item.id);
+      await deleteItem(safeItem.id);
       onChange && onChange();
     }
   });
@@ -203,20 +233,20 @@ export function createItemCard(item, onChange){
     body.innerHTML = '';
     const identifiers = document.createElement('div');
     identifiers.className = 'identifiers';
-    (item.blocks || []).forEach(b => {
+    normalizeList(safeItem.blocks).forEach(b => {
       const chip = document.createElement('span');
       chip.className = 'chip';
-      chip.textContent = b;
+      chip.textContent = String(b);
       identifiers.appendChild(chip);
     });
-    (item.weeks || []).forEach(w => {
+    normalizeList(safeItem.weeks).forEach(w => {
       const chip = document.createElement('span');
       chip.className = 'chip';
       chip.textContent = 'W' + w;
       identifiers.appendChild(chip);
     });
-    if (item.lectures) {
-      item.lectures.forEach(l => {
+    if (safeItem.lectures) {
+      safeItem.lectures.forEach(l => {
         const chip = document.createElement('span');
         chip.className = 'chip';
         chip.textContent = '📚 ' + (l.name || l.id);
@@ -225,9 +255,9 @@ export function createItemCard(item, onChange){
     }
     body.appendChild(identifiers);
 
-    const defs = fieldDefs[item.kind] || [];
+    const defs = fieldDefs[safeItem.kind] || [];
     defs.forEach(([f,label,icon]) => {
-      if (!item[f]) return;
+      if (!safeItem[f]) return;
       const sec = document.createElement('div');
       sec.className = 'section';
       sec.style.borderLeftColor = color;
@@ -238,11 +268,11 @@ export function createItemCard(item, onChange){
       sec.appendChild(tl);
       const txt = document.createElement('div');
       txt.className = 'section-content';
-      renderRichText(txt, item[f]);
+      renderRichText(txt, safeItem[f]);
       sec.appendChild(txt);
       body.appendChild(sec);
     });
-    const extras = ensureExtras(item);
+    const extras = ensureExtras(safeItem);
     extras.forEach(extra => {
       if (!extra || !extra.body) return;
       const sec = document.createElement('div');
@@ -258,10 +288,10 @@ export function createItemCard(item, onChange){
       body.appendChild(sec);
     });
 
-    if (item.links && item.links.length) {
+    if (safeItem.links && safeItem.links.length) {
       const lc = document.createElement('span');
       lc.className = 'chip link-chip';
-      lc.textContent = `🪢 ${item.links.length}`;
+      lc.textContent = `🪢 ${safeItem.links.length}`;
       body.appendChild(lc);
     }
   }
@@ -272,17 +302,17 @@ export function createItemCard(item, onChange){
     bodyRendered = true;
   }
 
-  if (expanded.has(item.id)) {
+  if (expanded.has(safeItem.id)) {
     ensureBodyRendered();
     card.classList.add('expanded');
   }
 
   mainBtn.addEventListener('click', () => {
-    const isExpanded = expanded.has(item.id);
+    const isExpanded = expanded.has(safeItem.id);
     if (isExpanded) {
-      expanded.delete(item.id);
+      expanded.delete(safeItem.id);
     } else {
-      expanded.add(item.id);
+      expanded.add(safeItem.id);
       ensureBodyRendered();
     }
     card.classList.toggle('expanded', !isExpanded);
@@ -360,14 +390,15 @@ export async function renderCardList(container, itemSource, kind, onChange){
 
   function addItem(it) {
     if (!it) return;
+    const normalized = normalizeItemForDisplay(it);
     totalItems += 1;
     let block = '_';
     let week = '_';
-    if (Array.isArray(it.lectures) && it.lectures.length) {
+    if (Array.isArray(normalized.lectures) && normalized.lectures.length) {
       let bestOrd = Infinity;
       let bestWeek = -Infinity;
       let bestLec = -Infinity;
-      it.lectures.forEach(l => {
+      normalized.lectures.forEach(l => {
         if (!l) return;
         const ord = orderMap.has(l.blockId) ? orderMap.get(l.blockId) : Infinity;
         if (
@@ -383,15 +414,15 @@ export async function renderCardList(container, itemSource, kind, onChange){
       });
     } else {
       let bestOrd = Infinity;
-      (Array.isArray(it.blocks) ? it.blocks : []).forEach(id => {
+      (Array.isArray(normalized.blocks) ? normalized.blocks : []).forEach(id => {
         const ord = orderMap.has(id) ? orderMap.get(id) : Infinity;
         if (ord < bestOrd) {
           block = id;
           bestOrd = ord;
         }
       });
-      if (Array.isArray(it.weeks) && it.weeks.length) {
-        week = Math.max(...it.weeks);
+      if (Array.isArray(normalized.weeks) && normalized.weeks.length) {
+        week = Math.max(...normalized.weeks);
       }
     }
     if (!groups.has(block)) {
@@ -399,7 +430,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
     }
     const wkMap = groups.get(block);
     const current = wkMap.get(week) || [];
-    current.push(it);
+    current.push(normalized);
     wkMap.set(week, current);
   }
 
