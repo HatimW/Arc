@@ -17,6 +17,16 @@ function legacyFactsToHtml(facts = []) {
     .join('');
 }
 
+function normalizeKindValue(value) {
+  if (typeof value !== 'string') return value;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'diseases') return 'disease';
+  if (normalized === 'drugs') return 'drug';
+  if (normalized === 'concepts') return 'concept';
+  return normalized;
+}
+
 export function cleanItem(item) {
   const extras = Array.isArray(item.extras) ? item.extras : [];
   const normalizedExtras = extras
@@ -38,6 +48,7 @@ export function cleanItem(item) {
   }
   return {
     ...item,
+    kind: normalizeKindValue(item.kind),
     favorite: !!item.favorite,
     color: item.color || null,
     extras: normalizedExtras,

@@ -44,11 +44,48 @@ const DEFAULT_APP_SETTINGS = {
 
 let backupTimer = null;
 
+const KIND_VARIANTS = {
+  disease: ['disease', 'diseases', 'Disease', 'Diseases', 'DISEASE', 'DISEASES'],
+  drug: ['drug', 'drugs', 'Drug', 'Drugs', 'DRUG', 'DRUGS'],
+  concept: ['concept', 'concepts', 'Concept', 'Concepts', 'CONCEPT', 'CONCEPTS']
+};
+
 function prom(req) {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+function normalizeKindValue(value) {
+  if (typeof value !== 'string') return '';
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'diseases') return 'disease';
+  if (normalized === 'drugs') return 'drug';
+  if (normalized === 'concepts') return 'concept';
+  return normalized;
+}
+
+function expandKindVariants(types = []) {
+  const expanded = new Set();
+  types.forEach(type => {
+    if (typeof type !== 'string') return;
+    const raw = type.trim();
+    if (raw) expanded.add(raw);
+    const normalized = normalizeKindValue(raw);
+    if (!normalized) return;
+    const variants = KIND_VARIANTS[normalized] || [normalized];
+    variants.forEach(variant => expanded.add(variant));
+  });
+  return Array.from(expanded);
+}
+
+function normalizeItemKind(item) {
+  if (!item || typeof item !== 'object') return item;
+  const normalized = normalizeKindValue(item.kind);
+  if (!normalized || normalized === item.kind) return item;
+  return { ...item, kind: normalized };
 }
 
 function markItemsUpdated() {
@@ -547,7 +584,8 @@ function normalizeSort(sort) {
 
 function normalizeFilter(filter = {}) {
   const rawTypes = Array.isArray(filter.types) ? filter.types.filter(t => typeof t === 'string' && t) : [];
-  const types = rawTypes.length ? Array.from(new Set(rawTypes)) : DEFAULT_KINDS;
+  const selectedTypes = rawTypes.length ? rawTypes : DEFAULT_KINDS;
+  const types = expandKindVariants(selectedTypes);
   const block = typeof filter.block === 'string' ? filter.block : '';
   const weekRaw = filter.week;
   let week = null;
@@ -653,14 +691,17 @@ async function executeItemQuery(filter, options = {}) {
     const fetched = await Promise.all(chunk.map(id => prom(itemsStore.get(id))));
     for (const item of fetched) {
       if (!item) continue;
-      if (normalized.block === '__unlabeled' && Array.isArray(item.blocks) && item.blocks.length) continue;
+      const normalizedItem = normalizeItemKind(item);
+      if (normalized.block === '__unlabeled' && Array.isArray(normalizedItem.blocks) && normalizedItem.blocks.length) {
+        continue;
+      }
       if (normalized.tokens) {
-        const tokenField = item.tokens || '';
-        const metaField = item.searchMeta || buildSearchMeta(item);
+        const tokenField = normalizedItem.tokens || '';
+        const metaField = normalizedItem.searchMeta || buildSearchMeta(normalizedItem);
         const matches = normalized.tokens.every(tok => tokenField.includes(tok) || metaField.includes(tok));
         if (!matches) continue;
       }
-      results.push(item);
+      results.push(normalizedItem);
     }
   }
 
