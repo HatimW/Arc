@@ -28,7 +28,6 @@ function normalizeKindValue(value) {
 }
 
 export function cleanItem(item) {
-  const rawKind = item?.kind || item?.type || item?.category;
   const extras = Array.isArray(item.extras) ? item.extras : [];
   const normalizedExtras = extras
     .map(ex => {
@@ -49,7 +48,7 @@ export function cleanItem(item) {
   }
   return {
     ...item,
-    kind: normalizeKindValue(rawKind),
+    kind: normalizeKindValue(item.kind),
     favorite: !!item.favorite,
     color: item.color || null,
     extras: normalizedExtras,
