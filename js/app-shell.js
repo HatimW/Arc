@@ -4,6 +4,7 @@ export function createAppShell({
   setSubtab,
   setQuery,
   setFilters,
+  setListFilters,
   findItemsByFilter,
   renderSettings,
   renderCardList,
@@ -302,13 +303,16 @@ export function createAppShell({
       listHost.className = 'list-host';
       content.appendChild(listHost);
 
-      const filter = { ...state.filters, types: [kind], query: state.query };
+      const listFilters = state.listFilters || {};
+      const filter = { ...listFilters, types: [kind], query: state.query };
       const query = findItemsByFilter(filter);
       let items = await query.toArray();
-      const hasActiveFilters = Boolean(state.query || state.filters.block || state.filters.week || state.filters.onlyFav);
+      const hasActiveFilters = Boolean(
+        state.query || listFilters.block || listFilters.week || listFilters.onlyFav
+      );
       if (!items.length && hasActiveFilters) {
         const fallbackFilter = {
-          ...state.filters,
+          ...listFilters,
           types: [kind],
           block: '',
           week: '',
@@ -317,8 +321,8 @@ export function createAppShell({
         };
         const fallbackItems = await findItemsByFilter(fallbackFilter).toArray();
         if (fallbackItems.length) {
-          if (typeof setFilters === 'function') {
-            setFilters({ block: '', week: '', onlyFav: false });
+          if (typeof setListFilters === 'function') {
+            setListFilters({ block: '', week: '', onlyFav: false });
           }
           if (state.query) setQuery('');
           items = fallbackItems;

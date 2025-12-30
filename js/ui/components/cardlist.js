@@ -1,6 +1,6 @@
 import { upsertItem, deleteItem } from '../../storage/storage.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
-import { state, setEntryLayout, setFilters } from '../../state.js';
+import { state, setEntryLayout, setListFilters } from '../../state.js';
 import { resolveLatestBlockId, setToggleState } from '../../utils.js';
 import { openEditor } from './editor.js';
 import { confirmModal } from './confirm.js';
@@ -324,8 +324,8 @@ export async function renderCardList(container, itemSource, kind, onChange){
   });
   const sortedAllWeeks = Array.from(allWeeks).sort((a, b) => a - b);
   const groups = new Map();
-  const currentBlockFilter = typeof state.filters?.block === 'string' ? state.filters.block : '';
-  const currentWeekFilter = state.filters?.week ?? '';
+  const currentBlockFilter = typeof state.listFilters?.block === 'string' ? state.listFilters.block : '';
+  const currentWeekFilter = state.listFilters?.week ?? '';
   const hasBlockFilter = Boolean(currentBlockFilter);
   const isBlockValid = !hasBlockFilter || currentBlockFilter === '__unlabeled' || blockIds.has(currentBlockFilter);
   let requestedWeek = null;
@@ -349,7 +349,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
     }
   }
   if (shouldResetFilters) {
-    setFilters(nextFilterPatch);
+    setListFilters(nextFilterPatch);
     if (typeof onChange === 'function') {
       onChange();
       return;
@@ -436,7 +436,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
   const toolbar = document.createElement('div');
   toolbar.className = 'entry-layout-toolbar';
 
-  const rawSort = state.filters?.sort;
+  const rawSort = state.listFilters?.sort;
   const sortOptions = ['updated', 'created', 'lecture', 'name'];
   let currentSortField = 'updated';
   let currentSortDirection = 'desc';
@@ -551,10 +551,10 @@ export async function renderCardList(container, itemSource, kind, onChange){
     weekFilterSelect.value = '';
     const nextBlock = blockFilterSelect.value || '';
     const patch = { block: nextBlock, week: '' };
-    const currentBlockValue = state.filters.block || '';
-    const currentWeekValue = state.filters.week || '';
+    const currentBlockValue = state.listFilters.block || '';
+    const currentWeekValue = state.listFilters.week || '';
     if (currentBlockValue !== patch.block || currentWeekValue !== patch.week) {
-      setFilters(patch);
+      setListFilters(patch);
       onChange && onChange();
     }
   });
@@ -564,11 +564,11 @@ export async function renderCardList(container, itemSource, kind, onChange){
     const raw = weekFilterSelect.value;
     const normalized = raw ? Number(raw) : '';
     if (normalized !== '' && !Number.isFinite(normalized)) return;
-    const currentValue = state.filters.week ?? '';
+    const currentValue = state.listFilters.week ?? '';
     const normalizedCurrent = currentValue === '' ? '' : Number(currentValue);
     if (normalized === '' && currentValue === '') return;
     if (normalized !== '' && String(normalizedCurrent) === String(normalized)) return;
-    setFilters({ week: normalized });
+    setListFilters({ week: normalized });
     onChange && onChange();
   });
 
@@ -610,8 +610,8 @@ export async function renderCardList(container, itemSource, kind, onChange){
 
   function applySortChange() {
     const nextValue = `${currentSortField}-${currentSortDirection}`;
-    if (state.filters.sort === nextValue) return;
-    setFilters({ sort: nextValue });
+    if (state.listFilters.sort === nextValue) return;
+    setListFilters({ sort: nextValue });
     onChange && onChange();
   }
 
@@ -754,7 +754,9 @@ export async function renderCardList(container, itemSource, kind, onChange){
     const empty = document.createElement('div');
     empty.className = 'cards-empty entry-empty';
     const title = document.createElement('h3');
-    const hasFilters = Boolean(state.query || state.filters.block || state.filters.week || state.filters.onlyFav);
+    const hasFilters = Boolean(
+      state.query || state.listFilters.block || state.listFilters.week || state.listFilters.onlyFav
+    );
     title.textContent = hasFilters ? 'No entries match your filters' : 'No entries yet';
     empty.appendChild(title);
     const desc = document.createElement('p');
@@ -768,7 +770,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
       clear.className = 'btn secondary';
       clear.textContent = 'Clear filters';
       clear.addEventListener('click', () => {
-        setFilters({ block: '', week: '', onlyFav: false });
+        setListFilters({ block: '', week: '', onlyFav: false });
         onChange && onChange();
       });
       empty.appendChild(clear);
