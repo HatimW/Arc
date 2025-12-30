@@ -27,24 +27,6 @@ function normalizeKindValue(value) {
   return normalized;
 }
 
-function inferKindFromItem(item) {
-  if (!item || typeof item !== 'object') return '';
-  if (typeof item.concept === 'string' && item.concept.trim()) return 'concept';
-  const drugSignals = ['moa', 'uses', 'sideEffects', 'contraindications', 'source', 'class'];
-  if (drugSignals.some(key => typeof item[key] === 'string' && item[key].trim())) {
-    return 'drug';
-  }
-  const conceptSignals = ['definition', 'mechanism', 'clinicalRelevance', 'example', 'type'];
-  if (conceptSignals.some(key => typeof item[key] === 'string' && item[key].trim())) {
-    return 'concept';
-  }
-  const diseaseSignals = ['etiology', 'pathophys', 'clinical', 'diagnosis', 'treatment', 'complications', 'mnemonic'];
-  if (diseaseSignals.some(key => typeof item[key] === 'string' && item[key].trim())) {
-    return 'disease';
-  }
-  return 'disease';
-}
-
 export function cleanItem(item) {
   const extras = Array.isArray(item.extras) ? item.extras : [];
   const normalizedExtras = extras
@@ -64,11 +46,9 @@ export function cleanItem(item) {
       body: legacyFactsToHtml(item.facts)
     });
   }
-  const normalizedKind = normalizeKindValue(item.kind);
-  const inferredKind = normalizedKind || inferKindFromItem(item);
   return {
     ...item,
-    kind: inferredKind,
+    kind: normalizeKindValue(item.kind),
     favorite: !!item.favorite,
     color: item.color || null,
     extras: normalizedExtras,
