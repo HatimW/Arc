@@ -372,7 +372,43 @@ export function createAppShell({
           items = fallbackItems;
         }
       }
-      countBadge.textContent = `${items.length}`;
+      const summary = document.createElement('div');
+      summary.className = 'list-summary';
+      const count = document.createElement('div');
+      count.className = 'list-summary-count';
+      count.textContent = `${items.length} ${listMeta.label.toLowerCase()} entr${items.length === 1 ? 'y' : 'ies'}`;
+      summary.appendChild(count);
+      const chips = document.createElement('div');
+      chips.className = 'list-summary-chips';
+      const addChip = (label) => {
+        const chip = document.createElement('span');
+        chip.className = 'list-summary-chip';
+        chip.textContent = label;
+        chips.appendChild(chip);
+      };
+      if (state.listQuery) addChip(`Search: ${state.listQuery}`);
+      if (listFilters.block) addChip(`Block: ${listFilters.block}`);
+      if (listFilters.week) addChip(`Week: ${listFilters.week}`);
+      if (listFilters.onlyFav) addChip('Favorites only');
+      if (chips.childElementCount) {
+        summary.appendChild(chips);
+      }
+      const actions = document.createElement('div');
+      actions.className = 'list-summary-actions';
+      if (hasActiveFilters) {
+        const clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'btn secondary';
+        clearBtn.textContent = 'Clear list filters';
+        clearBtn.addEventListener('click', () => {
+          setListFilters({ block: '', week: '', onlyFav: false });
+          if (state.listQuery) setListQuery('');
+          renderApp();
+        });
+        actions.appendChild(clearBtn);
+      }
+      summary.appendChild(actions);
+      content.insertBefore(summary, listHost);
       const renderPromise = renderCardList(listHost, items, kind, renderApp);
       await Promise.all([entryControlPromise, renderPromise]);
       restoreTabScroll(content);
