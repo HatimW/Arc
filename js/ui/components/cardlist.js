@@ -107,16 +107,7 @@ export function createItemCard(item, onChange){
 
   const mainBtn = document.createElement('button');
   mainBtn.className = 'card-title-btn';
-  const titleWrap = document.createElement('span');
-  titleWrap.className = 'card-title-wrap';
-  const titleIcon = document.createElement('span');
-  titleIcon.className = 'card-title-icon';
-  titleIcon.textContent = '▾';
-  const titleText = document.createElement('span');
-  titleText.className = 'card-title-text';
-  titleText.textContent = safeItem.name || safeItem.concept || 'Untitled';
-  titleWrap.append(titleIcon, titleText);
-  mainBtn.appendChild(titleWrap);
+  mainBtn.textContent = safeItem.name || safeItem.concept || 'Untitled';
   mainBtn.setAttribute('aria-expanded', expanded.has(safeItem.id));
   header.appendChild(mainBtn);
 
@@ -372,85 +363,68 @@ export async function renderCardList(container, itemSource, kind, onChange){
     const parsed = Number(currentWeekFilter);
     if (!Number.isNaN(parsed)) requestedWeek = parsed;
   }
+  let shouldResetFilters = false;
   const nextFilterPatch = {};
   if (!isBlockValid) {
     nextFilterPatch.block = '';
     nextFilterPatch.week = '';
+    shouldResetFilters = true;
   } else if (requestedWeek != null) {
     const allowedWeeks = currentBlockFilter && currentBlockFilter !== '__unlabeled' && blockWeekMap.has(currentBlockFilter)
       ? blockWeekMap.get(currentBlockFilter)
       : sortedAllWeeks;
     if (!allowedWeeks.includes(requestedWeek)) {
       nextFilterPatch.week = '';
+      shouldResetFilters = true;
     }
   }
-  if (Object.keys(nextFilterPatch).length) {
+  if (shouldResetFilters) {
     setListFilters(nextFilterPatch);
+    if (typeof onChange === 'function') {
+      onChange();
+      return;
+    }
   }
 
   let totalItems = 0;
 
-  function resolvePrimaryContext(normalized) {
-    const lectures = Array.isArray(normalized.lectures) ? normalized.lectures : [];
-    const blocks = Array.isArray(normalized.blocks) ? normalized.blocks : [];
-    const weeks = Array.isArray(normalized.weeks) ? normalized.weeks : [];
-    const matchingBlock = currentBlockFilter && currentBlockFilter !== '__unlabeled'
-      ? currentBlockFilter
-      : null;
-    const matchingWeek = requestedWeek != null ? requestedWeek : null;
-    if (matchingBlock) {
-      const matchingLecture = lectures.find(lecture => lecture.blockId === matchingBlock && (
-        matchingWeek == null || lecture.week === matchingWeek
-      ));
-      if (matchingLecture) {
-        return { block: matchingLecture.blockId, week: matchingLecture.week ?? '_' };
-      }
-      if (blocks.includes(matchingBlock)) {
-        const blockWeek = matchingWeek != null && weeks.includes(matchingWeek) ? matchingWeek : (weeks.length ? Math.max(...weeks) : '_');
-        return { block: matchingBlock, week: blockWeek };
-      }
-    }
-    if (lectures.length) {
+  function addItem(it) {
+    if (!it) return;
+    const normalized = normalizeItemForDisplay(it);
+    totalItems += 1;
+    let block = '_';
+    let week = '_';
+    if (Array.isArray(normalized.lectures) && normalized.lectures.length) {
       let bestOrd = Infinity;
       let bestWeek = -Infinity;
       let bestLec = -Infinity;
-      lectures.forEach(l => {
+      normalized.lectures.forEach(l => {
         if (!l) return;
         const ord = orderMap.has(l.blockId) ? orderMap.get(l.blockId) : Infinity;
         if (
           ord < bestOrd ||
           (ord === bestOrd && (l.week > bestWeek || (l.week === bestWeek && l.id > bestLec)))
         ) {
+          block = l.blockId;
+          week = l.week;
           bestOrd = ord;
           bestWeek = l.week;
           bestLec = l.id;
         }
       });
-      const chosen = lectures.find(l => (orderMap.get(l.blockId) ?? Infinity) === bestOrd && l.week === bestWeek) || lectures[0];
-      if (chosen) {
-        return { block: chosen.blockId || '_', week: chosen.week ?? '_' };
+    } else {
+      let bestOrd = Infinity;
+      (Array.isArray(normalized.blocks) ? normalized.blocks : []).forEach(id => {
+        const ord = orderMap.has(id) ? orderMap.get(id) : Infinity;
+        if (ord < bestOrd) {
+          block = id;
+          bestOrd = ord;
+        }
+      });
+      if (Array.isArray(normalized.weeks) && normalized.weeks.length) {
+        week = Math.max(...normalized.weeks);
       }
     }
-    let block = '_';
-    let bestOrd = Infinity;
-    blocks.forEach(id => {
-      const ord = orderMap.has(id) ? orderMap.get(id) : Infinity;
-      if (ord < bestOrd) {
-        block = id;
-        bestOrd = ord;
-      }
-    });
-    const week = weeks.length ? Math.max(...weeks) : '_';
-    return { block, week };
-  }
-
-  function addItem(it) {
-    if (!it) return;
-    const normalized = normalizeItemForDisplay(it);
-    totalItems += 1;
-    const context = resolvePrimaryContext(normalized);
-    const block = context.block || '_';
-    const week = context.week ?? '_';
     if (!groups.has(block)) {
       groups.set(block, new Map());
     }
@@ -478,8 +452,6 @@ export async function renderCardList(container, itemSource, kind, onChange){
   }
 
   const sortedBlocks = Array.from(groups.keys()).sort((a,b)=>{
-    if (a === '_' && b !== '_') return 1;
-    if (b === '_' && a !== '_') return -1;
     const ao = orderMap.has(a) ? orderMap.get(a) : Infinity;
     const bo = orderMap.has(b) ? orderMap.get(b) : Infinity;
     return ao - bo;
@@ -799,7 +771,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
   }
 
   function applyLayout(){
-    const lists = container.querySelectorAll('.list-entry-list');
+    const lists = container.querySelectorAll('.card-list');
     lists.forEach(list => {
       list.classList.toggle('grid-layout', state.entryLayout.mode === 'grid');
       list.style.setProperty('--entry-scale', state.entryLayout.scale);
@@ -840,6 +812,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
     container.appendChild(empty);
     return;
   }
+
   const blockKeys = sortedBlocks.map(b => String(b));
   let showAllBlocks = false;
   function applyBlockActivation(nextKey, { mode = 'single' } = {}) {
@@ -877,10 +850,6 @@ export async function renderCardList(container, itemSource, kind, onChange){
     applyBlockActivation(null, { mode: 'all' });
   }
 
-  const listWrap = document.createElement('div');
-  listWrap.className = 'list-blocks';
-  container.appendChild(listWrap);
-
   const blockUpdaters = new Map();
   const refreshBlocks = () => {
     blockUpdaters.forEach(fn => fn());
@@ -888,29 +857,14 @@ export async function renderCardList(container, itemSource, kind, onChange){
 
   sortedBlocks.forEach(b => {
     const blockSec = document.createElement('section');
-    blockSec.className = 'list-block';
+    blockSec.className = 'block-section';
     const blockHeader = document.createElement('button');
     blockHeader.type = 'button';
-    blockHeader.className = 'list-block-header';
+    blockHeader.className = 'block-header';
     const blockLabel = b === '_' ? 'Unassigned' : blockTitle(b);
     const blockKey = String(b);
     const bdef = normalizedBlocks.find(bl => bl.blockId === b);
-    if (bdef?.color) blockSec.style.setProperty('--list-block-accent', bdef.color);
-    const blockTitleWrap = document.createElement('div');
-    blockTitleWrap.className = 'list-block-title';
-    const blockTitleText = document.createElement('span');
-    blockTitleText.textContent = blockLabel;
-    blockTitleWrap.appendChild(blockTitleText);
-    const blockCount = document.createElement('span');
-    blockCount.className = 'list-block-count';
-    const wkMap = groups.get(b) || new Map();
-    const blockTotal = Array.from(wkMap.values()).reduce((sum, list) => sum + list.length, 0);
-    blockCount.textContent = `${blockTotal} entr${blockTotal === 1 ? 'y' : 'ies'}`;
-    blockHeader.append(blockTitleWrap, blockCount);
-
-    const blockBody = document.createElement('div');
-    blockBody.className = 'list-block-body';
-
+    if (bdef?.color) blockHeader.style.background = bdef.color;
     const weekEntries = [];
     const ensureVisibleWeeks = () => {
       if (collapsedBlocks.has(blockKey)) return;
@@ -920,7 +874,8 @@ export async function renderCardList(container, itemSource, kind, onChange){
     };
     function updateBlockState(){
       const isCollapsed = collapsedBlocks.has(blockKey);
-      blockSec.classList.toggle('is-collapsed', isCollapsed);
+      blockSec.classList.toggle('collapsed', isCollapsed);
+      blockHeader.textContent = `${isCollapsed ? '▸' : '▾'} ${blockLabel}`;
       blockHeader.setAttribute('aria-expanded', String(!isCollapsed));
       if (!isCollapsed) {
         ensureVisibleWeeks();
@@ -945,40 +900,46 @@ export async function renderCardList(container, itemSource, kind, onChange){
       }
       refreshBlocks();
     });
-
-    const sortedWeeks = Array.from(wkMap.keys()).sort((a, b) => {
+    blockSec.appendChild(blockHeader);
+    const wkMap = groups.get(b);
+    if (!wkMap) {
+      return;
+    }
+    const sortedWeeks = Array.from(wkMap.keys()).sort((a,b)=>{
       if (a === '_' && b !== '_') return 1;
       if (b === '_' && a !== '_') return -1;
-      return Number(a) - Number(b);
+      return Number(b) - Number(a);
     });
-
     sortedWeeks.forEach(w => {
       const weekSec = document.createElement('div');
-      weekSec.className = 'list-week';
+      weekSec.className = 'week-section';
       const weekHeader = document.createElement('button');
       weekHeader.type = 'button';
-      weekHeader.className = 'list-week-header';
+      weekHeader.className = 'week-header';
       const weekLabel = w === '_' ? 'Unassigned' : `Week ${w}`;
       const weekKey = `${blockKey}__${w}`;
-      const weekTitle = document.createElement('span');
-      weekTitle.className = 'list-week-title';
-      weekTitle.textContent = weekLabel;
-      const rows = wkMap.get(w) || [];
-      const weekCount = document.createElement('span');
-      weekCount.className = 'list-week-count';
-      weekCount.textContent = `${rows.length}`;
-      weekHeader.append(weekTitle, weekCount);
-
-      const weekBody = document.createElement('div');
-      weekBody.className = 'list-week-body';
-
+      let listRendered = false;
+      function updateWeekState(){
+        const isCollapsed = collapsedWeeks.has(weekKey);
+        weekSec.classList.toggle('collapsed', isCollapsed);
+        weekHeader.textContent = `${isCollapsed ? '▸' : '▾'} ${weekLabel}`;
+        weekHeader.setAttribute('aria-expanded', String(!isCollapsed));
+        if (!isCollapsed && !collapsedBlocks.has(blockKey)) {
+          ensureListRendered();
+        }
+      }
+      updateWeekState();
+      weekHeader.addEventListener('click', () => {
+        if (collapsedWeeks.has(weekKey)) collapsedWeeks.delete(weekKey); else collapsedWeeks.add(weekKey);
+        updateWeekState();
+      });
+      weekSec.appendChild(weekHeader);
       const list = document.createElement('div');
-      list.className = 'list-entry-list';
+      list.className = 'card-list';
       list.style.setProperty('--entry-scale', state.entryLayout.scale);
       list.style.setProperty('--entry-columns', state.entryLayout.columns);
       list.classList.toggle('grid-layout', state.entryLayout.mode === 'grid');
-
-      let listRendered = false;
+      const rows = wkMap.get(w) || [];
       function renderChunk(start = 0) {
         if (!rows.length) return;
         const slice = rows.slice(start, start + LIST_CHUNK_SIZE);
@@ -997,29 +958,12 @@ export async function renderCardList(container, itemSource, kind, onChange){
         listRendered = true;
         renderChunk();
       }
-      function updateWeekState(){
-        const isCollapsed = collapsedWeeks.has(weekKey);
-        weekSec.classList.toggle('is-collapsed', isCollapsed);
-        weekHeader.setAttribute('aria-expanded', String(!isCollapsed));
-        if (!isCollapsed && !collapsedBlocks.has(blockKey)) {
-          ensureListRendered();
-        }
-      }
-      updateWeekState();
-      weekHeader.addEventListener('click', () => {
-        if (collapsedWeeks.has(weekKey)) collapsedWeeks.delete(weekKey); else collapsedWeeks.add(weekKey);
-        updateWeekState();
-      });
-
       weekEntries.push({ weekKey, ensureListRendered });
-      weekBody.appendChild(list);
-      weekSec.append(weekHeader, weekBody);
-      blockBody.appendChild(weekSec);
+      weekSec.appendChild(list);
+      blockSec.appendChild(weekSec);
     });
-
-    blockSec.append(blockHeader, blockBody);
     ensureVisibleWeeks();
-    listWrap.appendChild(blockSec);
+    container.appendChild(blockSec);
   });
 
   applyLayout();
