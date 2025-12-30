@@ -1,6 +1,6 @@
 import { state, setLecturesState } from '../../state.js';
 import { loadBlockCatalog, invalidateBlockCatalog } from '../../storage/block-catalog.js';
-import { saveLecture, deleteLecture, getSettings } from '../../storage/storage.js';
+import { saveLecture, updateLecture, deleteLecture, getSettings } from '../../storage/storage.js';
 import {
   exportLectureTransfer,
   exportWeekTransfer,
@@ -2257,8 +2257,7 @@ function handleEdit(lecture, blocks, lectureLists, redraw) {
       startAt: lecture.startAt
     },
     onSubmit: async payload => {
-      await saveLecture({
-        blockId: lecture.blockId,
+      await updateLecture(lecture.blockId, {
         id: lecture.id,
         name: payload.name,
         week: payload.week,

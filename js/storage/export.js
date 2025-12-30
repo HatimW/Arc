@@ -62,13 +62,70 @@ function normalizeLectureReference(ref) {
   };
 }
 
+function normalizeLectureId(record, blockId) {
+  const lectureIdRaw = record?.id ?? record?.lectureId ?? null;
+  if (lectureIdRaw == null) return null;
+  const lectureIdNumber = Number(lectureIdRaw);
+  return Number.isFinite(lectureIdNumber) && `${lectureIdNumber}` === `${lectureIdRaw}`
+    ? lectureIdNumber
+    : lectureIdRaw;
+}
+
+function buildLectureExportRecord(record, now) {
+  if (!record || typeof record !== 'object') return null;
+  const blockId = coerceBlockId(record.blockId ?? record.block ?? null);
+  if (blockId == null) return null;
+  const lectureId = normalizeLectureId(record, blockId);
+  if (lectureId == null) return null;
+  const base = deepClone({ ...record, blockId, id: lectureId });
+  const normalized = normalizeLectureRecord(blockId, base, now);
+  if (!normalized) return null;
+  const output = { ...base };
+  if (!output.key) output.key = normalized.key;
+  if (!Number.isFinite(output.startAt)) output.startAt = normalized.startAt;
+  if (!Number.isFinite(output.nextDueAt)) output.nextDueAt = normalized.nextDueAt;
+  if (!Number.isFinite(output.createdAt)) output.createdAt = normalized.createdAt;
+  if (!Number.isFinite(output.updatedAt)) output.updatedAt = normalized.updatedAt;
+  if (!output.passPlan) output.passPlan = normalized.passPlan;
+  if (!output.plannerDefaults) output.plannerDefaults = normalized.plannerDefaults;
+  if (!output.status) output.status = normalized.status;
+
+  const normalizedPasses = Array.isArray(normalized.passes) ? normalized.passes : [];
+  const passes = Array.isArray(output.passes) ? output.passes : [];
+  if (!passes.length && normalizedPasses.length) {
+    output.passes = normalizedPasses;
+  } else if (passes.length && normalizedPasses.length) {
+    const normalizedByOrder = new Map(
+      normalizedPasses.map(pass => [Number(pass?.order), pass])
+    );
+    output.passes = passes.map(pass => {
+      if (!pass || typeof pass !== 'object') return pass;
+      const order = Number(pass.order);
+      const fallback = normalizedByOrder.get(order);
+      if (!fallback || Number.isFinite(pass.due)) return pass;
+      return { ...pass, due: fallback.due };
+    });
+  }
+
+  return output;
+}
+
 function normalizeItemRecord(item) {
   if (!item || typeof item !== 'object') return null;
   const copy = deepClone(item);
   if (copy.id == null || copy.id === '') {
     copy.id = copy.uid || uid();
   }
-  copy.kind = typeof copy.kind === 'string' && copy.kind ? copy.kind : 'concept';
+  const rawKind = typeof copy.kind === 'string' && copy.kind
+    ? copy.kind
+    : typeof copy.type === 'string' && copy.type
+      ? copy.type
+      : typeof copy.category === 'string' && copy.category
+        ? copy.category
+        : '';
+  const normalizedKind = typeof rawKind === 'string' ? rawKind.trim().toLowerCase() : '';
+  const allowedKinds = new Set(['disease', 'drug', 'concept']);
+  copy.kind = allowedKinds.has(normalizedKind) ? normalizedKind : 'concept';
   copy.blocks = Array.isArray(copy.blocks)
     ? Array.from(new Set(
         copy.blocks
@@ -190,11 +247,31 @@ export async function exportJSON(){
     return true;
   });
 
+  const now = Date.now();
+  const lectureMap = new Map();
+  const addLecture = lecture => {
+    const normalized = buildLectureExportRecord(lecture, now);
+    if (!normalized) return;
+    const key = normalized.key || lectureKey(normalized.blockId, normalized.id);
+    if (key) lectureMap.set(key, normalized);
+  };
+
+  lectures.forEach(addLecture);
+  blocks.forEach(block => {
+    if (!block || typeof block !== 'object') return;
+    const legacyLectures = Array.isArray(block.lectures) ? block.lectures : [];
+    const blockId = coerceBlockId(block.blockId ?? block.id ?? null);
+    legacyLectures.forEach(legacy => {
+      if (blockId == null || !legacy) return;
+      addLecture({ ...legacy, blockId });
+    });
+  });
+
   return {
     items,
     blocks,
     exams,
-    lectures,
+    lectures: Array.from(lectureMap.values()),
     examSessions,
     studySessions,
     settings,

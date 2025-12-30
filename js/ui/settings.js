@@ -1550,7 +1550,7 @@ export async function renderSettings(root) {
 
   const exportBtn = document.createElement('button');
   exportBtn.className = 'btn';
-  exportBtn.textContent = 'Export DB';
+  exportBtn.textContent = 'Export build';
   exportBtn.addEventListener('click', async () => {
     try {
       await triggerExportDownload();
@@ -1600,7 +1600,7 @@ export async function renderSettings(root) {
 
   const importBtn = document.createElement('button');
   importBtn.className = 'btn';
-  importBtn.textContent = 'Import DB';
+  importBtn.textContent = 'Import build';
   importBtn.addEventListener('click', () => importInput.click());
   dataCard.appendChild(importBtn);
   dataCard.appendChild(importInput);
