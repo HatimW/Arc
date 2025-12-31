@@ -41,6 +41,7 @@ const renderQuiz = createLazyRenderer(() => import('./ui/components/quiz.js'), '
 const renderBlockMode = createLazyRenderer(() => import('./ui/components/block-mode.js'), 'renderBlockMode');
 const renderBlockBoard = createLazyRenderer(() => import('./ui/components/block-board.js'), 'renderBlockBoard');
 const renderExams = createLazyRenderer(() => import('./ui/components/exams.js'), 'renderExams');
+const renderQBank = createLazyRenderer(() => import('./ui/components/exams.js'), 'renderQBank');
 const renderExamRunner = createLazyRenderer(() => import('./ui/components/exams.js'), 'renderExamRunner');
 const createEntryAddControl = createLazyRenderer(() => import('./ui/components/entry-controls.js'), 'createEntryAddControl');
 
@@ -67,6 +68,7 @@ const { renderApp, tabs, resolveListKind } = createAppShell({
   renderBlockMode,
   renderBlockBoard,
   renderExams,
+  renderQBank,
   renderExamRunner,
   createEntryAddControl
 });
@@ -113,6 +115,7 @@ function schedulePrefetch() {
     () => renderBlockMode.preload(),
     () => renderBlockBoard.preload(),
     () => renderExams.preload(),
+    () => renderQBank.preload(),
     () => renderExamRunner.preload(),
     () => createEntryAddControl.preload()
   ];

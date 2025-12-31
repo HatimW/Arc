@@ -194,7 +194,7 @@ export const state = {
     Concepts: "Browse",
     Lists: "Diseases",
     Study: "Builder",
-    Exams: "", // placeholder
+    Exams: "list",
     Settings: ""
   },
   query: "",

@@ -21,6 +21,7 @@ export function createAppShell({
   renderBlockMode,
   renderBlockBoard,
   renderExams,
+  renderQBank,
   renderExamRunner,
   createEntryAddControl
 }) {
@@ -89,7 +90,8 @@ export function createAppShell({
       return `${activeTab}:${mode}`;
     }
     if (activeTab === 'Exams') {
-      return `${activeTab}:${state.examSession ? 'session' : 'list'}`;
+      if (state.examSession) return `${activeTab}:session`;
+      return `${activeTab}:${subtab || 'list'}`;
     }
     return subtab ? `${activeTab}:${subtab}` : activeTab;
   }
@@ -514,6 +516,11 @@ export function createAppShell({
         await Promise.all([
           entryControlPromise,
           renderExamRunner(content, renderApp)
+        ]);
+      } else if (state.subtab?.Exams === 'QBank') {
+        await Promise.all([
+          entryControlPromise,
+          renderQBank(content, renderApp)
         ]);
       } else {
         await Promise.all([

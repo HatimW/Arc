@@ -1,5 +1,5 @@
 import { listExams, upsertExam, deleteExam, listExamSessions, loadExamSession, saveExamSessionProgress, deleteExamSessionProgress } from '../../storage/storage.js';
-import { state, setExamSession, setExamAttemptExpanded, setExamLayout } from '../../state.js';
+import { state, setExamSession, setExamAttemptExpanded, setExamLayout, setSubtab } from '../../state.js';
 import { uid, setToggleState, deepClone } from '../../utils.js';
 import { confirmModal } from './confirm.js';
 import { createRichTextEditor, sanitizeHtml, htmlToPlainText, isEmptyHtml } from './rich-text.js';
@@ -32,7 +32,8 @@ const qbankSelectionState = {
   selectedBlocks: new Set(),
   selectedWeeks: new Set(),
   selectedLectures: new Set(),
-  questionCount: QBANK_DEFAULT_COUNT
+  questionCount: QBANK_DEFAULT_COUNT,
+  includeUntagged: false
 };
 
 function csvOptionIndex(optionNumber) {
@@ -155,7 +156,7 @@ function qbankMatchesSelection(question, selection) {
   const hasAnySelection = selectedBlocks.size || selectedWeeks.size || selectedLectures.size;
   if (!hasAnySelection) return true;
   const lectures = normalizeLectureRefs(question.lectures);
-  if (!lectures.length) return false;
+  if (!lectures.length) return Boolean(selection.includeUntagged);
   return lectures.some(ref => {
     const blockId = String(ref.blockId ?? '');
     const lectureKey = `${blockId}|${ref.id}`;
@@ -335,7 +336,7 @@ function resolveScrollContainer(root) {
       const runner = root.querySelector('.exam-runner');
       if (runner) return runner;
     }
-    if (root.classList?.contains('exam-view') || root.classList?.contains('exam-session')) {
+    if (root.classList?.contains('exam-view') || root.classList?.contains('exam-session') || root.classList?.contains('exam-qbank-view')) {
       return root;
     }
     if (typeof root.closest === 'function') {
@@ -1094,6 +1095,44 @@ function hydrateSavedSession(saved, fallbackExam) {
   };
 }
 
+async function loadExamOverview() {
+  const [stored, savedSessions, lectureCatalog] = await Promise.all([
+    listExams(),
+    listExamSessions(),
+    loadBlockCatalog().catch(() => ({ blocks: [], lectureLists: {} }))
+  ]);
+  const exams = [];
+  let qbankExam = null;
+  const pendingUpdates = [];
+  for (const raw of stored) {
+    const { exam, changed } = ensureExamShape(raw);
+    if (exam.id === QBANK_EXAM_ID) {
+      qbankExam = exam;
+    } else {
+      exams.push(exam);
+    }
+    if (changed) {
+      pendingUpdates.push(upsertExam(exam).catch(err => {
+        console.warn('Failed to normalize exam', err);
+      }));
+    }
+  }
+  if (pendingUpdates.length) {
+    await Promise.all(pendingUpdates);
+  }
+  exams.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+  const qbankSignature = qbankSignatureFor(exams);
+  if (!qbankExam || qbankExam.qbankSignature !== qbankSignature) {
+    qbankExam = buildQBankExam(exams, qbankExam);
+    qbankExam.qbankSignature = qbankSignature;
+    qbankExam.updatedAt = Date.now();
+    await upsertExam(qbankExam);
+  }
+
+  return { exams, qbankExam, savedSessions, lectureCatalog };
+}
+
 export async function renderExams(root, render) {
   const scroller = resolveScrollContainer(root);
   examViewScrollTop = readScrollPosition(scroller);
@@ -1216,39 +1255,7 @@ export async function renderExams(root, render) {
     status.textContent = '';
   }
 
-  const [stored, savedSessions, lectureCatalog] = await Promise.all([
-    listExams(),
-    listExamSessions(),
-    loadBlockCatalog().catch(() => ({ blocks: [], lectureLists: {} }))
-  ]);
-  const exams = [];
-  let qbankExam = null;
-  const pendingUpdates = [];
-  for (const raw of stored) {
-    const { exam, changed } = ensureExamShape(raw);
-    if (exam.id === QBANK_EXAM_ID) {
-      qbankExam = exam;
-    } else {
-      exams.push(exam);
-    }
-    if (changed) {
-      pendingUpdates.push(upsertExam(exam).catch(err => {
-        console.warn('Failed to normalize exam', err);
-      }));
-    }
-  }
-  if (pendingUpdates.length) {
-    await Promise.all(pendingUpdates);
-  }
-  exams.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-
-  const qbankSignature = qbankSignatureFor(exams);
-  if (!qbankExam || qbankExam.qbankSignature !== qbankSignature) {
-    qbankExam = buildQBankExam(exams, qbankExam);
-    qbankExam.qbankSignature = qbankSignature;
-    qbankExam.updatedAt = Date.now();
-    await upsertExam(qbankExam);
-  }
+  const { exams, qbankExam, savedSessions } = await loadExamOverview();
 
   const sessionMap = new Map();
   for (const sess of savedSessions) {
@@ -1275,11 +1282,9 @@ export async function renderExams(root, render) {
   const layoutSnapshot = { mode: viewMode, detailsVisible };
 
   if (qbankExam) {
-    root.appendChild(buildQBankSection({
+    root.appendChild(buildQBankShortcut({
       qbankExam,
-      render,
-      savedSession: sessionMap.get(QBANK_EXAM_ID) || null,
-      lectureCatalog
+      render
     }));
   }
 
@@ -1306,7 +1311,7 @@ export async function renderExams(root, render) {
   applyScrollPosition(scroller, examViewScrollTop);
 }
 
-function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) {
+function buildQBankShortcut({ qbankExam, render }) {
   const section = document.createElement('section');
   section.className = 'exam-qbank-section';
 
@@ -1318,12 +1323,8 @@ function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) 
   section.appendChild(divider);
 
   const card = document.createElement('article');
-  card.className = 'card exam-qbank-card';
+  card.className = 'card exam-qbank-card exam-qbank-card--link';
   section.appendChild(card);
-
-  const expandedState = state.examAttemptExpanded[QBANK_EXAM_ID];
-  const isExpanded = expandedState !== false;
-  card.classList.toggle('exam-qbank-card--expanded', isExpanded);
 
   const header = document.createElement('div');
   header.className = 'exam-qbank-header';
@@ -1365,27 +1366,80 @@ function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) 
     headerMeta.appendChild(attemptsChip);
   }
 
-  const caret = document.createElement('button');
-  caret.type = 'button';
-  caret.className = 'exam-qbank-caret';
-  caret.setAttribute('aria-label', isExpanded ? 'Collapse QBank details' : 'Expand QBank details');
-  caret.textContent = isExpanded ? '▾' : '▸';
-  caret.addEventListener('click', () => {
-    const nextExpanded = !card.classList.contains('exam-qbank-card--expanded');
-    card.classList.toggle('exam-qbank-card--expanded', nextExpanded);
-    caret.textContent = nextExpanded ? '▾' : '▸';
-    caret.setAttribute('aria-label', nextExpanded ? 'Collapse QBank details' : 'Expand QBank details');
-    setExamAttemptExpanded(QBANK_EXAM_ID, nextExpanded);
-    details.classList.toggle('is-collapsed', !nextExpanded);
-  });
-  header.appendChild(caret);
+  const linkRow = document.createElement('div');
+  linkRow.className = 'exam-qbank-link-row';
+  card.appendChild(linkRow);
 
-  const details = document.createElement('div');
-  details.className = 'exam-qbank-details';
-  if (!isExpanded) {
-    details.classList.add('is-collapsed');
+  const link = document.createElement('button');
+  link.type = 'button';
+  link.className = 'exam-qbank-link';
+  link.innerHTML = '<span>Open QBank workspace</span><span aria-hidden="true">→</span>';
+  link.addEventListener('click', () => {
+    setSubtab('Exams', 'QBank');
+    render();
+  });
+  linkRow.appendChild(link);
+
+  return section;
+}
+
+export async function renderQBank(root, render) {
+  root.innerHTML = '';
+  root.className = 'tab-content exam-qbank-view';
+
+  const { qbankExam, savedSessions, lectureCatalog } = await loadExamOverview();
+  if (!qbankExam) {
+    const empty = document.createElement('div');
+    empty.className = 'exam-empty';
+    empty.textContent = 'QBank will appear once you upload exams with questions.';
+    root.appendChild(empty);
+    return;
   }
-  card.appendChild(details);
+
+  const savedSession = savedSessions.find(sess => sess?.examId === QBANK_EXAM_ID) || null;
+
+  const topbar = document.createElement('div');
+  topbar.className = 'exam-qbank-topbar';
+  root.appendChild(topbar);
+
+  const backBtn = document.createElement('button');
+  backBtn.type = 'button';
+  backBtn.className = 'exam-qbank-back';
+  backBtn.innerHTML = '<span aria-hidden="true">←</span><span>Back to exams</span>';
+  backBtn.addEventListener('click', () => {
+    setSubtab('Exams', 'list');
+    render();
+  });
+  topbar.appendChild(backBtn);
+
+  const heading = document.createElement('div');
+  heading.className = 'exam-qbank-heading';
+  heading.innerHTML = '<h1>QBank</h1><p>Build targeted sessions, track your history, and jump right back in.</p>';
+  topbar.appendChild(heading);
+
+  const topMeta = document.createElement('div');
+  topMeta.className = 'exam-qbank-top-meta';
+  const questionChip = document.createElement('span');
+  questionChip.className = 'exam-qbank-chip';
+  questionChip.textContent = `${qbankExam.questions.length} total question${qbankExam.questions.length === 1 ? '' : 's'}`;
+  topMeta.appendChild(questionChip);
+  const attemptChip = document.createElement('span');
+  attemptChip.className = 'exam-qbank-chip';
+  attemptChip.textContent = `${qbankExam.results?.length || 0} session${qbankExam.results?.length === 1 ? '' : 's'}`;
+  topMeta.appendChild(attemptChip);
+  topbar.appendChild(topMeta);
+
+  const layout = document.createElement('div');
+  layout.className = 'exam-qbank-layout';
+  root.appendChild(layout);
+
+  const leftCol = document.createElement('div');
+  leftCol.className = 'exam-qbank-column';
+  layout.appendChild(leftCol);
+
+  const rightCol = document.createElement('div');
+  rightCol.className = 'exam-qbank-column';
+  layout.appendChild(rightCol);
 
   const selection = qbankSelectionState;
   const defaultBlockId = resolveDefaultBlockId(lectureCatalog);
@@ -1402,8 +1456,8 @@ function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) 
   }
 
   const selectionCard = document.createElement('div');
-  selectionCard.className = 'exam-qbank-panel';
-  details.appendChild(selectionCard);
+  selectionCard.className = 'exam-qbank-panel exam-qbank-panel--selection';
+  leftCol.appendChild(selectionCard);
 
   const selectionHeader = document.createElement('div');
   selectionHeader.className = 'exam-qbank-selection-header';
@@ -1416,14 +1470,6 @@ function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) 
 
   const selectionMeta = document.createElement('div');
   selectionMeta.className = 'exam-qbank-selection-meta';
-  const selectedBlocks = selection.selectedBlocks.size;
-  const selectedWeeks = selection.selectedWeeks.size;
-  const selectedLectures = selection.selectedLectures.size;
-  selectionMeta.innerHTML = `
-    <span>Blocks: ${selectedBlocks}</span>
-    <span>Weeks: ${selectedWeeks}</span>
-    <span>Lectures: ${selectedLectures}</span>
-  `;
   selectionHeader.appendChild(selectionMeta);
 
   const selectionControls = document.createElement('div');
@@ -1465,23 +1511,108 @@ function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) 
 
   const selectionActions = document.createElement('div');
   selectionActions.className = 'exam-qbank-selection-actions';
+  selectionCard.appendChild(selectionActions);
+
+  const untaggedToggle = document.createElement('button');
+  untaggedToggle.type = 'button';
+  untaggedToggle.className = 'btn secondary exam-qbank-toggle';
+  untaggedToggle.textContent = 'Include untagged';
+  selectionActions.appendChild(untaggedToggle);
+
   const clearSelection = document.createElement('button');
   clearSelection.type = 'button';
   clearSelection.className = 'btn secondary';
   clearSelection.textContent = 'Clear selection';
-  clearSelection.disabled = !(selection.selectedBlocks.size || selection.selectedWeeks.size || selection.selectedLectures.size);
-  clearSelection.addEventListener('click', () => {
-    selection.selectedBlocks.clear();
-    selection.selectedWeeks.clear();
-    selection.selectedLectures.clear();
-    render();
-  });
   selectionActions.appendChild(clearSelection);
-  selectionCard.appendChild(selectionActions);
 
   const status = document.createElement('div');
   status.className = 'exam-qbank-status';
-  details.appendChild(status);
+  leftCol.appendChild(status);
+
+  const countPanel = document.createElement('div');
+  countPanel.className = 'exam-qbank-count';
+  leftCol.appendChild(countPanel);
+
+  const countLabel = document.createElement('div');
+  countLabel.className = 'exam-qbank-count-label';
+  countLabel.textContent = 'Questions to pull';
+  countPanel.appendChild(countLabel);
+
+  const countControls = document.createElement('div');
+  countControls.className = 'exam-qbank-count-controls';
+  countPanel.appendChild(countControls);
+
+  const countInput = document.createElement('input');
+  countInput.type = 'number';
+  countInput.className = 'input exam-qbank-count-input';
+  countControls.appendChild(countInput);
+
+  const countHelp = document.createElement('div');
+  countHelp.className = 'exam-qbank-count-help';
+  countControls.appendChild(countHelp);
+
+  const actions = document.createElement('div');
+  actions.className = 'exam-qbank-actions';
+  leftCol.appendChild(actions);
+
+  const startBtn = document.createElement('button');
+  startBtn.type = 'button';
+  startBtn.className = 'btn';
+  startBtn.textContent = 'Start QBank';
+  actions.appendChild(startBtn);
+
+  const resumeBtn = document.createElement('button');
+  resumeBtn.type = 'button';
+  resumeBtn.className = 'btn secondary';
+  resumeBtn.textContent = 'Resume';
+  resumeBtn.disabled = !savedSession;
+  actions.appendChild(resumeBtn);
+
+  const statsCard = document.createElement('div');
+  statsCard.className = 'exam-qbank-panel exam-qbank-panel--stats';
+  rightCol.appendChild(statsCard);
+
+  const statsHeader = document.createElement('div');
+  statsHeader.className = 'exam-qbank-stats-header';
+  statsHeader.innerHTML = '<div class="exam-qbank-stats-title">Performance</div><div class="exam-qbank-stats-subtitle">Across all QBank sessions</div>';
+  statsCard.appendChild(statsHeader);
+
+  const statsBody = document.createElement('div');
+  statsBody.className = 'exam-qbank-stats-body';
+  statsCard.appendChild(statsBody);
+
+  const pie = document.createElement('div');
+  pie.className = 'exam-qbank-pie';
+  statsBody.appendChild(pie);
+
+  const statList = document.createElement('div');
+  statList.className = 'exam-qbank-stat-list';
+  statsBody.appendChild(statList);
+
+  const statsEmpty = document.createElement('div');
+  statsEmpty.className = 'exam-qbank-empty';
+  statsEmpty.textContent = 'No QBank sessions yet.';
+
+  const attemptsWrap = document.createElement('div');
+  attemptsWrap.className = 'exam-qbank-panel exam-qbank-panel--history';
+  rightCol.appendChild(attemptsWrap);
+
+  const attemptsHeader = document.createElement('div');
+  attemptsHeader.className = 'exam-attempts-header';
+  attemptsWrap.appendChild(attemptsHeader);
+
+  const attemptsTitle = document.createElement('div');
+  attemptsTitle.className = 'exam-attempt-title';
+  attemptsTitle.textContent = 'Session history';
+  attemptsHeader.appendChild(attemptsTitle);
+
+  const attemptsCount = document.createElement('div');
+  attemptsCount.className = 'exam-attempt-count';
+  attemptsHeader.appendChild(attemptsCount);
+
+  const attemptsList = document.createElement('div');
+  attemptsList.className = 'exam-attempt-list';
+  attemptsWrap.appendChild(attemptsList);
 
   function resolveLectureEntries({ includeAllWeeks = false } = {}) {
     const blockId = selection.blockId;
@@ -1560,28 +1691,138 @@ function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) 
         } else {
           selection.selectedLectures.add(key);
         }
-        render();
+        const activeNow = selection.selectedLectures.has(key)
+          || selection.selectedBlocks.has(blockId)
+          || (weekKey && selection.selectedWeeks.has(weekKey));
+        setToggleState(btn, activeNow);
+        updateSelectionMeta();
+        updateAvailability();
       });
       lectureList.appendChild(btn);
     });
   }
 
+  function updateSelectionMeta() {
+    const selectedBlocks = selection.selectedBlocks.size;
+    const selectedWeeks = selection.selectedWeeks.size;
+    const selectedLectures = selection.selectedLectures.size;
+    selectionMeta.innerHTML = `
+      <span>Blocks: ${selectedBlocks}</span>
+      <span>Weeks: ${selectedWeeks}</span>
+      <span>Lectures: ${selectedLectures}</span>
+      <span>${selection.includeUntagged ? 'Untagged: On' : 'Untagged: Off'}</span>
+    `;
+    clearSelection.disabled = !(selectedBlocks || selectedWeeks || selectedLectures || selection.includeUntagged);
+    const blockIsSelected = selection.blockId && selection.selectedBlocks.has(selection.blockId);
+    blockToggle.textContent = blockIsSelected ? 'Block selected' : 'Select block';
+    blockToggle.disabled = !selection.blockId;
+    setToggleState(blockToggle, Boolean(blockIsSelected));
+
+    const weekKey = selection.blockId && selection.week ? `${selection.blockId}|${selection.week}` : '';
+    const weekIsSelected = weekKey && selection.selectedWeeks.has(weekKey);
+    weekToggle.textContent = weekIsSelected ? 'Week selected' : 'Select week';
+    weekToggle.disabled = !weekKey;
+    setToggleState(weekToggle, Boolean(weekIsSelected));
+    setToggleState(untaggedToggle, selection.includeUntagged);
+  }
+
+  function getAvailableIndices() {
+    return qbankExam.questions
+      .map((question, idx) => (qbankMatchesSelection(question, selection) ? idx : null))
+      .filter(Number.isFinite);
+  }
+
+  function updateAvailability() {
+    const availableIndices = getAvailableIndices();
+    const availableCount = availableIndices.length;
+
+    let normalizedCount = Number(selection.questionCount) || QBANK_DEFAULT_COUNT;
+    if (availableCount > 0) {
+      normalizedCount = Math.min(Math.max(1, normalizedCount), availableCount);
+      selection.questionCount = normalizedCount;
+    } else {
+      normalizedCount = 0;
+    }
+
+    countInput.min = availableCount ? '1' : '0';
+    countInput.max = String(Math.max(availableCount, 1));
+    countInput.value = String(normalizedCount || 0);
+    countInput.disabled = availableCount === 0;
+    countHelp.textContent = availableCount
+      ? `${availableCount} question${availableCount === 1 ? '' : 's'} available with current tags.`
+      : 'No questions match the current lecture selection.';
+    startBtn.disabled = availableCount === 0;
+    return availableIndices;
+  }
+
+  function updateStats() {
+    const results = qbankExam.results || [];
+    const totals = results.reduce((acc, result) => {
+      acc.correct += result.correct || 0;
+      acc.total += result.total || 0;
+      return acc;
+    }, { correct: 0, total: 0 });
+    const pct = totals.total ? Math.round((totals.correct / totals.total) * 100) : 0;
+    pie.style.setProperty('--qbank-score', String(pct));
+    pie.innerHTML = `<span>${pct}%</span>`;
+    statList.innerHTML = '';
+    if (!results.length) {
+      statList.appendChild(statsEmpty);
+    } else {
+      const statItems = [
+        { label: 'Sessions', value: String(results.length) },
+        { label: 'Questions answered', value: String(totals.total) },
+        { label: 'Correct', value: String(totals.correct) }
+      ];
+      statItems.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'exam-qbank-stat';
+        row.innerHTML = `<span>${item.label}</span><strong>${item.value}</strong>`;
+        statList.appendChild(row);
+      });
+    }
+  }
+
+  function updateHistory() {
+    const results = qbankExam.results || [];
+    attemptsCount.textContent = String(results.length);
+    attemptsList.innerHTML = '';
+    if (!results.length) {
+      const empty = document.createElement('div');
+      empty.className = 'exam-attempt-empty';
+      empty.textContent = 'No QBank sessions yet.';
+      attemptsList.appendChild(empty);
+      return;
+    }
+    [...results]
+      .sort((a, b) => b.when - a.when)
+      .forEach(result => {
+        attemptsList.appendChild(buildAttemptRow(qbankExam, result, render));
+      });
+  }
+
   renderWeekOptions();
   renderLectureList();
+  updateSelectionMeta();
+  updateAvailability();
+  updateStats();
+  updateHistory();
 
   blockSelect.addEventListener('change', () => {
     selection.blockId = blockSelect.value;
     selection.week = '';
-    render();
+    renderWeekOptions();
+    renderLectureList();
+    updateSelectionMeta();
+    updateAvailability();
   });
   weekSelect.addEventListener('change', () => {
     selection.week = weekSelect.value;
-    render();
+    renderLectureList();
+    updateSelectionMeta();
+    updateAvailability();
   });
 
-  const blockIsSelected = selection.blockId && selection.selectedBlocks.has(selection.blockId);
-  blockToggle.textContent = blockIsSelected ? 'Block selected' : 'Select block';
-  blockToggle.disabled = !selection.blockId;
   blockToggle.addEventListener('click', () => {
     if (!selection.blockId) return;
     if (selection.selectedBlocks.has(selection.blockId)) {
@@ -1589,83 +1830,52 @@ function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) 
     } else {
       selection.selectedBlocks.add(selection.blockId);
     }
-    render();
+    renderLectureList();
+    updateSelectionMeta();
+    updateAvailability();
   });
 
-  const weekKey = selection.blockId && selection.week ? `${selection.blockId}|${selection.week}` : '';
-  const weekIsSelected = weekKey && selection.selectedWeeks.has(weekKey);
-  weekToggle.textContent = weekIsSelected ? 'Week selected' : 'Select week';
-  weekToggle.disabled = !weekKey;
   weekToggle.addEventListener('click', () => {
+    const weekKey = selection.blockId && selection.week ? `${selection.blockId}|${selection.week}` : '';
     if (!weekKey) return;
     if (selection.selectedWeeks.has(weekKey)) {
       selection.selectedWeeks.delete(weekKey);
     } else {
       selection.selectedWeeks.add(weekKey);
     }
-    render();
+    renderLectureList();
+    updateSelectionMeta();
+    updateAvailability();
   });
 
-  const availableIndices = qbankExam.questions
-    .map((question, idx) => (qbankMatchesSelection(question, selection) ? idx : null))
-    .filter(Number.isFinite);
-  const availableCount = availableIndices.length;
+  untaggedToggle.addEventListener('click', () => {
+    selection.includeUntagged = !selection.includeUntagged;
+    updateSelectionMeta();
+    updateAvailability();
+  });
 
-  let normalizedCount = Number(selection.questionCount) || QBANK_DEFAULT_COUNT;
-  if (availableCount > 0) {
-    normalizedCount = Math.min(Math.max(1, normalizedCount), availableCount);
-    selection.questionCount = normalizedCount;
-  } else {
-    normalizedCount = 0;
-  }
+  clearSelection.addEventListener('click', () => {
+    selection.selectedBlocks.clear();
+    selection.selectedWeeks.clear();
+    selection.selectedLectures.clear();
+    selection.includeUntagged = false;
+    renderLectureList();
+    updateSelectionMeta();
+    updateAvailability();
+  });
 
-  const countPanel = document.createElement('div');
-  countPanel.className = 'exam-qbank-count';
-  details.appendChild(countPanel);
-
-  const countLabel = document.createElement('div');
-  countLabel.className = 'exam-qbank-count-label';
-  countLabel.textContent = 'Questions to pull';
-  countPanel.appendChild(countLabel);
-
-  const countControls = document.createElement('div');
-  countControls.className = 'exam-qbank-count-controls';
-  countPanel.appendChild(countControls);
-
-  const countInput = document.createElement('input');
-  countInput.type = 'number';
-  countInput.className = 'input exam-qbank-count-input';
-  countInput.min = availableCount ? '1' : '0';
-  countInput.max = String(Math.max(availableCount, 1));
-  countInput.value = String(normalizedCount || 0);
-  countInput.disabled = availableCount === 0;
   countInput.addEventListener('input', () => {
     selection.questionCount = Number(countInput.value);
   });
-  countControls.appendChild(countInput);
 
-  const countHelp = document.createElement('div');
-  countHelp.className = 'exam-qbank-count-help';
-  countHelp.textContent = availableCount
-    ? `${availableCount} question${availableCount === 1 ? '' : 's'} available with current tags.`
-    : 'No questions match the current lecture selection.';
-  countControls.appendChild(countHelp);
-
-  const actions = document.createElement('div');
-  actions.className = 'exam-qbank-actions';
-  details.appendChild(actions);
-
-  const startBtn = document.createElement('button');
-  startBtn.type = 'button';
-  startBtn.className = 'btn';
-  startBtn.textContent = 'Start QBank';
-  startBtn.disabled = availableCount === 0;
   startBtn.addEventListener('click', async () => {
+    const availableIndices = updateAvailability();
+    const availableCount = availableIndices.length;
     if (!availableCount) {
       status.textContent = 'Select lectures to build a question set.';
       return;
     }
-    const desired = Math.min(Math.max(1, Number(countInput.value) || normalizedCount), availableCount);
+    const desired = Math.min(Math.max(1, Number(countInput.value) || selection.questionCount || QBANK_DEFAULT_COUNT), availableCount);
     const selectedIndices = shuffleIndices(availableIndices).slice(0, desired);
     const subset = subsetExamForIndices(qbankExam, null, selectedIndices);
     if (!subset) {
@@ -1682,13 +1892,7 @@ function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) 
     setExamSession(session);
     render();
   });
-  actions.appendChild(startBtn);
 
-  const resumeBtn = document.createElement('button');
-  resumeBtn.type = 'button';
-  resumeBtn.className = 'btn secondary';
-  resumeBtn.textContent = 'Resume';
-  resumeBtn.disabled = !savedSession;
   resumeBtn.addEventListener('click', async () => {
     if (!savedSession) return;
     const latest = await loadExamSession(QBANK_EXAM_ID);
@@ -1697,47 +1901,10 @@ function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) 
     setExamSession(session);
     render();
   });
-  actions.appendChild(resumeBtn);
 
   if (!qbankExam.questions.length) {
     status.textContent = 'QBank will populate once you upload exams with questions.';
   }
-
-  const attemptsWrap = document.createElement('div');
-  attemptsWrap.className = 'exam-attempts';
-  details.appendChild(attemptsWrap);
-
-  const attemptsHeader = document.createElement('div');
-  attemptsHeader.className = 'exam-attempts-header';
-  attemptsWrap.appendChild(attemptsHeader);
-
-  const attemptsTitle = document.createElement('div');
-  attemptsTitle.className = 'exam-attempt-title';
-  attemptsTitle.textContent = 'QBank attempts';
-  attemptsHeader.appendChild(attemptsTitle);
-
-  const attemptsCount = document.createElement('div');
-  attemptsCount.className = 'exam-attempt-count';
-  attemptsCount.textContent = String(qbankExam.results?.length || 0);
-  attemptsHeader.appendChild(attemptsCount);
-
-  if (!qbankExam.results?.length) {
-    const empty = document.createElement('div');
-    empty.className = 'exam-attempt-empty';
-    empty.textContent = 'No QBank attempts yet.';
-    attemptsWrap.appendChild(empty);
-  } else {
-    const list = document.createElement('div');
-    list.className = 'exam-attempt-list';
-    [...qbankExam.results]
-      .sort((a, b) => b.when - a.when)
-      .forEach(result => {
-        list.appendChild(buildAttemptRow(qbankExam, result, render));
-      });
-    attemptsWrap.appendChild(list);
-  }
-
-  return section;
 }
 
 function buildExamCard(exam, render, savedSession, statusEl, layout) {
