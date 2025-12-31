@@ -23,6 +23,17 @@ const CSV_ROW_QUESTION = 'question';
 const CSV_EXPLANATION_INDEX = CSV_HEADERS.indexOf('explanation');
 const CSV_TAGS_INDEX = CSV_HEADERS.indexOf('tags');
 const CSV_MEDIA_INDEX = CSV_HEADERS.indexOf('media');
+const QBANK_EXAM_ID = '__qbank__';
+const QBANK_DEFAULT_COUNT = 20;
+
+const qbankSelectionState = {
+  blockId: '',
+  week: '',
+  selectedBlocks: new Set(),
+  selectedWeeks: new Set(),
+  selectedLectures: new Set(),
+  questionCount: QBANK_DEFAULT_COUNT
+};
 
 function csvOptionIndex(optionNumber) {
   return 5 + (optionNumber - 1) * 2;
@@ -78,6 +89,81 @@ function normalizeLectureRefs(lectures) {
 function parseTagString(tags) {
   if (!tags) return [];
   return String(tags).split(/[|,]/).map(tag => tag.trim()).filter(Boolean);
+}
+
+function resolveDefaultBlockId(catalog) {
+  const candidate = state.builder?.activeBlockId
+    || state.lectures?.blockId
+    || state.filters?.block
+    || state.listFilters?.block
+    || '';
+  if (!candidate) return '';
+  const value = String(candidate);
+  const blocks = Array.isArray(catalog?.blocks) ? catalog.blocks : [];
+  const found = blocks.some(block => String(block.blockId ?? block.id ?? '') === value);
+  return found ? value : '';
+}
+
+function qbankSignatureFor(exams) {
+  return exams
+    .map(exam => `${exam.id}:${exam.updatedAt || 0}:${exam.questions.length}`)
+    .join('|');
+}
+
+function buildQBankExam(exams, existing) {
+  const base = ensureExamShape(existing || {
+    id: QBANK_EXAM_ID,
+    examTitle: 'QBank',
+    timerMode: 'untimed',
+    secondsPerQuestion: DEFAULT_SECONDS,
+    questions: [],
+    results: []
+  }).exam;
+  const questions = [];
+  exams.forEach(exam => {
+    (exam.questions || []).forEach(question => {
+      const cloned = clone(question);
+      cloned.originalIndex = questions.length;
+      cloned.sourceExamId = exam.id;
+      cloned.sourceExamTitle = exam.examTitle;
+      questions.push(cloned);
+    });
+  });
+  return {
+    ...base,
+    id: QBANK_EXAM_ID,
+    examTitle: 'QBank',
+    timerMode: 'untimed',
+    secondsPerQuestion: DEFAULT_SECONDS,
+    questions
+  };
+}
+
+function shuffleIndices(indices) {
+  const list = [...indices];
+  for (let i = list.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
+function qbankMatchesSelection(question, selection) {
+  const selectedBlocks = selection.selectedBlocks;
+  const selectedWeeks = selection.selectedWeeks;
+  const selectedLectures = selection.selectedLectures;
+  const hasAnySelection = selectedBlocks.size || selectedWeeks.size || selectedLectures.size;
+  if (!hasAnySelection) return true;
+  const lectures = normalizeLectureRefs(question.lectures);
+  if (!lectures.length) return false;
+  return lectures.some(ref => {
+    const blockId = String(ref.blockId ?? '');
+    const lectureKey = `${blockId}|${ref.id}`;
+    const weekKey = ref.week != null ? `${blockId}|${ref.week}` : '';
+    return selectedLectures.has(lectureKey)
+      || (blockId && selectedBlocks.has(blockId))
+      || (weekKey && selectedWeeks.has(weekKey));
+  });
 }
 
 function parseBooleanFlag(value) {
@@ -1130,15 +1216,21 @@ export async function renderExams(root, render) {
     status.textContent = '';
   }
 
-  const [stored, savedSessions] = await Promise.all([
+  const [stored, savedSessions, lectureCatalog] = await Promise.all([
     listExams(),
-    listExamSessions()
+    listExamSessions(),
+    loadBlockCatalog().catch(() => ({ blocks: [], lectureLists: {} }))
   ]);
   const exams = [];
+  let qbankExam = null;
   const pendingUpdates = [];
   for (const raw of stored) {
     const { exam, changed } = ensureExamShape(raw);
-    exams.push(exam);
+    if (exam.id === QBANK_EXAM_ID) {
+      qbankExam = exam;
+    } else {
+      exams.push(exam);
+    }
     if (changed) {
       pendingUpdates.push(upsertExam(exam).catch(err => {
         console.warn('Failed to normalize exam', err);
@@ -1150,15 +1242,27 @@ export async function renderExams(root, render) {
   }
   exams.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
+  const qbankSignature = qbankSignatureFor(exams);
+  if (!qbankExam || qbankExam.qbankSignature !== qbankSignature) {
+    qbankExam = buildQBankExam(exams, qbankExam);
+    qbankExam.qbankSignature = qbankSignature;
+    qbankExam.updatedAt = Date.now();
+    await upsertExam(qbankExam);
+  }
+
   const sessionMap = new Map();
   for (const sess of savedSessions) {
     if (sess?.examId) sessionMap.set(sess.examId, sess);
   }
 
   // Clean up orphaned sessions for removed exams
+  const knownExamIds = new Set(exams.map(exam => exam.id));
+  if (qbankExam) {
+    knownExamIds.add(qbankExam.id);
+  }
   const cleanupTasks = [];
   for (const sess of savedSessions) {
-    if (!exams.find(ex => ex.id === sess.examId)) {
+    if (!knownExamIds.has(sess.examId)) {
       cleanupTasks.push(deleteExamSessionProgress(sess.examId).catch(err => {
         console.warn('Failed to cleanup orphaned exam session', err);
       }));
@@ -1168,15 +1272,25 @@ export async function renderExams(root, render) {
     await Promise.all(cleanupTasks);
   }
 
+  const layoutSnapshot = { mode: viewMode, detailsVisible };
+
+  if (qbankExam) {
+    root.appendChild(buildQBankSection({
+      qbankExam,
+      render,
+      savedSession: sessionMap.get(QBANK_EXAM_ID) || null,
+      lectureCatalog
+    }));
+  }
+
   if (!exams.length) {
     const empty = document.createElement('div');
     empty.className = 'exam-empty';
     empty.innerHTML = '<p>No exams yet. Import a JSON or CSV exam, download the template, or create one from scratch.</p>';
     root.appendChild(empty);
+    applyScrollPosition(scroller, examViewScrollTop);
     return;
   }
-
-  const layoutSnapshot = { mode: viewMode, detailsVisible };
 
   const grid = document.createElement('div');
   grid.className = 'exam-grid';
@@ -1190,6 +1304,440 @@ export async function renderExams(root, render) {
   grid.appendChild(frag);
   root.appendChild(grid);
   applyScrollPosition(scroller, examViewScrollTop);
+}
+
+function buildQBankSection({ qbankExam, render, savedSession, lectureCatalog }) {
+  const section = document.createElement('section');
+  section.className = 'exam-qbank-section';
+
+  const divider = document.createElement('div');
+  divider.className = 'exam-qbank-divider';
+  const dividerLabel = document.createElement('span');
+  dividerLabel.textContent = 'QBank';
+  divider.appendChild(dividerLabel);
+  section.appendChild(divider);
+
+  const card = document.createElement('article');
+  card.className = 'card exam-qbank-card';
+  section.appendChild(card);
+
+  const expandedState = state.examAttemptExpanded[QBANK_EXAM_ID];
+  const isExpanded = expandedState !== false;
+  card.classList.toggle('exam-qbank-card--expanded', isExpanded);
+
+  const header = document.createElement('div');
+  header.className = 'exam-qbank-header';
+  card.appendChild(header);
+
+  const headerInfo = document.createElement('div');
+  headerInfo.className = 'exam-qbank-header-info';
+  header.appendChild(headerInfo);
+
+  const pill = document.createElement('span');
+  pill.className = 'exam-qbank-pill';
+  pill.textContent = 'QBank';
+  headerInfo.appendChild(pill);
+
+  const titleWrap = document.createElement('div');
+  titleWrap.className = 'exam-qbank-title';
+  const title = document.createElement('div');
+  title.className = 'exam-qbank-title-text';
+  title.textContent = 'Custom question study';
+  const subtitle = document.createElement('div');
+  subtitle.className = 'exam-qbank-subtitle';
+  subtitle.textContent = 'Build a focused set from your uploaded exams.';
+  titleWrap.append(title, subtitle);
+  headerInfo.appendChild(titleWrap);
+
+  const headerMeta = document.createElement('div');
+  headerMeta.className = 'exam-qbank-meta';
+  header.appendChild(headerMeta);
+
+  const questionChip = document.createElement('span');
+  questionChip.className = 'exam-qbank-chip';
+  questionChip.textContent = `${qbankExam.questions.length} total question${qbankExam.questions.length === 1 ? '' : 's'}`;
+  headerMeta.appendChild(questionChip);
+
+  if (qbankExam.results?.length) {
+    const attemptsChip = document.createElement('span');
+    attemptsChip.className = 'exam-qbank-chip';
+    attemptsChip.textContent = `${qbankExam.results.length} attempt${qbankExam.results.length === 1 ? '' : 's'}`;
+    headerMeta.appendChild(attemptsChip);
+  }
+
+  const caret = document.createElement('button');
+  caret.type = 'button';
+  caret.className = 'exam-qbank-caret';
+  caret.setAttribute('aria-label', isExpanded ? 'Collapse QBank details' : 'Expand QBank details');
+  caret.textContent = isExpanded ? '▾' : '▸';
+  caret.addEventListener('click', () => {
+    const nextExpanded = !card.classList.contains('exam-qbank-card--expanded');
+    card.classList.toggle('exam-qbank-card--expanded', nextExpanded);
+    caret.textContent = nextExpanded ? '▾' : '▸';
+    caret.setAttribute('aria-label', nextExpanded ? 'Collapse QBank details' : 'Expand QBank details');
+    setExamAttemptExpanded(QBANK_EXAM_ID, nextExpanded);
+    details.classList.toggle('is-collapsed', !nextExpanded);
+  });
+  header.appendChild(caret);
+
+  const details = document.createElement('div');
+  details.className = 'exam-qbank-details';
+  if (!isExpanded) {
+    details.classList.add('is-collapsed');
+  }
+  card.appendChild(details);
+
+  const selection = qbankSelectionState;
+  const defaultBlockId = resolveDefaultBlockId(lectureCatalog);
+  const availableBlocks = Array.isArray(lectureCatalog?.blocks) ? lectureCatalog.blocks : [];
+  const availableLectures = lectureCatalog?.lectureLists || {};
+  if (defaultBlockId && !selection.blockId) {
+    selection.blockId = defaultBlockId;
+  }
+  if (selection.blockId) {
+    const hasBlock = availableBlocks.some(block => String(block.blockId ?? block.id ?? '') === selection.blockId);
+    if (!hasBlock) {
+      selection.blockId = '';
+    }
+  }
+
+  const selectionCard = document.createElement('div');
+  selectionCard.className = 'exam-qbank-panel';
+  details.appendChild(selectionCard);
+
+  const selectionHeader = document.createElement('div');
+  selectionHeader.className = 'exam-qbank-selection-header';
+  selectionCard.appendChild(selectionHeader);
+
+  const selectionTitle = document.createElement('div');
+  selectionTitle.className = 'exam-qbank-selection-title';
+  selectionTitle.textContent = 'Lecture selection';
+  selectionHeader.appendChild(selectionTitle);
+
+  const selectionMeta = document.createElement('div');
+  selectionMeta.className = 'exam-qbank-selection-meta';
+  const selectedBlocks = selection.selectedBlocks.size;
+  const selectedWeeks = selection.selectedWeeks.size;
+  const selectedLectures = selection.selectedLectures.size;
+  selectionMeta.innerHTML = `
+    <span>Blocks: ${selectedBlocks}</span>
+    <span>Weeks: ${selectedWeeks}</span>
+    <span>Lectures: ${selectedLectures}</span>
+  `;
+  selectionHeader.appendChild(selectionMeta);
+
+  const selectionControls = document.createElement('div');
+  selectionControls.className = 'exam-qbank-controls';
+  selectionCard.appendChild(selectionControls);
+
+  const blockSelect = document.createElement('select');
+  blockSelect.className = 'input exam-qbank-select';
+  const blockAll = document.createElement('option');
+  blockAll.value = '';
+  blockAll.textContent = 'All blocks';
+  blockSelect.appendChild(blockAll);
+  availableBlocks.forEach(block => {
+    const opt = document.createElement('option');
+    opt.value = String(block.blockId ?? block.id ?? '');
+    opt.textContent = block.title || opt.value;
+    blockSelect.appendChild(opt);
+  });
+  blockSelect.value = selection.blockId || '';
+  selectionControls.appendChild(blockSelect);
+
+  const blockToggle = document.createElement('button');
+  blockToggle.type = 'button';
+  blockToggle.className = 'btn secondary exam-qbank-toggle';
+  selectionControls.appendChild(blockToggle);
+
+  const weekSelect = document.createElement('select');
+  weekSelect.className = 'input exam-qbank-select';
+  selectionControls.appendChild(weekSelect);
+
+  const weekToggle = document.createElement('button');
+  weekToggle.type = 'button';
+  weekToggle.className = 'btn secondary exam-qbank-toggle';
+  selectionControls.appendChild(weekToggle);
+
+  const lectureList = document.createElement('div');
+  lectureList.className = 'exam-qbank-lecture-list';
+  selectionCard.appendChild(lectureList);
+
+  const selectionActions = document.createElement('div');
+  selectionActions.className = 'exam-qbank-selection-actions';
+  const clearSelection = document.createElement('button');
+  clearSelection.type = 'button';
+  clearSelection.className = 'btn secondary';
+  clearSelection.textContent = 'Clear selection';
+  clearSelection.disabled = !(selection.selectedBlocks.size || selection.selectedWeeks.size || selection.selectedLectures.size);
+  clearSelection.addEventListener('click', () => {
+    selection.selectedBlocks.clear();
+    selection.selectedWeeks.clear();
+    selection.selectedLectures.clear();
+    render();
+  });
+  selectionActions.appendChild(clearSelection);
+  selectionCard.appendChild(selectionActions);
+
+  const status = document.createElement('div');
+  status.className = 'exam-qbank-status';
+  details.appendChild(status);
+
+  function resolveLectureEntries({ includeAllWeeks = false } = {}) {
+    const blockId = selection.blockId;
+    const weekValue = includeAllWeeks ? '' : selection.week;
+    const entries = [];
+    const blockIds = blockId
+      ? [blockId]
+      : Object.keys(availableLectures);
+    blockIds.forEach(id => {
+      const lectures = availableLectures?.[id] || [];
+      lectures.forEach(lecture => {
+        if (weekValue && String(lecture.week ?? '') !== weekValue) return;
+        entries.push({ blockId: id, lecture });
+      });
+    });
+    return entries;
+  }
+
+  function renderWeekOptions() {
+    weekSelect.innerHTML = '';
+    const allOption = document.createElement('option');
+    allOption.value = '';
+    allOption.textContent = 'All weeks';
+    weekSelect.appendChild(allOption);
+    const entries = resolveLectureEntries({ includeAllWeeks: true });
+    const weeks = new Set();
+    entries.forEach(({ lecture }) => {
+      if (lecture.week == null || lecture.week === '') return;
+      weeks.add(String(lecture.week));
+    });
+    Array.from(weeks).sort((a, b) => Number(a) - Number(b)).forEach(week => {
+      const opt = document.createElement('option');
+      opt.value = week;
+      opt.textContent = `Week ${week}`;
+      weekSelect.appendChild(opt);
+    });
+    if (!weeks.has(selection.week)) {
+      selection.week = '';
+    }
+    weekSelect.value = selection.week || '';
+  }
+
+  function renderLectureList() {
+    lectureList.innerHTML = '';
+    if (!Object.keys(availableLectures).length) {
+      const empty = document.createElement('div');
+      empty.className = 'exam-qbank-empty';
+      empty.textContent = 'No lectures found.';
+      lectureList.appendChild(empty);
+      return;
+    }
+    const entries = resolveLectureEntries();
+    if (!entries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'exam-qbank-empty';
+      empty.textContent = 'No lectures available for this filter.';
+      lectureList.appendChild(empty);
+      return;
+    }
+    entries.forEach(({ blockId, lecture }) => {
+      const key = `${blockId}|${lecture.id}`;
+      const weekKey = lecture.week != null ? `${blockId}|${lecture.week}` : '';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'exam-qbank-lecture-button';
+      const blockLabel = availableBlocks.find(block => String(block.blockId ?? block.id ?? '') === blockId)?.title || blockId;
+      const lectureName = lecture.name || `Lecture ${lecture.id}`;
+      btn.textContent = selection.blockId ? lectureName : `${blockLabel} • ${lectureName}`;
+      const isActive = selection.selectedLectures.has(key)
+        || selection.selectedBlocks.has(blockId)
+        || (weekKey && selection.selectedWeeks.has(weekKey));
+      setToggleState(btn, isActive);
+      btn.addEventListener('click', () => {
+        if (selection.selectedLectures.has(key)) {
+          selection.selectedLectures.delete(key);
+        } else {
+          selection.selectedLectures.add(key);
+        }
+        render();
+      });
+      lectureList.appendChild(btn);
+    });
+  }
+
+  renderWeekOptions();
+  renderLectureList();
+
+  blockSelect.addEventListener('change', () => {
+    selection.blockId = blockSelect.value;
+    selection.week = '';
+    render();
+  });
+  weekSelect.addEventListener('change', () => {
+    selection.week = weekSelect.value;
+    render();
+  });
+
+  const blockIsSelected = selection.blockId && selection.selectedBlocks.has(selection.blockId);
+  blockToggle.textContent = blockIsSelected ? 'Block selected' : 'Select block';
+  blockToggle.disabled = !selection.blockId;
+  blockToggle.addEventListener('click', () => {
+    if (!selection.blockId) return;
+    if (selection.selectedBlocks.has(selection.blockId)) {
+      selection.selectedBlocks.delete(selection.blockId);
+    } else {
+      selection.selectedBlocks.add(selection.blockId);
+    }
+    render();
+  });
+
+  const weekKey = selection.blockId && selection.week ? `${selection.blockId}|${selection.week}` : '';
+  const weekIsSelected = weekKey && selection.selectedWeeks.has(weekKey);
+  weekToggle.textContent = weekIsSelected ? 'Week selected' : 'Select week';
+  weekToggle.disabled = !weekKey;
+  weekToggle.addEventListener('click', () => {
+    if (!weekKey) return;
+    if (selection.selectedWeeks.has(weekKey)) {
+      selection.selectedWeeks.delete(weekKey);
+    } else {
+      selection.selectedWeeks.add(weekKey);
+    }
+    render();
+  });
+
+  const availableIndices = qbankExam.questions
+    .map((question, idx) => (qbankMatchesSelection(question, selection) ? idx : null))
+    .filter(Number.isFinite);
+  const availableCount = availableIndices.length;
+
+  let normalizedCount = Number(selection.questionCount) || QBANK_DEFAULT_COUNT;
+  if (availableCount > 0) {
+    normalizedCount = Math.min(Math.max(1, normalizedCount), availableCount);
+    selection.questionCount = normalizedCount;
+  } else {
+    normalizedCount = 0;
+  }
+
+  const countPanel = document.createElement('div');
+  countPanel.className = 'exam-qbank-count';
+  details.appendChild(countPanel);
+
+  const countLabel = document.createElement('div');
+  countLabel.className = 'exam-qbank-count-label';
+  countLabel.textContent = 'Questions to pull';
+  countPanel.appendChild(countLabel);
+
+  const countControls = document.createElement('div');
+  countControls.className = 'exam-qbank-count-controls';
+  countPanel.appendChild(countControls);
+
+  const countInput = document.createElement('input');
+  countInput.type = 'number';
+  countInput.className = 'input exam-qbank-count-input';
+  countInput.min = availableCount ? '1' : '0';
+  countInput.max = String(Math.max(availableCount, 1));
+  countInput.value = String(normalizedCount || 0);
+  countInput.disabled = availableCount === 0;
+  countInput.addEventListener('input', () => {
+    selection.questionCount = Number(countInput.value);
+  });
+  countControls.appendChild(countInput);
+
+  const countHelp = document.createElement('div');
+  countHelp.className = 'exam-qbank-count-help';
+  countHelp.textContent = availableCount
+    ? `${availableCount} question${availableCount === 1 ? '' : 's'} available with current tags.`
+    : 'No questions match the current lecture selection.';
+  countControls.appendChild(countHelp);
+
+  const actions = document.createElement('div');
+  actions.className = 'exam-qbank-actions';
+  details.appendChild(actions);
+
+  const startBtn = document.createElement('button');
+  startBtn.type = 'button';
+  startBtn.className = 'btn';
+  startBtn.textContent = 'Start QBank';
+  startBtn.disabled = availableCount === 0;
+  startBtn.addEventListener('click', async () => {
+    if (!availableCount) {
+      status.textContent = 'Select lectures to build a question set.';
+      return;
+    }
+    const desired = Math.min(Math.max(1, Number(countInput.value) || normalizedCount), availableCount);
+    const selectedIndices = shuffleIndices(availableIndices).slice(0, desired);
+    const subset = subsetExamForIndices(qbankExam, null, selectedIndices);
+    if (!subset) {
+      status.textContent = 'Unable to build a question set. Try adjusting the filters.';
+      return;
+    }
+    await deleteExamSessionProgress(QBANK_EXAM_ID).catch(() => {});
+    const session = createTakingSession(subset.exam);
+    session.exam.examTitle = 'QBank • Custom Study';
+    session.exam.timerMode = 'untimed';
+    session.exam.secondsPerQuestion = qbankExam.secondsPerQuestion;
+    session.baseExam = clone(qbankExam);
+    session.subsetIndices = selectedIndices;
+    setExamSession(session);
+    render();
+  });
+  actions.appendChild(startBtn);
+
+  const resumeBtn = document.createElement('button');
+  resumeBtn.type = 'button';
+  resumeBtn.className = 'btn secondary';
+  resumeBtn.textContent = 'Resume';
+  resumeBtn.disabled = !savedSession;
+  resumeBtn.addEventListener('click', async () => {
+    if (!savedSession) return;
+    const latest = await loadExamSession(QBANK_EXAM_ID);
+    if (!latest) return;
+    const session = hydrateSavedSession(latest, qbankExam);
+    setExamSession(session);
+    render();
+  });
+  actions.appendChild(resumeBtn);
+
+  if (!qbankExam.questions.length) {
+    status.textContent = 'QBank will populate once you upload exams with questions.';
+  }
+
+  const attemptsWrap = document.createElement('div');
+  attemptsWrap.className = 'exam-attempts';
+  details.appendChild(attemptsWrap);
+
+  const attemptsHeader = document.createElement('div');
+  attemptsHeader.className = 'exam-attempts-header';
+  attemptsWrap.appendChild(attemptsHeader);
+
+  const attemptsTitle = document.createElement('div');
+  attemptsTitle.className = 'exam-attempt-title';
+  attemptsTitle.textContent = 'QBank attempts';
+  attemptsHeader.appendChild(attemptsTitle);
+
+  const attemptsCount = document.createElement('div');
+  attemptsCount.className = 'exam-attempt-count';
+  attemptsCount.textContent = String(qbankExam.results?.length || 0);
+  attemptsHeader.appendChild(attemptsCount);
+
+  if (!qbankExam.results?.length) {
+    const empty = document.createElement('div');
+    empty.className = 'exam-attempt-empty';
+    empty.textContent = 'No QBank attempts yet.';
+    attemptsWrap.appendChild(empty);
+  } else {
+    const list = document.createElement('div');
+    list.className = 'exam-attempt-list';
+    [...qbankExam.results]
+      .sort((a, b) => b.when - a.when)
+      .forEach(result => {
+        list.appendChild(buildAttemptRow(qbankExam, result, render));
+      });
+    attemptsWrap.appendChild(list);
+  }
+
+  return section;
 }
 
 function buildExamCard(exam, render, savedSession, statusEl, layout) {
@@ -3346,6 +3894,17 @@ function openExamEditor(existing, render) {
           opt.textContent = block.title || String(block.blockId ?? block.id ?? '');
           blockSelect.appendChild(opt);
         });
+        if (lectureSelections.size) {
+          const firstSelection = lectureSelections.values().next().value;
+          if (firstSelection?.blockId) {
+            blockSelect.value = String(firstSelection.blockId);
+          }
+        } else {
+          const defaultBlockId = resolveDefaultBlockId(lectureCatalog);
+          if (defaultBlockId) {
+            blockSelect.value = defaultBlockId;
+          }
+        }
       }
 
       function renderWeekOptions() {
