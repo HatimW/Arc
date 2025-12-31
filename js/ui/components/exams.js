@@ -8,21 +8,10 @@ import { createFloatingWindow } from './window-manager.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
 
 const DEFAULT_SECONDS = 60;
-const CSV_MAX_OPTIONS = 8;
-const CSV_HEADERS = (() => {
-  const base = ['type', 'examTitle', 'timerMode', 'secondsPerQuestion', 'stem'];
-  for (let i = 1; i <= CSV_MAX_OPTIONS; i += 1) {
-    base.push(`option${i}`);
-    base.push(`option${i}Correct`);
-  }
-  base.push('explanation', 'tags', 'media');
-  return base;
-})();
+const CSV_TEMPLATE_MIN_OPTIONS = 12;
+const CSV_BASE_HEADERS = ['type', 'examTitle', 'timerMode', 'secondsPerQuestion', 'stem'];
 const CSV_ROW_META = 'meta';
 const CSV_ROW_QUESTION = 'question';
-const CSV_EXPLANATION_INDEX = CSV_HEADERS.indexOf('explanation');
-const CSV_TAGS_INDEX = CSV_HEADERS.indexOf('tags');
-const CSV_MEDIA_INDEX = CSV_HEADERS.indexOf('media');
 const QBANK_EXAM_ID = '__qbank__';
 const QBANK_DEFAULT_COUNT = 20;
 
@@ -42,6 +31,43 @@ function csvOptionIndex(optionNumber) {
 
 function csvOptionCorrectIndex(optionNumber) {
   return csvOptionIndex(optionNumber) + 1;
+}
+
+function buildCsvHeaders(maxOptions) {
+  const base = [...CSV_BASE_HEADERS];
+  for (let i = 1; i <= maxOptions; i += 1) {
+    base.push(`option${i}`);
+    base.push(`option${i}Correct`);
+  }
+  base.push('explanation', 'tags', 'media');
+  return base;
+}
+
+function getCsvMaxOptionsFromExam(exam) {
+  const questions = Array.isArray(exam?.questions) ? exam.questions : [];
+  const max = questions.reduce((current, question) => {
+    const options = Array.isArray(question?.options) ? question.options.length : 0;
+    return Math.max(current, options);
+  }, 0);
+  return Math.max(CSV_TEMPLATE_MIN_OPTIONS, max);
+}
+
+function getCsvHeaderIndexes(headers) {
+  return {
+    explanationIndex: headers.indexOf('explanation'),
+    tagsIndex: headers.indexOf('tags'),
+    mediaIndex: headers.indexOf('media')
+  };
+}
+
+function getCsvMaxOptionsFromHeader(header) {
+  return header.reduce((max, name) => {
+    const match = /^option(\d+)(correct)?$/i.exec(String(name || '').trim());
+    if (!match) return max;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value)) return max;
+    return Math.max(max, value);
+  }, 0);
 }
 
 const timerHandles = new WeakMap();
@@ -753,9 +779,12 @@ function triggerExamDownload(exam) {
 
 function examToCsv(exam) {
   const rows = [];
-  rows.push(CSV_HEADERS);
+  const maxOptions = getCsvMaxOptionsFromExam(exam);
+  const headers = buildCsvHeaders(maxOptions);
+  const { explanationIndex, tagsIndex, mediaIndex } = getCsvHeaderIndexes(headers);
+  rows.push(headers);
 
-  const metaRow = new Array(CSV_HEADERS.length).fill('');
+  const metaRow = new Array(headers.length).fill('');
   metaRow[0] = CSV_ROW_META;
   metaRow[1] = exam.examTitle || '';
   metaRow[2] = exam.timerMode === 'timed' ? 'timed' : 'untimed';
@@ -763,19 +792,19 @@ function examToCsv(exam) {
   rows.push(metaRow);
 
   (exam.questions || []).forEach(question => {
-    const row = new Array(CSV_HEADERS.length).fill('');
+    const row = new Array(headers.length).fill('');
     row[0] = CSV_ROW_QUESTION;
     row[4] = question.stem || '';
     const options = Array.isArray(question.options) ? question.options : [];
-    options.slice(0, CSV_MAX_OPTIONS).forEach((opt, idx) => {
+    options.slice(0, maxOptions).forEach((opt, idx) => {
       const optionCol = csvOptionIndex(idx + 1);
       const correctCol = csvOptionCorrectIndex(idx + 1);
       row[optionCol] = opt.text || '';
       row[correctCol] = opt.id === question.answer ? 'TRUE' : '';
     });
-    if (CSV_EXPLANATION_INDEX >= 0) row[CSV_EXPLANATION_INDEX] = question.explanation || '';
-    if (CSV_TAGS_INDEX >= 0) row[CSV_TAGS_INDEX] = Array.isArray(question.tags) ? question.tags.join(' | ') : '';
-    if (CSV_MEDIA_INDEX >= 0) row[CSV_MEDIA_INDEX] = question.media || '';
+    if (explanationIndex >= 0) row[explanationIndex] = question.explanation || '';
+    if (tagsIndex >= 0) row[tagsIndex] = Array.isArray(question.tags) ? question.tags.join(' | ') : '';
+    if (mediaIndex >= 0) row[mediaIndex] = question.media || '';
     rows.push(row);
   });
 
@@ -872,6 +901,7 @@ function examFromCsv(text) {
     if (!name) return;
     indexMap.set(name, idx);
   });
+  const maxOptions = Math.max(CSV_TEMPLATE_MIN_OPTIONS, getCsvMaxOptionsFromHeader(header));
 
   const getCell = (row, key) => {
     const idx = indexMap.has(key) ? indexMap.get(key) : -1;
@@ -909,7 +939,7 @@ function examFromCsv(text) {
     question.options = [];
     question.answer = '';
 
-    for (let i = 1; i <= CSV_MAX_OPTIONS; i += 1) {
+    for (let i = 1; i <= maxOptions; i += 1) {
       const optionHtml = sanitizeRichText(getCell(row, `option${i}`));
       if (!optionHtml) continue;
       const option = { id: uid(), text: optionHtml };
