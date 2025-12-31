@@ -1358,6 +1358,7 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
     const shouldOpenUp = panelHeight > spaceBelow && spaceAbove > spaceBelow;
     menuWrap.classList.toggle('exam-card-menu--up', shouldOpenUp);
     menuOpen = true;
+    card.classList.add('exam-card--menu-open');
     menuWrap.classList.add('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'true');
     menuPanel.setAttribute('aria-hidden', 'false');
@@ -1369,6 +1370,7 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
   function closeMenu() {
     if (!menuOpen) return;
     menuOpen = false;
+    card.classList.remove('exam-card--menu-open');
     menuWrap.classList.remove('exam-card-menu--open');
     menuToggle.setAttribute('aria-expanded', 'false');
     menuPanel.setAttribute('aria-hidden', 'true');

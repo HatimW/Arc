@@ -6397,6 +6397,10 @@ body[data-performance-mode='conservative'] .deck-viewer {
   overflow: visible;
 }
 
+.exam-card--menu-open {
+  z-index: 5;
+}
+
 .exam-card--row {
   width: 100%;
 }
