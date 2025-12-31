@@ -4,7 +4,7 @@
 /** @typedef {{ streak:number, lastRating:string|null, last:number, due:number, retired:boolean }} SectionSR */
 /** @typedef {{ version:number, sections:Record<string, SectionSR> }} SR */
 
-/** @typedef {{ blockId:string, id:number, name:string, week:number }} LectureRef */
+/** @typedef {{ blockId:string, id:number, name:string, week:number|null }} LectureRef */
 
 /// Base item
 /**
@@ -47,7 +47,7 @@
  *              lectures:{id:number, name:string, week:number}[],
  *              createdAt:number, updatedAt:number }} BlockDef */
 
-/** @typedef {{ id:string, stem:string, options:{id:string,text:string}[], answer:string, explanation?:string, tags?:string[], media?:string }} Question */
+/** @typedef {{ id:string, stem:string, options:{id:string,text:string}[], answer:string, explanation?:string, tags?:string[], lectures?:LectureRef[], media?:string }} Question */
 
 /** @typedef {{ id:string, examTitle:string, block?:string, week?:string,
  *   timerMode:"timed"|"untimed", secondsPerQuestion:number,
