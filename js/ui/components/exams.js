@@ -5,6 +5,7 @@ import { confirmModal } from './confirm.js';
 import { createRichTextEditor, sanitizeHtml, htmlToPlainText, isEmptyHtml } from './rich-text.js';
 import { readFileAsDataUrl } from './media-upload.js';
 import { createFloatingWindow } from './window-manager.js';
+import { loadBlockCatalog } from '../../storage/block-catalog.js';
 
 const DEFAULT_SECONDS = 60;
 const CSV_MAX_OPTIONS = 8;
@@ -55,6 +56,23 @@ function ensureArrayTags(tags) {
     return [];
   }
   return tags.map(tag => String(tag).trim()).filter(Boolean);
+}
+
+function normalizeLectureRefs(lectures) {
+  if (!Array.isArray(lectures)) return [];
+  const seen = new Set();
+  return lectures.map(ref => {
+    if (!ref || ref.blockId == null || ref.id == null) return null;
+    const blockId = String(ref.blockId).trim();
+    const id = Number(ref.id);
+    if (!blockId || !Number.isFinite(id)) return null;
+    const key = `${blockId}|${id}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    const name = ref.name != null ? String(ref.name) : '';
+    const week = Number.isFinite(Number(ref.week)) ? Number(ref.week) : null;
+    return { blockId, id, name, week };
+  }).filter(Boolean);
 }
 
 function parseTagString(tags) {
@@ -881,6 +899,19 @@ function ensureExamShape(exam) {
     } else {
       question.tags = normalizedTags;
     }
+    const normalizedLectures = normalizeLectureRefs(question.lectures);
+    const sameLectures = Array.isArray(question.lectures)
+      && question.lectures.length === normalizedLectures.length
+      && question.lectures.every((lec, idx) => lec?.blockId === normalizedLectures[idx]?.blockId
+        && lec?.id === normalizedLectures[idx]?.id
+        && lec?.name === normalizedLectures[idx]?.name
+        && lec?.week === normalizedLectures[idx]?.week);
+    if (!sameLectures) {
+      question.lectures = normalizedLectures;
+      changed = true;
+    } else {
+      question.lectures = normalizedLectures;
+    }
     if (question.media == null) { question.media = ''; changed = true; }
     return question;
   });
@@ -913,6 +944,7 @@ function createBlankQuestion() {
     answer: '',
     explanation: '',
     tags: [],
+    lectures: [],
     media: ''
   };
 }
@@ -2838,6 +2870,9 @@ function openExamEditor(existing, render) {
   });
   floating.element.classList.add('exam-editor-window');
 
+  let lectureCatalog = { blocks: [], lectureLists: {} };
+  let lectureCatalogReady = false;
+
   const form = document.createElement('form');
   form.className = 'exam-editor';
   floating.body.appendChild(form);
@@ -3160,6 +3195,192 @@ function openExamEditor(existing, render) {
       tagsField.append(tagsLabel, tagsInput);
       card.appendChild(tagsField);
 
+      const lectureField = document.createElement('div');
+      lectureField.className = 'exam-field exam-field--lectures';
+      const lectureLabel = document.createElement('span');
+      lectureLabel.className = 'exam-field-label';
+      lectureLabel.textContent = 'Lecture tags';
+      lectureField.appendChild(lectureLabel);
+
+      const lectureSummary = document.createElement('div');
+      lectureSummary.className = 'exam-lecture-summary';
+      lectureField.appendChild(lectureSummary);
+
+      const lectureControls = document.createElement('div');
+      lectureControls.className = 'exam-lecture-controls';
+      lectureField.appendChild(lectureControls);
+
+      const lectureSelections = new Map();
+      normalizeLectureRefs(question.lectures).forEach(ref => {
+        lectureSelections.set(`${ref.blockId}|${ref.id}`, ref);
+      });
+
+      const blockMap = new Map(
+        (lectureCatalog.blocks || []).map(block => [String(block.blockId ?? block.id ?? ''), block])
+      );
+
+      const blockSelect = document.createElement('select');
+      blockSelect.className = 'input exam-lecture-select';
+      blockSelect.setAttribute('aria-label', `Question ${idx + 1} block filter`);
+
+      const weekSelect = document.createElement('select');
+      weekSelect.className = 'input exam-lecture-select';
+      weekSelect.setAttribute('aria-label', `Question ${idx + 1} week filter`);
+
+      const filtersRow = document.createElement('div');
+      filtersRow.className = 'exam-lecture-filters';
+      filtersRow.append(blockSelect, weekSelect);
+      lectureControls.appendChild(filtersRow);
+
+      const lectureList = document.createElement('div');
+      lectureList.className = 'exam-lecture-list';
+      lectureControls.appendChild(lectureList);
+
+      function syncLectures() {
+        question.lectures = Array.from(lectureSelections.values());
+        markDirty();
+      }
+
+      function renderLectureSummary() {
+        lectureSummary.innerHTML = '';
+        if (!lectureSelections.size) {
+          const empty = document.createElement('div');
+          empty.className = 'exam-lecture-empty';
+          empty.textContent = 'No lectures tagged yet.';
+          lectureSummary.appendChild(empty);
+          return;
+        }
+        lectureSelections.forEach(ref => {
+          const chip = document.createElement('div');
+          chip.className = 'exam-lecture-chip';
+          const label = document.createElement('span');
+          const blockLabel = blockMap.get(ref.blockId)?.title || ref.blockId;
+          const lectureName = ref.name || `Lecture ${ref.id}`;
+          label.textContent = blockLabel ? `${blockLabel} • ${lectureName}` : lectureName;
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'exam-lecture-chip-remove';
+          removeBtn.textContent = '×';
+          removeBtn.addEventListener('click', () => {
+            lectureSelections.delete(`${ref.blockId}|${ref.id}`);
+            syncLectures();
+            renderLectureSummary();
+            renderLectureList();
+          });
+          chip.append(label, removeBtn);
+          lectureSummary.appendChild(chip);
+        });
+      }
+
+      function resolveLectureEntries({ includeAllWeeks = false } = {}) {
+        const blockId = blockSelect.value;
+        const weekValue = includeAllWeeks ? '' : weekSelect.value;
+        const entries = [];
+        const blockIds = blockId
+          ? [blockId]
+          : Object.keys(lectureCatalog.lectureLists || {});
+        blockIds.forEach(id => {
+          const lectures = lectureCatalog.lectureLists?.[id] || [];
+          lectures.forEach(lecture => {
+            if (weekValue && String(lecture.week ?? '') !== weekValue) return;
+            entries.push({ blockId: id, lecture });
+          });
+        });
+        return entries;
+      }
+
+      function renderLectureList() {
+        lectureList.innerHTML = '';
+        if (!lectureCatalogReady || !Object.keys(lectureCatalog.lectureLists || {}).length) {
+          const empty = document.createElement('div');
+          empty.className = 'exam-lecture-empty';
+          empty.textContent = lectureCatalogReady ? 'No lectures found.' : 'Loading lectures...';
+          lectureList.appendChild(empty);
+          return;
+        }
+        const entries = resolveLectureEntries();
+        if (!entries.length) {
+          const empty = document.createElement('div');
+          empty.className = 'exam-lecture-empty';
+          empty.textContent = 'No lectures available for this filter.';
+          lectureList.appendChild(empty);
+          return;
+        }
+        entries.forEach(({ blockId, lecture }) => {
+          const key = `${blockId}|${lecture.id}`;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'exam-lecture-button';
+          const blockLabel = blockMap.get(blockId)?.title || blockId;
+          const lectureName = lecture.name || `Lecture ${lecture.id}`;
+          btn.textContent = blockSelect.value ? lectureName : `${blockLabel} • ${lectureName}`;
+          setToggleState(btn, lectureSelections.has(key));
+          btn.addEventListener('click', () => {
+            if (lectureSelections.has(key)) {
+              lectureSelections.delete(key);
+            } else {
+              lectureSelections.set(key, {
+                blockId,
+                id: lecture.id,
+                name: lecture.name || '',
+                week: lecture.week ?? null
+              });
+            }
+            syncLectures();
+            renderLectureSummary();
+            renderLectureList();
+          });
+          lectureList.appendChild(btn);
+        });
+      }
+
+      function renderBlockOptions() {
+        blockSelect.innerHTML = '';
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = 'All blocks';
+        blockSelect.appendChild(allOption);
+        (lectureCatalog.blocks || []).forEach(block => {
+          const opt = document.createElement('option');
+          opt.value = String(block.blockId ?? block.id ?? '');
+          opt.textContent = block.title || String(block.blockId ?? block.id ?? '');
+          blockSelect.appendChild(opt);
+        });
+      }
+
+      function renderWeekOptions() {
+        weekSelect.innerHTML = '';
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = 'All weeks';
+        weekSelect.appendChild(allOption);
+        const entries = resolveLectureEntries({ includeAllWeeks: true });
+        const weeks = new Set();
+        entries.forEach(({ lecture }) => {
+          if (lecture.week == null || lecture.week === '') return;
+          weeks.add(String(lecture.week));
+        });
+        Array.from(weeks).sort((a, b) => Number(a) - Number(b)).forEach(week => {
+          const opt = document.createElement('option');
+          opt.value = week;
+          opt.textContent = `Week ${week}`;
+          weekSelect.appendChild(opt);
+        });
+      }
+
+      blockSelect.addEventListener('change', () => {
+        renderWeekOptions();
+        renderLectureList();
+      });
+      weekSelect.addEventListener('change', renderLectureList);
+
+      renderBlockOptions();
+      renderWeekOptions();
+      renderLectureSummary();
+      renderLectureList();
+
+      card.appendChild(lectureField);
+
       const explanationField = document.createElement('div');
       explanationField.className = 'exam-field exam-field--rich';
       const explanationLabel = document.createElement('span');
@@ -3179,12 +3400,41 @@ function openExamEditor(existing, render) {
       explanationField.appendChild(explanationEditor.element);
       card.appendChild(explanationField);
 
+      const optionsSection = document.createElement('div');
+      optionsSection.className = 'exam-option-section';
+
+      const optionsHeader = document.createElement('div');
+      optionsHeader.className = 'exam-option-header';
+      const optionsTitle = document.createElement('span');
+      optionsTitle.className = 'exam-field-label';
+      optionsTitle.textContent = 'Answer options';
+      const optionToolbarSlot = document.createElement('div');
+      optionToolbarSlot.className = 'exam-option-toolbar';
+      optionsHeader.append(optionsTitle, optionToolbarSlot);
+      optionsSection.appendChild(optionsHeader);
+
       const optionsWrap = document.createElement('div');
       optionsWrap.className = 'exam-option-editor-list';
+      optionsSection.appendChild(optionsWrap);
+
+      let activeToolbarKey = null;
+      const optionToolbars = new Map();
+
+      function attachToolbar(key) {
+        const toolbar = optionToolbars.get(key);
+        if (!toolbar) return;
+        if (activeToolbarKey === key && optionToolbarSlot.firstChild === toolbar) return;
+        optionToolbarSlot.innerHTML = '';
+        optionToolbarSlot.appendChild(toolbar);
+        activeToolbarKey = key;
+      }
 
       function renderOptions() {
         cleanupOptionEditors();
         optionsWrap.innerHTML = '';
+        optionToolbars.clear();
+        optionToolbarSlot.innerHTML = '';
+        activeToolbarKey = null;
         question.options.forEach((opt, optIdx) => {
           const row = document.createElement('div');
           row.className = 'exam-option-editor';
@@ -3210,6 +3460,16 @@ function openExamEditor(existing, render) {
           const disposeOptionEditor = trackEditor(editor);
           optionDisposers.add(disposeOptionEditor);
           editor.element.classList.add('exam-option-rich');
+          const toolbar = editor.element.querySelector('.rich-editor-toolbar');
+          if (toolbar) {
+            toolbar.classList.add('exam-option-toolbar-inner');
+            optionToolbars.set(opt.id, toolbar);
+            toolbar.remove();
+            if (!activeToolbarKey) {
+              attachToolbar(opt.id);
+            }
+          }
+          editor.element.addEventListener('focusin', () => attachToolbar(opt.id));
           row.appendChild(editor.element);
 
           const removeBtn = document.createElement('button');
@@ -3244,8 +3504,8 @@ function openExamEditor(existing, render) {
         renderOptions();
       });
 
-      card.appendChild(optionsWrap);
-      card.appendChild(addOption);
+      optionsSection.appendChild(addOption);
+      card.appendChild(optionsSection);
 
       fragment.appendChild(card);
 
@@ -3323,6 +3583,14 @@ function openExamEditor(existing, render) {
 
   scheduleRenderQuestions();
 
+  loadBlockCatalog().then(catalog => {
+    lectureCatalog = catalog || { blocks: [], lectureLists: {} };
+    lectureCatalogReady = true;
+    scheduleRenderQuestions();
+  }).catch(err => {
+    console.warn('Failed to load lecture catalog for exam editor', err);
+  });
+
   const actions = document.createElement('div');
   actions.className = 'exam-editor-actions exam-editor-actions--sidebar';
   const saveBtn = document.createElement('button');
@@ -3387,6 +3655,7 @@ function openExamEditor(existing, render) {
         text: sanitizeRichText(opt.text)
       })).filter(opt => !isEmptyHtml(opt.text));
       question.tags = ensureArrayTags(question.tags);
+      question.lectures = normalizeLectureRefs(question.lectures);
 
       if (isEmptyHtml(question.stem)) {
         error.textContent = `Question ${i + 1} needs a prompt.`;
