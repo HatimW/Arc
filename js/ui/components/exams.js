@@ -139,9 +139,13 @@ function resolveDefaultBlockId(catalog) {
   return found ? value : '';
 }
 
+function isExamIncludedInQbank(exam) {
+  return exam?.includeInQbank !== false;
+}
+
 function qbankSignatureFor(exams) {
   return exams
-    .map(exam => `${exam.id}:${exam.updatedAt || 0}:${exam.questions.length}`)
+    .map(exam => `${exam.id}:${exam.updatedAt || 0}:${exam.questions.length}:${exam.includeInQbank !== false}`)
     .join('|');
 }
 
@@ -1112,6 +1116,10 @@ function ensureExamShape(exam) {
     next.results = [];
     changed = true;
   }
+  if (typeof next.includeInQbank !== 'boolean') {
+    next.includeInQbank = true;
+    changed = true;
+  }
   next.results = next.results.map(res => {
     const result = { ...res };
     if (!result.id) { result.id = uid(); changed = true; }
@@ -1227,9 +1235,10 @@ async function loadExamOverview() {
   }
   exams.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-  const qbankSignature = qbankSignatureFor(exams);
+  const qbankSourceExams = exams.filter(isExamIncludedInQbank);
+  const qbankSignature = qbankSignatureFor(qbankSourceExams);
   if (!qbankExam || qbankExam.qbankSignature !== qbankSignature) {
-    qbankExam = buildQBankExam(exams, qbankExam);
+    qbankExam = buildQBankExam(qbankSourceExams, qbankExam);
     qbankExam.qbankSignature = qbankSignature;
     qbankExam.updatedAt = Date.now();
     await upsertExam(qbankExam);
@@ -1493,7 +1502,8 @@ export async function renderQBank(root, render) {
   }
 
   const savedSession = savedSessions.find(sess => sess?.examId === QBANK_EXAM_ID) || null;
-  const answerHistory = buildQBankAnswerHistory(exams, qbankExam);
+  const qbankSourceExams = exams.filter(isExamIncludedInQbank);
+  const answerHistory = buildQBankAnswerHistory(qbankSourceExams, qbankExam);
 
   const topbar = document.createElement('div');
   topbar.className = 'exam-qbank-topbar';
@@ -2412,6 +2422,18 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
 
   addMenuAction('Edit Exam', () => {
     openExamEditor(exam, render);
+  });
+
+  const qbankToggleLabel = exam.includeInQbank === false ? 'Include in QBank' : 'Exclude from QBank';
+  addMenuAction(qbankToggleLabel, async () => {
+    const nextInclude = exam.includeInQbank === false;
+    await upsertExam({ ...exam, includeInQbank: nextInclude, updatedAt: Date.now() });
+    if (statusEl) {
+      statusEl.textContent = nextInclude
+        ? `"${exam.examTitle}" is now included in QBank.`
+        : `"${exam.examTitle}" excluded from QBank.`;
+    }
+    render();
   });
 
   addMenuAction('Export JSON', () => {
