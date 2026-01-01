@@ -51,7 +51,7 @@
 
 /** @typedef {{ id:string, examTitle:string, block?:string, week?:string,
  *   timerMode:"timed"|"untimed", secondsPerQuestion:number,
- *   questions:Question[], results:ExamResult[] }} Exam */
+ *   questions:Question[], results:ExamResult[], includeInQbank?:boolean }} Exam */
 
 /** @typedef {{ id:string, when:number, correct:number, total:number, answers:Record<number,string>, flagged:number[], durationMs:number, answered:number }} ExamResult */
 
