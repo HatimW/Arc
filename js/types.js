@@ -49,7 +49,7 @@
 
 /** @typedef {{ id:string, stem:string, options:{id:string,text:string}[], answer:string, explanation?:string, tags?:string[], lectures?:LectureRef[], media?:string }} Question */
 
-/** @typedef {{ id:string, examTitle:string, block?:string, week?:string,
+/** @typedef {{ id:string, examTitle:string, block?:string, week?:string, includeInQbank?:boolean,
  *   timerMode:"timed"|"untimed", secondsPerQuestion:number,
  *   questions:Question[], results:ExamResult[] }} Exam */
 
