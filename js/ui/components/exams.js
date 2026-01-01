@@ -3929,590 +3929,596 @@ function openExamEditor(existing, render) {
   mainColumn.className = 'exam-editor-main';
   bodySection.appendChild(mainColumn);
 
-  const questionsHeader = document.createElement('div');
-  questionsHeader.className = 'exam-question-header';
-  const qTitle = document.createElement('h3');
-  qTitle.textContent = 'Questions';
-  const addQuestion = document.createElement('button');
-  addQuestion.type = 'button';
-  addQuestion.className = 'btn secondary';
-  addQuestion.textContent = 'Add Question';
-  addQuestion.addEventListener('click', () => {
-    exam.questions.push(createBlankQuestion());
-    markDirty();
-    scheduleRenderQuestions();
-  });
-  questionsHeader.append(qTitle, addQuestion);
-  mainColumn.appendChild(questionsHeader);
-
   const questionSection = document.createElement('div');
   questionSection.className = 'exam-question-section';
   mainColumn.appendChild(questionSection);
+
+  let currentQuestionIndex = 0;
+  let prevBtn = null;
+  let nextBtn = null;
+  const clampQuestionIndex = (next) => {
+    if (!exam.questions.length) return 0;
+    return Math.max(0, Math.min(next, exam.questions.length - 1));
+  };
+
+  const setQuestionIndex = (next) => {
+    if (!exam.questions.length) {
+      currentQuestionIndex = 0;
+      scheduleRenderQuestions();
+      return;
+    }
+    const clamped = clampQuestionIndex(next);
+    if (clamped === currentQuestionIndex) return;
+    currentQuestionIndex = clamped;
+    scheduleRenderQuestions();
+  };
+
+  const addNewQuestion = () => {
+    exam.questions.push(createBlankQuestion());
+    markDirty();
+    currentQuestionIndex = exam.questions.length - 1;
+    scheduleRenderQuestions();
+  };
 
   function renderQuestions() {
     disposeQuestions();
     questionSection.innerHTML = '';
     navList.innerHTML = '';
     sidebarCount.textContent = `${exam.questions.length} total`;
-    if (!exam.questions.length) {
-      const empty = document.createElement('p');
-      empty.className = 'exam-question-empty';
-      empty.textContent = 'No questions yet. Add your first question to get started.';
-      questionSection.appendChild(empty);
-
-      const navEmpty = document.createElement('p');
-      navEmpty.className = 'exam-editor-nav-empty';
-      navEmpty.textContent = 'Add questions to jump around.';
-      navList.appendChild(navEmpty);
-      return;
-    }
-
-    let renderIndex = 0;
-    const QUESTION_CHUNK_SIZE = 3;
-
-    function renderChunk() {
-      const fragment = document.createDocumentFragment();
-      const navFragment = document.createDocumentFragment();
-      const slice = exam.questions.slice(renderIndex, renderIndex + QUESTION_CHUNK_SIZE);
-
-      slice.forEach((question, offset) => {
-        const idx = renderIndex + offset;
-      const card = document.createElement('div');
-      card.className = 'exam-question-editor';
-      const questionId = question.id || `idx-${idx}`;
-      card.id = `exam-question-${questionId}`;
-
-      const localDisposers = new Set();
-      const optionDisposers = new Set();
-
-      function trackEditor(editor) {
-        if (!editor || typeof editor.destroy !== 'function') {
-          return () => {};
-        }
-        let disposed = false;
-        const cleanup = () => {
-          if (disposed) return;
-          disposed = true;
-          try {
-            editor.destroy();
-          } catch (err) {
-            console.error('Failed to destroy exam editor instance', err);
-          }
-        };
-        const unregister = registerCleanup(cleanup);
-        const dispose = () => {
-          if (disposed) return;
-          unregister();
-          cleanup();
-          localDisposers.delete(dispose);
-        };
-        localDisposers.add(dispose);
-        return dispose;
-      }
-
-      function cleanupOptionEditors() {
-        for (const dispose of Array.from(optionDisposers)) {
-          optionDisposers.delete(dispose);
-          dispose();
-        }
-      }
-
-      const header = document.createElement('div');
-      header.className = 'exam-question-editor-header';
-      const label = document.createElement('h4');
-      label.textContent = `Question ${idx + 1}`;
-      header.appendChild(label);
-
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'ghost-btn';
-      remove.textContent = 'Remove';
-      remove.addEventListener('click', () => {
-        exam.questions.splice(idx, 1);
-        markDirty();
-        scheduleRenderQuestions();
-      });
-      header.appendChild(remove);
-      card.appendChild(header);
-
-      const stemField = document.createElement('div');
-      stemField.className = 'exam-field exam-field--rich';
-      const stemLabel = document.createElement('span');
-      stemLabel.className = 'exam-field-label';
-      stemLabel.textContent = 'Prompt';
-      stemField.appendChild(stemLabel);
-      const stemEditor = createRichTextEditor({
-        value: question.stem,
-        ariaLabel: `Question ${idx + 1} prompt`,
-        onChange: () => {
-          question.stem = stemEditor.getValue();
-          markDirty();
-        }
-      });
-      trackEditor(stemEditor);
-      stemEditor.element.classList.add('exam-rich-input');
-      stemField.appendChild(stemEditor.element);
-      card.appendChild(stemField);
-
-      const mediaField = document.createElement('div');
-      mediaField.className = 'exam-field exam-field--media';
-      const mediaLabel = document.createElement('span');
-      mediaLabel.className = 'exam-field-label';
-      mediaLabel.textContent = 'Media (URL or upload)';
-      mediaField.appendChild(mediaLabel);
-
-      const mediaInput = document.createElement('input');
-      mediaInput.className = 'input';
-      mediaInput.placeholder = 'https://example.com/image.png';
-      mediaInput.value = question.media || '';
-      mediaInput.addEventListener('input', () => {
-        question.media = mediaInput.value.trim();
-        updatePreview();
-        markDirty();
-      });
-      mediaInput.addEventListener('paste', event => { void handleMediaPaste(event); });
-      mediaField.appendChild(mediaInput);
-
-      const mediaUpload = document.createElement('input');
-      mediaUpload.type = 'file';
-      mediaUpload.accept = 'image/*,video/*,audio/*';
-      mediaUpload.addEventListener('change', () => {
-        const file = mediaUpload.files?.[0];
-        if (!file) return;
-        markDirty();
-        const reader = new FileReader();
-        reader.onload = () => {
-          question.media = typeof reader.result === 'string' ? reader.result : '';
-          mediaInput.value = question.media;
-          updatePreview();
-          markDirty();
-        };
-        reader.readAsDataURL(file);
-      });
-      mediaField.appendChild(mediaUpload);
-
-      const clearMedia = document.createElement('button');
-      clearMedia.type = 'button';
-      clearMedia.className = 'ghost-btn';
-      clearMedia.textContent = 'Remove media';
-      clearMedia.addEventListener('click', () => {
-        question.media = '';
-        mediaInput.value = '';
-        mediaUpload.value = '';
-        updatePreview();
-        markDirty();
-      });
-      mediaField.appendChild(clearMedia);
-
-      card.appendChild(mediaField);
-
-      const preview = document.createElement('div');
-      preview.className = 'exam-media-preview';
-
-      async function handleMediaPaste(event) {
-        if (!event?.clipboardData) return;
-        const files = Array.from(event.clipboardData.files || []);
-        const file = files.find(f => f && typeof f.type === 'string' && (
-          f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/')
-        ));
-        if (!file) return;
-        event.preventDefault();
-        try {
-          const dataUrl = await readFileAsDataUrl(file);
-          if (typeof dataUrl === 'string' && dataUrl) {
-            question.media = dataUrl;
-            mediaInput.value = question.media;
-            updatePreview();
-            markDirty();
-          }
-        } catch (err) {
-          console.warn('Failed to read pasted media', err);
-        }
-      }
-
-      function updatePreview() {
-        preview.innerHTML = '';
-        const el = mediaElement(question.media);
-        if (el) preview.appendChild(el);
-      }
-      updatePreview();
-      card.appendChild(preview);
-
-      const tagsField = document.createElement('label');
-      tagsField.className = 'exam-field';
-      const tagsLabel = document.createElement('span');
-      tagsLabel.className = 'exam-field-label';
-      tagsLabel.textContent = 'Tags (comma or | separated)';
-      const tagsInput = document.createElement('input');
-      tagsInput.className = 'input';
-      tagsInput.value = question.tags.join(', ');
-      tagsInput.addEventListener('input', () => {
-        question.tags = parseTagString(tagsInput.value);
-        markDirty();
-      });
-      tagsField.append(tagsLabel, tagsInput);
-      card.appendChild(tagsField);
-
-      const lectureField = document.createElement('div');
-      lectureField.className = 'exam-field exam-field--lectures';
-      const lectureLabel = document.createElement('span');
-      lectureLabel.className = 'exam-field-label';
-      lectureLabel.textContent = 'Lecture tags';
-      lectureField.appendChild(lectureLabel);
-
-      const lectureSummary = document.createElement('div');
-      lectureSummary.className = 'exam-lecture-summary';
-      lectureField.appendChild(lectureSummary);
-
-      const lectureControls = document.createElement('div');
-      lectureControls.className = 'exam-lecture-controls';
-      lectureField.appendChild(lectureControls);
-
-      const lectureSelections = new Map();
-      normalizeLectureRefs(question.lectures).forEach(ref => {
-        lectureSelections.set(`${ref.blockId}|${ref.id}`, ref);
-      });
-
-      const blockMap = new Map(
-        (lectureCatalog.blocks || []).map(block => [String(block.blockId ?? block.id ?? ''), block])
-      );
-
-      const blockSelect = document.createElement('select');
-      blockSelect.className = 'input exam-lecture-select';
-      blockSelect.setAttribute('aria-label', `Question ${idx + 1} block filter`);
-
-      const weekSelect = document.createElement('select');
-      weekSelect.className = 'input exam-lecture-select';
-      weekSelect.setAttribute('aria-label', `Question ${idx + 1} week filter`);
-
-      const filtersRow = document.createElement('div');
-      filtersRow.className = 'exam-lecture-filters';
-      filtersRow.append(blockSelect, weekSelect);
-      lectureControls.appendChild(filtersRow);
-
-      const lectureList = document.createElement('div');
-      lectureList.className = 'exam-lecture-list';
-      lectureControls.appendChild(lectureList);
-
-      function syncLectures() {
-        question.lectures = Array.from(lectureSelections.values());
-        markDirty();
-      }
-
-      function renderLectureSummary() {
-        lectureSummary.innerHTML = '';
-        if (!lectureSelections.size) {
-          const empty = document.createElement('div');
-          empty.className = 'exam-lecture-empty';
-          empty.textContent = 'No lectures tagged yet.';
-          lectureSummary.appendChild(empty);
-          return;
-        }
-        lectureSelections.forEach(ref => {
-          const chip = document.createElement('div');
-          chip.className = 'exam-lecture-chip';
-          const label = document.createElement('span');
-          const blockLabel = blockMap.get(ref.blockId)?.title || ref.blockId;
-          const lectureName = ref.name || `Lecture ${ref.id}`;
-          label.textContent = blockLabel ? `${blockLabel} • ${lectureName}` : lectureName;
-          const removeBtn = document.createElement('button');
-          removeBtn.type = 'button';
-          removeBtn.className = 'exam-lecture-chip-remove';
-          removeBtn.textContent = '×';
-          removeBtn.addEventListener('click', () => {
-            lectureSelections.delete(`${ref.blockId}|${ref.id}`);
-            syncLectures();
-            renderLectureSummary();
-            renderLectureList();
-          });
-          chip.append(label, removeBtn);
-          lectureSummary.appendChild(chip);
-        });
-      }
-
-      function resolveLectureEntries({ includeAllWeeks = false } = {}) {
-        const blockId = blockSelect.value;
-        const weekValue = includeAllWeeks ? '' : weekSelect.value;
-        const entries = [];
-        const blockIds = blockId
-          ? [blockId]
-          : Object.keys(lectureCatalog.lectureLists || {});
-        blockIds.forEach(id => {
-          const lectures = lectureCatalog.lectureLists?.[id] || [];
-          lectures.forEach(lecture => {
-            if (weekValue && String(lecture.week ?? '') !== weekValue) return;
-            entries.push({ blockId: id, lecture });
-          });
-        });
-        return entries;
-      }
-
-      function renderLectureList() {
-        lectureList.innerHTML = '';
-        if (!lectureCatalogReady || !Object.keys(lectureCatalog.lectureLists || {}).length) {
-          const empty = document.createElement('div');
-          empty.className = 'exam-lecture-empty';
-          empty.textContent = lectureCatalogReady ? 'No lectures found.' : 'Loading lectures...';
-          lectureList.appendChild(empty);
-          return;
-        }
-        const entries = resolveLectureEntries();
-        if (!entries.length) {
-          const empty = document.createElement('div');
-          empty.className = 'exam-lecture-empty';
-          empty.textContent = 'No lectures available for this filter.';
-          lectureList.appendChild(empty);
-          return;
-        }
-        entries.forEach(({ blockId, lecture }) => {
-          const key = `${blockId}|${lecture.id}`;
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'exam-lecture-button';
-          const blockLabel = blockMap.get(blockId)?.title || blockId;
-          const lectureName = lecture.name || `Lecture ${lecture.id}`;
-          btn.textContent = blockSelect.value ? lectureName : `${blockLabel} • ${lectureName}`;
-          setToggleState(btn, lectureSelections.has(key));
-          btn.addEventListener('click', () => {
-            if (lectureSelections.has(key)) {
-              lectureSelections.delete(key);
-            } else {
-              lectureSelections.set(key, {
-                blockId,
-                id: lecture.id,
-                name: lecture.name || '',
-                week: lecture.week ?? null
-              });
-            }
-            syncLectures();
-            renderLectureSummary();
-            renderLectureList();
-          });
-          lectureList.appendChild(btn);
-        });
-      }
-
-      function renderBlockOptions() {
-        blockSelect.innerHTML = '';
-        const allOption = document.createElement('option');
-        allOption.value = '';
-        allOption.textContent = 'All blocks';
-        blockSelect.appendChild(allOption);
-        (lectureCatalog.blocks || []).forEach(block => {
-          const opt = document.createElement('option');
-          opt.value = String(block.blockId ?? block.id ?? '');
-          opt.textContent = block.title || String(block.blockId ?? block.id ?? '');
-          blockSelect.appendChild(opt);
-        });
-        if (lectureSelections.size) {
-          const firstSelection = lectureSelections.values().next().value;
-          if (firstSelection?.blockId) {
-            blockSelect.value = String(firstSelection.blockId);
-          }
-        } else {
-          const defaultBlockId = resolveDefaultBlockId(lectureCatalog);
-          if (defaultBlockId) {
-            blockSelect.value = defaultBlockId;
-          }
-        }
-      }
-
-      function renderWeekOptions() {
-        weekSelect.innerHTML = '';
-        const allOption = document.createElement('option');
-        allOption.value = '';
-        allOption.textContent = 'All weeks';
-        weekSelect.appendChild(allOption);
-        const entries = resolveLectureEntries({ includeAllWeeks: true });
-        const weeks = new Set();
-        entries.forEach(({ lecture }) => {
-          if (lecture.week == null || lecture.week === '') return;
-          weeks.add(String(lecture.week));
-        });
-        Array.from(weeks).sort((a, b) => Number(a) - Number(b)).forEach(week => {
-          const opt = document.createElement('option');
-          opt.value = week;
-          opt.textContent = `Week ${week}`;
-          weekSelect.appendChild(opt);
-        });
-      }
-
-      blockSelect.addEventListener('change', () => {
-        renderWeekOptions();
-        renderLectureList();
-      });
-      weekSelect.addEventListener('change', renderLectureList);
-
-      renderBlockOptions();
-      renderWeekOptions();
-      renderLectureSummary();
-      renderLectureList();
-
-      card.appendChild(lectureField);
-
-      const explanationField = document.createElement('div');
-      explanationField.className = 'exam-field exam-field--rich';
-      const explanationLabel = document.createElement('span');
-      explanationLabel.className = 'exam-field-label';
-      explanationLabel.textContent = 'Explanation';
-      explanationField.appendChild(explanationLabel);
-      const explanationEditor = createRichTextEditor({
-        value: question.explanation,
-        ariaLabel: `Question ${idx + 1} explanation`,
-        onChange: () => {
-          question.explanation = explanationEditor.getValue();
-          markDirty();
-        }
-      });
-      trackEditor(explanationEditor);
-      explanationEditor.element.classList.add('exam-rich-input');
-      explanationField.appendChild(explanationEditor.element);
-      card.appendChild(explanationField);
-
-      const optionsSection = document.createElement('div');
-      optionsSection.className = 'exam-option-section';
-
-      const optionsHeader = document.createElement('div');
-      optionsHeader.className = 'exam-option-header';
-      const optionsTitle = document.createElement('span');
-      optionsTitle.className = 'exam-field-label';
-      optionsTitle.textContent = 'Answer options';
-      const optionToolbarSlot = document.createElement('div');
-      optionToolbarSlot.className = 'exam-option-toolbar';
-      optionsHeader.append(optionsTitle, optionToolbarSlot);
-      optionsSection.appendChild(optionsHeader);
-
-      const optionsWrap = document.createElement('div');
-      optionsWrap.className = 'exam-option-editor-list';
-      optionsSection.appendChild(optionsWrap);
-
-      let activeToolbarKey = null;
-      const optionToolbars = new Map();
-
-      function attachToolbar(key) {
-        const toolbar = optionToolbars.get(key);
-        if (!toolbar) return;
-        if (activeToolbarKey === key && optionToolbarSlot.firstChild === toolbar) return;
-        optionToolbarSlot.innerHTML = '';
-        optionToolbarSlot.appendChild(toolbar);
-        activeToolbarKey = key;
-      }
-
-      function renderOptions() {
-        cleanupOptionEditors();
-        optionsWrap.innerHTML = '';
-        optionToolbars.clear();
-        optionToolbarSlot.innerHTML = '';
-        activeToolbarKey = null;
-        question.options.forEach((opt, optIdx) => {
-          const row = document.createElement('div');
-          row.className = 'exam-option-editor';
-
-          const radio = document.createElement('input');
-          radio.type = 'radio';
-          radio.name = `correct-${question.id}`;
-          radio.checked = question.answer === opt.id;
-          radio.addEventListener('change', () => {
-            question.answer = opt.id;
-            markDirty();
-          });
-          row.appendChild(radio);
-
-          const editor = createRichTextEditor({
-            value: opt.text,
-            ariaLabel: `Option ${optIdx + 1}`,
-            onChange: () => {
-              opt.text = editor.getValue();
-              markDirty();
-            }
-          });
-          const disposeOptionEditor = trackEditor(editor);
-          optionDisposers.add(disposeOptionEditor);
-          editor.element.classList.add('exam-option-rich');
-          const toolbar = editor.element.querySelector('.rich-editor-toolbar');
-          if (toolbar) {
-            toolbar.classList.add('exam-option-toolbar-inner');
-            optionToolbars.set(opt.id, toolbar);
-            toolbar.remove();
-            if (!activeToolbarKey) {
-              attachToolbar(opt.id);
-            }
-          }
-          editor.element.addEventListener('focusin', () => attachToolbar(opt.id));
-          row.appendChild(editor.element);
-
-          const removeBtn = document.createElement('button');
-          removeBtn.type = 'button';
-          removeBtn.className = 'ghost-btn';
-          removeBtn.textContent = 'Remove';
-          removeBtn.disabled = question.options.length <= 2;
-          removeBtn.addEventListener('click', () => {
-            question.options.splice(optIdx, 1);
-            if (question.answer === opt.id) {
-              question.answer = question.options[0]?.id || '';
-            }
-            markDirty();
-            renderOptions();
-          });
-          row.appendChild(removeBtn);
-
-          optionsWrap.appendChild(row);
-        });
-      }
-
-      renderOptions();
-
-      const addOption = document.createElement('button');
-      addOption.type = 'button';
-      addOption.className = 'btn secondary';
-      addOption.textContent = 'Add Option';
-      addOption.addEventListener('click', () => {
-        const opt = { id: uid(), text: '' };
-        question.options.push(opt);
-        markDirty();
-        renderOptions();
-      });
-
-      optionsSection.appendChild(addOption);
-      card.appendChild(optionsSection);
-
-      fragment.appendChild(card);
-
+    exam.questions.forEach((question, idx) => {
       const navButton = document.createElement('button');
       navButton.type = 'button';
       navButton.className = 'exam-editor-nav-item';
       navButton.textContent = String(idx + 1);
       navButton.title = `Jump to Question ${idx + 1}`;
-      navButton.addEventListener('click', () => {
-        card.classList.add('exam-question-editor--highlight');
-        card.scrollIntoView({ behavior: 'auto', block: 'start' });
-        window.setTimeout(() => {
-          card.classList.remove('exam-question-editor--highlight');
-        }, 1200);
-      });
-      navFragment.appendChild(navButton);
+      if (idx === currentQuestionIndex) {
+        navButton.classList.add('is-active');
+      }
+      navButton.addEventListener('click', () => setQuestionIndex(idx));
+      navList.appendChild(navButton);
+    });
 
-      const disposeLocal = () => {
-        cleanupOptionEditors();
-        for (const dispose of Array.from(localDisposers)) {
-          localDisposers.delete(dispose);
-          dispose();
+    const addNav = document.createElement('button');
+    addNav.type = 'button';
+    addNav.className = 'exam-editor-nav-item exam-editor-nav-item--add';
+    addNav.textContent = '+';
+    addNav.title = 'Add question';
+    addNav.setAttribute('aria-label', 'Add question');
+    addNav.addEventListener('click', addNewQuestion);
+    navList.appendChild(addNav);
+
+    if (!exam.questions.length) {
+      const empty = document.createElement('p');
+      empty.className = 'exam-question-empty';
+      empty.textContent = 'No questions yet. Use the + button to add your first question.';
+      questionSection.appendChild(empty);
+      if (prevBtn) prevBtn.disabled = true;
+      if (nextBtn) nextBtn.disabled = true;
+      return;
+    }
+
+    currentQuestionIndex = clampQuestionIndex(currentQuestionIndex);
+    const question = exam.questions[currentQuestionIndex];
+    const idx = currentQuestionIndex;
+
+    const card = document.createElement('div');
+    card.className = 'exam-question-editor';
+    const questionId = question.id || `idx-${idx}`;
+    card.id = `exam-question-${questionId}`;
+
+    const localDisposers = new Set();
+    const optionDisposers = new Set();
+
+    function trackEditor(editor) {
+      if (!editor || typeof editor.destroy !== 'function') {
+        return () => {};
+      }
+      let disposed = false;
+      const cleanup = () => {
+        if (disposed) return;
+        disposed = true;
+        try {
+          editor.destroy();
+        } catch (err) {
+          console.error('Failed to destroy exam editor instance', err);
         }
       };
+      const unregister = registerCleanup(cleanup);
+      const dispose = () => {
+        if (disposed) return;
+        unregister();
+        cleanup();
+        localDisposers.delete(dispose);
+      };
+      localDisposers.add(dispose);
+      return dispose;
+    }
 
-      questionDisposers.push(disposeLocal);
-      });
-
-      questionSection.appendChild(fragment);
-      navList.appendChild(navFragment);
-      renderIndex += slice.length;
-
-      if (renderIndex < exam.questions.length) {
-        scheduleRender(renderChunk);
+    function cleanupOptionEditors() {
+      for (const dispose of Array.from(optionDisposers)) {
+        optionDisposers.delete(dispose);
+        dispose();
       }
     }
 
-    renderChunk();
+    const header = document.createElement('div');
+    header.className = 'exam-question-editor-header';
+    const label = document.createElement('h3');
+    label.textContent = `Question ${idx + 1}`;
+    header.appendChild(label);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'ghost-btn';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => {
+      exam.questions.splice(idx, 1);
+      markDirty();
+      if (exam.questions.length) {
+        currentQuestionIndex = Math.min(idx, exam.questions.length - 1);
+      } else {
+        currentQuestionIndex = 0;
+      }
+      scheduleRenderQuestions();
+    });
+    header.appendChild(remove);
+    card.appendChild(header);
+
+    const stemField = document.createElement('div');
+    stemField.className = 'exam-field exam-field--rich';
+    const stemLabel = document.createElement('span');
+    stemLabel.className = 'exam-field-label';
+    stemLabel.textContent = 'Prompt';
+    stemField.appendChild(stemLabel);
+    const stemEditor = createRichTextEditor({
+      value: question.stem,
+      ariaLabel: `Question ${idx + 1} prompt`,
+      onChange: () => {
+        question.stem = stemEditor.getValue();
+        markDirty();
+      }
+    });
+    trackEditor(stemEditor);
+    stemEditor.element.classList.add('exam-rich-input');
+    stemField.appendChild(stemEditor.element);
+    card.appendChild(stemField);
+
+    const mediaField = document.createElement('div');
+    mediaField.className = 'exam-field exam-field--media';
+    const mediaLabel = document.createElement('span');
+    mediaLabel.className = 'exam-field-label';
+    mediaLabel.textContent = 'Media (URL or upload)';
+    mediaField.appendChild(mediaLabel);
+
+    const mediaInput = document.createElement('input');
+    mediaInput.className = 'input';
+    mediaInput.placeholder = 'https://example.com/image.png';
+    mediaInput.value = question.media || '';
+    mediaInput.addEventListener('input', () => {
+      question.media = mediaInput.value.trim();
+      updatePreview();
+      markDirty();
+    });
+    mediaInput.addEventListener('paste', event => { void handleMediaPaste(event); });
+    mediaField.appendChild(mediaInput);
+
+    const mediaUpload = document.createElement('input');
+    mediaUpload.type = 'file';
+    mediaUpload.accept = 'image/*,video/*,audio/*';
+    mediaUpload.addEventListener('change', () => {
+      const file = mediaUpload.files?.[0];
+      if (!file) return;
+      markDirty();
+      const reader = new FileReader();
+      reader.onload = () => {
+        question.media = typeof reader.result === 'string' ? reader.result : '';
+        mediaInput.value = question.media;
+        updatePreview();
+        markDirty();
+      };
+      reader.readAsDataURL(file);
+    });
+    mediaField.appendChild(mediaUpload);
+
+    const clearMedia = document.createElement('button');
+    clearMedia.type = 'button';
+    clearMedia.className = 'ghost-btn';
+    clearMedia.textContent = 'Remove media';
+    clearMedia.addEventListener('click', () => {
+      question.media = '';
+      mediaInput.value = '';
+      mediaUpload.value = '';
+      updatePreview();
+      markDirty();
+    });
+    mediaField.appendChild(clearMedia);
+
+    card.appendChild(mediaField);
+
+    const preview = document.createElement('div');
+    preview.className = 'exam-media-preview';
+
+    async function handleMediaPaste(event) {
+      if (!event?.clipboardData) return;
+      const files = Array.from(event.clipboardData.files || []);
+      const file = files.find(f => f && typeof f.type === 'string' && (
+        f.type.startsWith('image/') || f.type.startsWith('video/') || f.type.startsWith('audio/')
+      ));
+      if (!file) return;
+      event.preventDefault();
+      try {
+        const dataUrl = await readFileAsDataUrl(file);
+        if (typeof dataUrl === 'string' && dataUrl) {
+          question.media = dataUrl;
+          mediaInput.value = question.media;
+          updatePreview();
+          markDirty();
+        }
+      } catch (err) {
+        console.warn('Failed to read pasted media', err);
+      }
+    }
+
+    function updatePreview() {
+      preview.innerHTML = '';
+      const el = mediaElement(question.media);
+      if (el) preview.appendChild(el);
+    }
+    updatePreview();
+    card.appendChild(preview);
+
+    const tagsField = document.createElement('label');
+    tagsField.className = 'exam-field';
+    const tagsLabel = document.createElement('span');
+    tagsLabel.className = 'exam-field-label';
+    tagsLabel.textContent = 'Tags (comma or | separated)';
+    const tagsInput = document.createElement('input');
+    tagsInput.className = 'input';
+    tagsInput.value = question.tags.join(', ');
+    tagsInput.addEventListener('input', () => {
+      question.tags = parseTagString(tagsInput.value);
+      markDirty();
+    });
+    tagsField.append(tagsLabel, tagsInput);
+    card.appendChild(tagsField);
+
+    const lectureField = document.createElement('div');
+    lectureField.className = 'exam-field exam-field--lectures';
+    const lectureLabel = document.createElement('span');
+    lectureLabel.className = 'exam-field-label';
+    lectureLabel.textContent = 'Lecture tags';
+    lectureField.appendChild(lectureLabel);
+
+    const lectureSummary = document.createElement('div');
+    lectureSummary.className = 'exam-lecture-summary';
+    lectureField.appendChild(lectureSummary);
+
+    const lectureControls = document.createElement('div');
+    lectureControls.className = 'exam-lecture-controls';
+    lectureField.appendChild(lectureControls);
+
+    const lectureSelections = new Map();
+    normalizeLectureRefs(question.lectures).forEach(ref => {
+      lectureSelections.set(`${ref.blockId}|${ref.id}`, ref);
+    });
+
+    const blockMap = new Map(
+      (lectureCatalog.blocks || []).map(block => [String(block.blockId ?? block.id ?? ''), block])
+    );
+
+    const blockSelect = document.createElement('select');
+    blockSelect.className = 'input exam-lecture-select';
+    blockSelect.setAttribute('aria-label', `Question ${idx + 1} block filter`);
+
+    const weekSelect = document.createElement('select');
+    weekSelect.className = 'input exam-lecture-select';
+    weekSelect.setAttribute('aria-label', `Question ${idx + 1} week filter`);
+
+    const filtersRow = document.createElement('div');
+    filtersRow.className = 'exam-lecture-filters';
+    filtersRow.append(blockSelect, weekSelect);
+    lectureControls.appendChild(filtersRow);
+
+    const lectureList = document.createElement('div');
+    lectureList.className = 'exam-lecture-list';
+    lectureControls.appendChild(lectureList);
+
+    function syncLectures() {
+      question.lectures = Array.from(lectureSelections.values());
+      markDirty();
+    }
+
+    function renderLectureSummary() {
+      lectureSummary.innerHTML = '';
+      if (!lectureSelections.size) {
+        const empty = document.createElement('div');
+        empty.className = 'exam-lecture-empty';
+        empty.textContent = 'No lectures tagged yet.';
+        lectureSummary.appendChild(empty);
+        return;
+      }
+      lectureSelections.forEach(ref => {
+        const chip = document.createElement('div');
+        chip.className = 'exam-lecture-chip';
+        const label = document.createElement('span');
+        const blockLabel = blockMap.get(ref.blockId)?.title || ref.blockId;
+        const lectureName = ref.name || `Lecture ${ref.id}`;
+        label.textContent = blockLabel ? `${blockLabel} • ${lectureName}` : lectureName;
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'exam-lecture-chip-remove';
+        removeBtn.textContent = '×';
+        removeBtn.addEventListener('click', () => {
+          lectureSelections.delete(`${ref.blockId}|${ref.id}`);
+          syncLectures();
+          renderLectureSummary();
+          renderLectureList();
+        });
+        chip.append(label, removeBtn);
+        lectureSummary.appendChild(chip);
+      });
+    }
+
+    function resolveLectureEntries({ includeAllWeeks = false } = {}) {
+      const blockId = blockSelect.value;
+      const weekValue = includeAllWeeks ? '' : weekSelect.value;
+      const entries = [];
+      const blockIds = blockId
+        ? [blockId]
+        : Object.keys(lectureCatalog.lectureLists || {});
+      blockIds.forEach(id => {
+        const lectures = lectureCatalog.lectureLists?.[id] || [];
+        lectures.forEach(lecture => {
+          if (weekValue && String(lecture.week ?? '') !== weekValue) return;
+          entries.push({ blockId: id, lecture });
+        });
+      });
+      return entries;
+    }
+
+    function renderLectureList() {
+      lectureList.innerHTML = '';
+      if (!lectureCatalogReady || !Object.keys(lectureCatalog.lectureLists || {}).length) {
+        const empty = document.createElement('div');
+        empty.className = 'exam-lecture-empty';
+        empty.textContent = lectureCatalogReady ? 'No lectures found.' : 'Loading lectures...';
+        lectureList.appendChild(empty);
+        return;
+      }
+      const entries = resolveLectureEntries();
+      if (!entries.length) {
+        const empty = document.createElement('div');
+        empty.className = 'exam-lecture-empty';
+        empty.textContent = 'No lectures available for this filter.';
+        lectureList.appendChild(empty);
+        return;
+      }
+      entries.forEach(({ blockId, lecture }) => {
+        const key = `${blockId}|${lecture.id}`;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'exam-lecture-button';
+        const blockLabel = blockMap.get(blockId)?.title || blockId;
+        const lectureName = lecture.name || `Lecture ${lecture.id}`;
+        btn.textContent = blockSelect.value ? lectureName : `${blockLabel} • ${lectureName}`;
+        setToggleState(btn, lectureSelections.has(key));
+        btn.addEventListener('click', () => {
+          if (lectureSelections.has(key)) {
+            lectureSelections.delete(key);
+          } else {
+            lectureSelections.set(key, {
+              blockId,
+              id: lecture.id,
+              name: lecture.name || '',
+              week: lecture.week ?? null
+            });
+          }
+          syncLectures();
+          renderLectureSummary();
+          renderLectureList();
+        });
+        lectureList.appendChild(btn);
+      });
+    }
+
+    function renderBlockOptions() {
+      blockSelect.innerHTML = '';
+      const allOption = document.createElement('option');
+      allOption.value = '';
+      allOption.textContent = 'All blocks';
+      blockSelect.appendChild(allOption);
+      (lectureCatalog.blocks || []).forEach(block => {
+        const opt = document.createElement('option');
+        opt.value = String(block.blockId ?? block.id ?? '');
+        opt.textContent = block.title || String(block.blockId ?? block.id ?? '');
+        blockSelect.appendChild(opt);
+      });
+      if (lectureSelections.size) {
+        const firstSelection = lectureSelections.values().next().value;
+        if (firstSelection?.blockId) {
+          blockSelect.value = String(firstSelection.blockId);
+        }
+      } else {
+        const defaultBlockId = resolveDefaultBlockId(lectureCatalog);
+        if (defaultBlockId) {
+          blockSelect.value = defaultBlockId;
+        }
+      }
+    }
+
+    function renderWeekOptions() {
+      weekSelect.innerHTML = '';
+      const allOption = document.createElement('option');
+      allOption.value = '';
+      allOption.textContent = 'All weeks';
+      weekSelect.appendChild(allOption);
+      const entries = resolveLectureEntries({ includeAllWeeks: true });
+      const weeks = new Set();
+      entries.forEach(({ lecture }) => {
+        if (lecture.week == null || lecture.week === '') return;
+        weeks.add(String(lecture.week));
+      });
+      Array.from(weeks).sort((a, b) => Number(a) - Number(b)).forEach(week => {
+        const opt = document.createElement('option');
+        opt.value = week;
+        opt.textContent = `Week ${week}`;
+        weekSelect.appendChild(opt);
+      });
+    }
+
+    blockSelect.addEventListener('change', () => {
+      renderWeekOptions();
+      renderLectureList();
+    });
+    weekSelect.addEventListener('change', renderLectureList);
+
+    renderBlockOptions();
+    renderWeekOptions();
+    renderLectureSummary();
+    renderLectureList();
+
+    card.appendChild(lectureField);
+
+    const explanationField = document.createElement('div');
+    explanationField.className = 'exam-field exam-field--rich';
+    const explanationLabel = document.createElement('span');
+    explanationLabel.className = 'exam-field-label';
+    explanationLabel.textContent = 'Explanation';
+    explanationField.appendChild(explanationLabel);
+    const explanationEditor = createRichTextEditor({
+      value: question.explanation,
+      ariaLabel: `Question ${idx + 1} explanation`,
+      onChange: () => {
+        question.explanation = explanationEditor.getValue();
+        markDirty();
+      }
+    });
+    trackEditor(explanationEditor);
+    explanationEditor.element.classList.add('exam-rich-input');
+    explanationField.appendChild(explanationEditor.element);
+    card.appendChild(explanationField);
+
+    const optionsSection = document.createElement('div');
+    optionsSection.className = 'exam-option-section';
+
+    const optionsHeader = document.createElement('div');
+    optionsHeader.className = 'exam-option-header';
+    const optionsTitle = document.createElement('span');
+    optionsTitle.className = 'exam-field-label';
+    optionsTitle.textContent = 'Answer options';
+    const optionToolbarSlot = document.createElement('div');
+    optionToolbarSlot.className = 'exam-option-toolbar';
+    optionsHeader.append(optionsTitle, optionToolbarSlot);
+    optionsSection.appendChild(optionsHeader);
+
+    const optionsWrap = document.createElement('div');
+    optionsWrap.className = 'exam-option-editor-list';
+    optionsSection.appendChild(optionsWrap);
+
+    let activeToolbarKey = null;
+    const optionToolbars = new Map();
+
+    function attachToolbar(key) {
+      const toolbar = optionToolbars.get(key);
+      if (!toolbar) return;
+      if (activeToolbarKey === key && optionToolbarSlot.firstChild === toolbar) return;
+      optionToolbarSlot.innerHTML = '';
+      optionToolbarSlot.appendChild(toolbar);
+      activeToolbarKey = key;
+    }
+
+    function renderOptions() {
+      cleanupOptionEditors();
+      optionsWrap.innerHTML = '';
+      optionToolbars.clear();
+      optionToolbarSlot.innerHTML = '';
+      activeToolbarKey = null;
+      question.options.forEach((opt, optIdx) => {
+        const row = document.createElement('div');
+        row.className = 'exam-option-editor';
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = `correct-${question.id}`;
+        radio.checked = question.answer === opt.id;
+        radio.addEventListener('change', () => {
+          question.answer = opt.id;
+          markDirty();
+        });
+        row.appendChild(radio);
+
+        const editor = createRichTextEditor({
+          value: opt.text,
+          ariaLabel: `Option ${optIdx + 1}`,
+          onChange: () => {
+            opt.text = editor.getValue();
+            markDirty();
+          }
+        });
+        const disposeOptionEditor = trackEditor(editor);
+        optionDisposers.add(disposeOptionEditor);
+        editor.element.classList.add('exam-option-rich');
+        const toolbar = editor.element.querySelector('.rich-editor-toolbar');
+        if (toolbar) {
+          toolbar.classList.add('exam-option-toolbar-inner');
+          optionToolbars.set(opt.id, toolbar);
+          toolbar.remove();
+          if (!activeToolbarKey) {
+            attachToolbar(opt.id);
+          }
+        }
+        editor.element.addEventListener('focusin', () => attachToolbar(opt.id));
+        row.appendChild(editor.element);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'ghost-btn';
+        removeBtn.textContent = 'Remove';
+        removeBtn.disabled = question.options.length <= 2;
+        removeBtn.addEventListener('click', () => {
+          question.options.splice(optIdx, 1);
+          if (question.answer === opt.id) {
+            question.answer = question.options[0]?.id || '';
+          }
+          markDirty();
+          renderOptions();
+        });
+        row.appendChild(removeBtn);
+
+        optionsWrap.appendChild(row);
+      });
+    }
+
+    renderOptions();
+
+    const addOption = document.createElement('button');
+    addOption.type = 'button';
+    addOption.className = 'btn secondary';
+    addOption.textContent = 'Add Option';
+    addOption.addEventListener('click', () => {
+      const opt = { id: uid(), text: '' };
+      question.options.push(opt);
+      markDirty();
+      renderOptions();
+    });
+
+    optionsSection.appendChild(addOption);
+    card.appendChild(optionsSection);
+
+    questionSection.appendChild(card);
+
+    const disposeLocal = () => {
+      cleanupOptionEditors();
+      for (const dispose of Array.from(localDisposers)) {
+        localDisposers.delete(dispose);
+        dispose();
+      }
+    };
+
+    questionDisposers.push(disposeLocal);
+
+    if (prevBtn) prevBtn.disabled = currentQuestionIndex <= 0;
+    if (nextBtn) nextBtn.disabled = currentQuestionIndex >= exam.questions.length - 1;
   }
 
   const scheduleRenderQuestions = (() => {
@@ -4538,18 +4544,6 @@ function openExamEditor(existing, render) {
     };
   })();
 
-  const scheduleRender = (cb) => {
-    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
-      window.requestIdleCallback(cb, { timeout: 200 });
-      return;
-    }
-    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-      window.requestAnimationFrame(cb);
-      return;
-    }
-    setTimeout(cb, 0);
-  };
-
   scheduleRenderQuestions();
 
   loadBlockCatalog().then(catalog => {
@@ -4561,21 +4555,45 @@ function openExamEditor(existing, render) {
   });
 
   const actions = document.createElement('div');
-  actions.className = 'exam-editor-actions exam-editor-actions--sidebar';
+  actions.className = 'exam-editor-actions exam-editor-actions--sidebar exam-editor-actions--compact';
+
+  prevBtn = document.createElement('button');
+  prevBtn.type = 'button';
+  prevBtn.className = 'exam-editor-action-icon';
+  prevBtn.setAttribute('aria-label', 'Previous question');
+  prevBtn.title = 'Previous question';
+  prevBtn.textContent = '←';
+  prevBtn.addEventListener('click', () => setQuestionIndex(currentQuestionIndex - 1));
+  actions.appendChild(prevBtn);
+
+  nextBtn = document.createElement('button');
+  nextBtn.type = 'button';
+  nextBtn.className = 'exam-editor-action-icon';
+  nextBtn.setAttribute('aria-label', 'Next question');
+  nextBtn.title = 'Next question';
+  nextBtn.textContent = '→';
+  nextBtn.addEventListener('click', () => setQuestionIndex(currentQuestionIndex + 1));
+  actions.appendChild(nextBtn);
+
   const saveBtn = document.createElement('button');
   saveBtn.type = 'submit';
-  saveBtn.className = 'btn';
-  saveBtn.textContent = 'Save Exam';
+  saveBtn.className = 'exam-editor-action-icon exam-editor-action-icon--save';
+  saveBtn.setAttribute('aria-label', 'Save exam');
+  saveBtn.title = 'Save exam';
+  saveBtn.textContent = '✓';
   actions.appendChild(saveBtn);
 
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
-  closeBtn.className = 'btn secondary';
-  closeBtn.textContent = 'Close';
+  closeBtn.className = 'exam-editor-action-icon';
+  closeBtn.setAttribute('aria-label', 'Close editor');
+  closeBtn.title = 'Close editor';
+  closeBtn.textContent = '✕';
   closeBtn.addEventListener('click', () => { void floating.close('cancel'); });
   actions.appendChild(closeBtn);
 
   sidebar.appendChild(actions);
+  scheduleRenderQuestions();
 
   let isSidebarCollapsed = false;
   const sidebarHandle = document.createElement('button');
