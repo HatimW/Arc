@@ -22,7 +22,13 @@ const qbankSelectionState = {
   selectedWeeks: new Set(),
   selectedLectures: new Set(),
   questionCount: QBANK_DEFAULT_COUNT,
-  includeUntagged: false
+  includeUntagged: false,
+  includeAnswered: false,
+  answeredFilters: {
+    incorrect: true,
+    correct: true,
+    flagged: true
+  }
 };
 
 function csvOptionIndex(optionNumber) {
@@ -191,6 +197,73 @@ function qbankMatchesSelection(question, selection) {
       || (blockId && selectedBlocks.has(blockId))
       || (weekKey && selectedWeeks.has(weekKey));
   });
+}
+
+function qbankKeyForQuestion(question, fallbackExamId = '') {
+  if (!question) return '';
+  const examId = question.sourceExamId || fallbackExamId;
+  const questionId = question.id;
+  if (!examId || !questionId) return '';
+  return `${examId}|${questionId}`;
+}
+
+function buildQBankAnswerHistory(exams, qbankExam) {
+  const history = new Map();
+  const ensure = key => {
+    if (!history.has(key)) {
+      history.set(key, {
+        answered: false,
+        correct: false,
+        incorrect: false,
+        flagged: false
+      });
+    }
+    return history.get(key);
+  };
+  const ingestResultAnswers = (exam, result, resolveKey) => {
+    if (!result || !exam) return;
+    const answers = result.answers || {};
+    Object.entries(answers).forEach(([idxKey, value]) => {
+      const idx = Number(idxKey);
+      if (!Number.isFinite(idx)) return;
+      const question = exam.questions?.[idx];
+      if (!question) return;
+      const key = resolveKey(question);
+      if (!key) return;
+      const entry = ensure(key);
+      entry.answered = true;
+      if (value === question.answer) {
+        entry.correct = true;
+      } else {
+        entry.incorrect = true;
+      }
+    });
+    if (Array.isArray(result.flagged)) {
+      result.flagged.forEach(flagIdx => {
+        const idx = Number(flagIdx);
+        if (!Number.isFinite(idx)) return;
+        const question = exam.questions?.[idx];
+        if (!question) return;
+        const key = resolveKey(question);
+        if (!key) return;
+        const entry = ensure(key);
+        entry.flagged = true;
+      });
+    }
+  };
+  exams.forEach(exam => {
+    const resolveKey = question => qbankKeyForQuestion(question, exam.id);
+    (exam.results || []).forEach(result => {
+      ingestResultAnswers(exam, result, resolveKey);
+    });
+  });
+  if (qbankExam) {
+    const resolveKey = question => qbankKeyForQuestion(question, question.sourceExamId || qbankExam.id);
+    (qbankExam.results || []).forEach(result => {
+      ingestResultAnswers(qbankExam, result, resolveKey);
+    });
+  }
+  return history;
 }
 
 function parseBooleanFlag(value) {
@@ -1417,7 +1490,7 @@ export async function renderQBank(root, render) {
   root.innerHTML = '';
   root.className = 'tab-content exam-qbank-view';
 
-  const { qbankExam, savedSessions, lectureCatalog } = await loadExamOverview();
+  const { exams, qbankExam, savedSessions, lectureCatalog } = await loadExamOverview();
   if (!qbankExam) {
     const empty = document.createElement('div');
     empty.className = 'exam-empty';
@@ -1427,6 +1500,7 @@ export async function renderQBank(root, render) {
   }
 
   const savedSession = savedSessions.find(sess => sess?.examId === QBANK_EXAM_ID) || null;
+  const answerHistory = buildQBankAnswerHistory(exams, qbankExam);
 
   const topbar = document.createElement('div');
   topbar.className = 'exam-qbank-topbar';
@@ -1554,6 +1628,53 @@ export async function renderQBank(root, render) {
   clearSelection.className = 'btn secondary';
   clearSelection.textContent = 'Clear selection';
   selectionActions.appendChild(clearSelection);
+
+  const answerFilters = document.createElement('div');
+  answerFilters.className = 'exam-qbank-answer-filters';
+  selectionCard.appendChild(answerFilters);
+
+  const answerHeader = document.createElement('div');
+  answerHeader.className = 'exam-qbank-answer-header';
+  answerHeader.innerHTML = '<div class="exam-qbank-answer-title">Answer history</div><div class="exam-qbank-answer-subtitle">Include previously answered questions when needed.</div>';
+  answerFilters.appendChild(answerHeader);
+
+  const includeAnsweredRow = document.createElement('label');
+  includeAnsweredRow.className = 'exam-qbank-answer-toggle';
+  const includeAnsweredToggle = document.createElement('input');
+  includeAnsweredToggle.type = 'checkbox';
+  includeAnsweredToggle.checked = Boolean(selection.includeAnswered);
+  includeAnsweredRow.appendChild(includeAnsweredToggle);
+  const includeAnsweredLabel = document.createElement('span');
+  includeAnsweredLabel.textContent = 'Include answered questions';
+  includeAnsweredRow.appendChild(includeAnsweredLabel);
+  answerFilters.appendChild(includeAnsweredRow);
+
+  const answeredOptions = document.createElement('div');
+  answeredOptions.className = 'exam-qbank-answer-options';
+  answerFilters.appendChild(answeredOptions);
+
+  const buildAnswerOption = (key, label) => {
+    const row = document.createElement('label');
+    row.className = 'exam-qbank-answer-option';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = Boolean(selection.answeredFilters?.[key]);
+    row.appendChild(input);
+    const text = document.createElement('span');
+    text.textContent = label;
+    row.appendChild(text);
+    input.addEventListener('change', () => {
+      selection.answeredFilters[key] = input.checked;
+      updateSelectionMeta();
+      updateAvailability();
+    });
+    answeredOptions.appendChild(row);
+    return input;
+  };
+
+  const includeIncorrectToggle = buildAnswerOption('incorrect', 'Incorrectly answered');
+  const includeCorrectToggle = buildAnswerOption('correct', 'Correctly answered');
+  const includeFlaggedToggle = buildAnswerOption('flagged', 'Flagged questions');
 
   const status = document.createElement('div');
   status.className = 'exam-qbank-status';
@@ -1736,11 +1857,19 @@ export async function renderQBank(root, render) {
     const selectedBlocks = selection.selectedBlocks.size;
     const selectedWeeks = selection.selectedWeeks.size;
     const selectedLectures = selection.selectedLectures.size;
+    const answeredLabel = selection.includeAnswered
+      ? [
+        selection.answeredFilters?.incorrect ? 'Incorrect' : null,
+        selection.answeredFilters?.correct ? 'Correct' : null,
+        selection.answeredFilters?.flagged ? 'Flagged' : null
+      ].filter(Boolean).join(', ') || 'None'
+      : 'Off';
     selectionMeta.innerHTML = `
       <span>Blocks: ${selectedBlocks}</span>
       <span>Weeks: ${selectedWeeks}</span>
       <span>Lectures: ${selectedLectures}</span>
       <span>${selection.includeUntagged ? 'Untagged: On' : 'Untagged: Off'}</span>
+      <span>Answered: ${answeredLabel}</span>
     `;
     clearSelection.disabled = !(selectedBlocks || selectedWeeks || selectedLectures || selection.includeUntagged);
     const blockIsSelected = selection.blockId && selection.selectedBlocks.has(selection.blockId);
@@ -1756,9 +1885,26 @@ export async function renderQBank(root, render) {
     setToggleState(untaggedToggle, selection.includeUntagged);
   }
 
+  function matchesAnswerFilters(question) {
+    const key = qbankKeyForQuestion(question, question.sourceExamId || qbankExam.id);
+    const history = key ? answerHistory.get(key) : null;
+    const answered = Boolean(history?.answered);
+    if (!selection.includeAnswered) {
+      return !answered;
+    }
+    if (!answered) return true;
+    const includeCorrect = Boolean(selection.answeredFilters?.correct);
+    const includeIncorrect = Boolean(selection.answeredFilters?.incorrect);
+    const includeFlagged = Boolean(selection.answeredFilters?.flagged);
+    if (!(includeCorrect || includeIncorrect || includeFlagged)) return false;
+    return (includeCorrect && history?.correct)
+      || (includeIncorrect && history?.incorrect)
+      || (includeFlagged && history?.flagged);
+  }
+
   function getAvailableIndices() {
     return qbankExam.questions
-      .map((question, idx) => (qbankMatchesSelection(question, selection) ? idx : null))
+      .map((question, idx) => (qbankMatchesSelection(question, selection) && matchesAnswerFilters(question) ? idx : null))
       .filter(Number.isFinite);
   }
 
@@ -1884,6 +2030,16 @@ export async function renderQBank(root, render) {
     updateAvailability();
   });
 
+  includeAnsweredToggle.addEventListener('change', () => {
+    selection.includeAnswered = includeAnsweredToggle.checked;
+    answeredOptions.hidden = !selection.includeAnswered;
+    includeIncorrectToggle.disabled = !selection.includeAnswered;
+    includeCorrectToggle.disabled = !selection.includeAnswered;
+    includeFlaggedToggle.disabled = !selection.includeAnswered;
+    updateSelectionMeta();
+    updateAvailability();
+  });
+
   clearSelection.addEventListener('click', () => {
     selection.selectedBlocks.clear();
     selection.selectedWeeks.clear();
@@ -1897,6 +2053,11 @@ export async function renderQBank(root, render) {
   countInput.addEventListener('input', () => {
     selection.questionCount = Number(countInput.value);
   });
+
+  answeredOptions.hidden = !selection.includeAnswered;
+  includeIncorrectToggle.disabled = !selection.includeAnswered;
+  includeCorrectToggle.disabled = !selection.includeAnswered;
+  includeFlaggedToggle.disabled = !selection.includeAnswered;
 
   startBtn.addEventListener('click', async () => {
     const availableIndices = updateAvailability();
