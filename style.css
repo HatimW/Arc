@@ -7230,7 +7230,7 @@ button.exam-card-caret::before {
   padding: var(--pad-sm);
   border-radius: var(--radius-lg);
   border: 1px solid rgba(167, 139, 250, 0.25);
-  background: rgba(30, 27, 75, 0.65);
+  background: rgba(52, 22, 86, 0.7);
 }
 
 .exam-qbank-selection-header {
@@ -7300,8 +7300,15 @@ button.exam-card-caret::before {
 }
 
 .exam-qbank-lecture-button.active {
-  background: rgba(244, 114, 182, 0.65);
-  border-color: rgba(251, 113, 133, 0.95);
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.92), rgba(192, 132, 252, 0.92));
+  border-color: rgba(244, 114, 182, 0.95);
+  color: rgba(253, 242, 248, 0.98);
+  box-shadow: 0 0 0 1px rgba(190, 24, 93, 0.55) inset;
+}
+
+.exam-qbank-lecture-button[data-active="true"] {
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.92), rgba(192, 132, 252, 0.92));
+  border-color: rgba(244, 114, 182, 0.95);
   color: rgba(253, 242, 248, 0.98);
   box-shadow: 0 0 0 1px rgba(190, 24, 93, 0.55) inset;
 }
@@ -7312,10 +7319,28 @@ button.exam-card-caret::before {
   font-style: italic;
 }
 
+.exam-qbank-toggle[data-active="true"] {
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.96), rgba(192, 132, 252, 0.92));
+  border-color: transparent;
+  color: #2b0b2e;
+  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.35);
+  font-weight: 600;
+  transform: translateY(-1px);
+}
+
+.exam-qbank-toggle[data-active="true"]:hover,
+.exam-qbank-toggle[data-active="true"]:focus-visible {
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.98), rgba(192, 132, 252, 0.96));
+  color: #240725;
+}
+
 .exam-qbank-toggle.active {
-  border-color: rgba(236, 72, 153, 0.6);
-  color: rgba(253, 242, 248, 0.95);
-  background: rgba(219, 39, 119, 0.25);
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.96), rgba(192, 132, 252, 0.92));
+  border-color: transparent;
+  color: #2b0b2e;
+  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.35);
+  font-weight: 600;
+  transform: translateY(-1px);
 }
 
 .exam-qbank-selection-actions {
@@ -7338,7 +7363,7 @@ button.exam-card-caret::before {
   padding: var(--pad-sm);
   border-radius: var(--radius-lg);
   border: 1px solid rgba(167, 139, 250, 0.25);
-  background: rgba(24, 24, 53, 0.75);
+  background: rgba(58, 24, 92, 0.75);
 }
 
 .exam-qbank-count-label {
