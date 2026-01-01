@@ -6280,6 +6280,15 @@ body[data-performance-mode='conservative'] .deck-viewer {
   gap: var(--pad);
 }
 
+.exam-controls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pad);
+  flex-wrap: wrap;
+  width: 100%;
+}
+
 .exam-heading {
   display: flex;
   flex-direction: column;
@@ -6301,14 +6310,7 @@ body[data-performance-mode='conservative'] .deck-viewer {
   flex-wrap: wrap;
   gap: var(--pad);
   align-items: center;
-}
-
-.exam-layout-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--pad);
-  align-items: center;
-  width: 100%;
+  justify-content: flex-end;
 }
 
 .exam-layout-toggle {
@@ -7083,26 +7085,8 @@ button.exam-card-caret::before {
 .exam-qbank-section {
   display: flex;
   flex-direction: column;
-  gap: var(--pad);
+  gap: calc(var(--pad) * 0.75);
   margin-bottom: var(--pad-lg);
-}
-
-.exam-qbank-divider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: rgba(148, 163, 184, 0.7);
-}
-
-.exam-qbank-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: rgba(148, 163, 184, 0.25);
 }
 
 .exam-qbank-card {
@@ -7133,6 +7117,7 @@ button.exam-card-caret::before {
 }
 
 .exam-qbank-pill {
+  align-self: flex-start;
   padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid rgba(167, 139, 250, 0.6);

@@ -1247,13 +1247,18 @@ export async function renderExams(root, render) {
   const controls = document.createElement('div');
   controls.className = 'exam-controls';
 
+  const headerRow = document.createElement('div');
+  headerRow.className = 'exam-controls-header';
+  controls.appendChild(headerRow);
+
   const heading = document.createElement('div');
   heading.className = 'exam-heading';
   heading.innerHTML = '<h1>Exams</h1>';
-  controls.appendChild(heading);
+  headerRow.appendChild(heading);
 
   const actions = document.createElement('div');
   actions.className = 'exam-control-actions';
+  headerRow.appendChild(actions);
 
   const status = document.createElement('div');
   status.className = 'exam-status';
@@ -1318,14 +1323,9 @@ export async function renderExams(root, render) {
   newBtn.addEventListener('click', () => openExamEditor(null, render));
   actions.appendChild(newBtn);
 
-  controls.appendChild(actions);
-
   const layout = state.examLayout || { mode: 'grid', detailsVisible: false };
   const viewMode = layout.mode === 'row' ? 'row' : 'grid';
   const detailsVisible = layout.detailsVisible !== false;
-
-  const layoutControls = document.createElement('div');
-  layoutControls.className = 'exam-layout-controls';
 
   const layoutToggle = document.createElement('button');
   layoutToggle.type = 'button';
@@ -1345,9 +1345,7 @@ export async function renderExams(root, render) {
     render();
   });
 
-  layoutControls.appendChild(layoutToggle);
-
-  controls.appendChild(layoutControls);
+  actions.appendChild(layoutToggle);
   controls.appendChild(status);
 
   root.appendChild(controls);
@@ -1420,12 +1418,10 @@ function buildQBankShortcut({ qbankExam, render }) {
   const section = document.createElement('section');
   section.className = 'exam-qbank-section';
 
-  const divider = document.createElement('div');
-  divider.className = 'exam-qbank-divider';
-  const dividerLabel = document.createElement('span');
-  dividerLabel.textContent = 'QBank';
-  divider.appendChild(dividerLabel);
-  section.appendChild(divider);
+  const pill = document.createElement('span');
+  pill.className = 'exam-qbank-pill exam-qbank-pill--header';
+  pill.textContent = 'QBank';
+  section.appendChild(pill);
 
   const card = document.createElement('article');
   card.className = 'card exam-qbank-card exam-qbank-card--link';
@@ -1438,11 +1434,6 @@ function buildQBankShortcut({ qbankExam, render }) {
   const headerInfo = document.createElement('div');
   headerInfo.className = 'exam-qbank-header-info';
   header.appendChild(headerInfo);
-
-  const pill = document.createElement('span');
-  pill.className = 'exam-qbank-pill';
-  pill.textContent = 'QBank';
-  headerInfo.appendChild(pill);
 
   const titleWrap = document.createElement('div');
   titleWrap.className = 'exam-qbank-title';
