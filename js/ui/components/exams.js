@@ -1,6 +1,6 @@
 import { listExams, upsertExam, deleteExam, listExamSessions, loadExamSession, saveExamSessionProgress, deleteExamSessionProgress } from '../../storage/storage.js';
 import { state, setExamSession, setExamAttemptExpanded, setExamLayout, setSubtab } from '../../state.js';
-import { uid, setToggleState, deepClone } from '../../utils.js';
+import { uid, setToggleState, deepClone, resolveLatestBlockId } from '../../utils.js';
 import { confirmModal } from './confirm.js';
 import { createRichTextEditor, sanitizeHtml, htmlToPlainText, isEmptyHtml } from './rich-text.js';
 import { readFileAsDataUrl } from './media-upload.js';
@@ -25,9 +25,9 @@ const qbankSelectionState = {
   includeUntagged: false,
   includeAnswered: false,
   answeredFilters: {
-    incorrect: true,
-    correct: true,
-    flagged: true
+    incorrect: false,
+    correct: false,
+    flagged: false
   }
 };
 
@@ -125,6 +125,9 @@ function parseTagString(tags) {
 }
 
 function resolveDefaultBlockId(catalog) {
+  const blocks = Array.isArray(catalog?.blocks) ? catalog.blocks : [];
+  const latestBlockId = resolveLatestBlockId(blocks);
+  if (latestBlockId) return String(latestBlockId);
   const candidate = state.builder?.activeBlockId
     || state.lectures?.blockId
     || state.filters?.block
@@ -132,7 +135,6 @@ function resolveDefaultBlockId(catalog) {
     || '';
   if (!candidate) return '';
   const value = String(candidate);
-  const blocks = Array.isArray(catalog?.blocks) ? catalog.blocks : [];
   const found = blocks.some(block => String(block.blockId ?? block.id ?? '') === value);
   return found ? value : '';
 }
@@ -1247,7 +1249,7 @@ export async function renderExams(root, render) {
 
   const heading = document.createElement('div');
   heading.className = 'exam-heading';
-  heading.innerHTML = '<h1>Exams</h1><p>Import exams, take them, and review your attempts.</p>';
+  heading.innerHTML = '<h1>Exams</h1>';
   controls.appendChild(heading);
 
   const actions = document.createElement('div');
@@ -1518,7 +1520,7 @@ export async function renderQBank(root, render) {
 
   const heading = document.createElement('div');
   heading.className = 'exam-qbank-heading';
-  heading.innerHTML = '<h1>QBank</h1><p>Build targeted sessions, track your history, and jump right back in.</p>';
+  heading.innerHTML = '<h1>QBank</h1>';
   topbar.appendChild(heading);
 
   const topMeta = document.createElement('div');
@@ -1629,6 +1631,12 @@ export async function renderQBank(root, render) {
   clearSelection.textContent = 'Clear selection';
   selectionActions.appendChild(clearSelection);
 
+  const selectAllLectures = document.createElement('button');
+  selectAllLectures.type = 'button';
+  selectAllLectures.className = 'btn secondary';
+  selectAllLectures.textContent = 'Select all lectures';
+  selectionActions.appendChild(selectAllLectures);
+
   const answerFilters = document.createElement('div');
   answerFilters.className = 'exam-qbank-answer-filters';
   selectionCard.appendChild(answerFilters);
@@ -1718,6 +1726,13 @@ export async function renderQBank(root, render) {
   resumeBtn.textContent = 'Resume';
   resumeBtn.disabled = !savedSession;
   actions.appendChild(resumeBtn);
+
+  const discardBtn = document.createElement('button');
+  discardBtn.type = 'button';
+  discardBtn.className = 'btn secondary';
+  discardBtn.textContent = 'Delete session';
+  discardBtn.disabled = !savedSession;
+  actions.appendChild(discardBtn);
 
   const statsCard = document.createElement('div');
   statsCard.className = 'exam-qbank-panel exam-qbank-panel--stats';
@@ -2036,6 +2051,14 @@ export async function renderQBank(root, render) {
     includeIncorrectToggle.disabled = !selection.includeAnswered;
     includeCorrectToggle.disabled = !selection.includeAnswered;
     includeFlaggedToggle.disabled = !selection.includeAnswered;
+    if (!selection.includeAnswered) {
+      selection.answeredFilters.incorrect = false;
+      selection.answeredFilters.correct = false;
+      selection.answeredFilters.flagged = false;
+      includeIncorrectToggle.checked = false;
+      includeCorrectToggle.checked = false;
+      includeFlaggedToggle.checked = false;
+    }
     updateSelectionMeta();
     updateAvailability();
   });
@@ -2050,6 +2073,17 @@ export async function renderQBank(root, render) {
     updateAvailability();
   });
 
+  selectAllLectures.addEventListener('click', () => {
+    const entries = resolveLectureEntries({ includeAllWeeks: true });
+    if (!entries.length) return;
+    entries.forEach(({ blockId, lecture }) => {
+      selection.selectedLectures.add(`${blockId}|${lecture.id}`);
+    });
+    renderLectureList();
+    updateSelectionMeta();
+    updateAvailability();
+  });
+
   countInput.addEventListener('input', () => {
     selection.questionCount = Number(countInput.value);
   });
@@ -2058,6 +2092,12 @@ export async function renderQBank(root, render) {
   includeIncorrectToggle.disabled = !selection.includeAnswered;
   includeCorrectToggle.disabled = !selection.includeAnswered;
   includeFlaggedToggle.disabled = !selection.includeAnswered;
+
+  if (!selection.includeAnswered) {
+    includeIncorrectToggle.checked = false;
+    includeCorrectToggle.checked = false;
+    includeFlaggedToggle.checked = false;
+  }
 
   startBtn.addEventListener('click', async () => {
     const availableIndices = updateAvailability();
@@ -2090,6 +2130,15 @@ export async function renderQBank(root, render) {
     if (!latest) return;
     const session = hydrateSavedSession(latest, qbankExam);
     setExamSession(session);
+    render();
+  });
+
+  discardBtn.addEventListener('click', async () => {
+    if (!savedSession) return;
+    const confirm = await confirmModal('Delete this saved QBank session?');
+    if (!confirm) return;
+    await deleteExamSessionProgress(QBANK_EXAM_ID).catch(() => {});
+    status.textContent = 'Saved QBank session deleted.';
     render();
   });
 
@@ -2550,6 +2599,18 @@ function buildAttemptRow(exam, result, render) {
     render();
   });
   actions.appendChild(retakeIncorrect);
+
+  const removeAttempt = document.createElement('button');
+  removeAttempt.className = 'btn secondary exam-attempt-delete';
+  removeAttempt.textContent = 'Delete';
+  removeAttempt.addEventListener('click', async () => {
+    const confirm = await confirmModal('Delete this attempt? This will reset answered status for those questions.');
+    if (!confirm) return;
+    const nextResults = (exam.results || []).filter(entry => entry !== result);
+    await upsertExam({ ...exam, results: nextResults, updatedAt: Date.now() });
+    render();
+  });
+  actions.appendChild(removeAttempt);
 
   return row;
 }
