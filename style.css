@@ -180,7 +180,7 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
 }
 
 
-[data-toggle="true"][data-active="true"]:not(.builder-pill):not(.builder-mode-toggle):not(.tag-chip):not(.list-subtab) {
+[data-toggle="true"][data-active="true"]:not(.builder-pill):not(.builder-mode-toggle):not(.tag-chip):not(.list-subtab):not(.exam-qbank-lecture-button) {
 
   background: linear-gradient(135deg, rgba(56, 189, 248, 0.96), rgba(192, 132, 252, 0.92));
   border-color: transparent;
@@ -190,8 +190,8 @@ button:not(.tab):not(.fab-btn):not(.builder-pill):not(.builder-mode-toggle):not(
   transform: translateY(-1px);
 }
 
-[data-toggle="true"][data-active="true"]:not(.builder-pill):not(.builder-mode-toggle):hover,
-[data-toggle="true"][data-active="true"]:not(.builder-pill):not(.builder-mode-toggle):focus-visible {
+[data-toggle="true"][data-active="true"]:not(.builder-pill):not(.builder-mode-toggle):not(.exam-qbank-lecture-button):hover,
+[data-toggle="true"][data-active="true"]:not(.builder-pill):not(.builder-mode-toggle):not(.exam-qbank-lecture-button):focus-visible {
   background: linear-gradient(135deg, rgba(56, 189, 248, 0.98), rgba(192, 132, 252, 0.96));
   color: #020a16;
 }
@@ -7300,10 +7300,10 @@ button.exam-card-caret::before {
 }
 
 .exam-qbank-lecture-button.active {
-  background: rgba(236, 72, 153, 0.35);
-  border-color: rgba(251, 113, 133, 0.8);
+  background: rgba(244, 114, 182, 0.65);
+  border-color: rgba(251, 113, 133, 0.95);
   color: rgba(253, 242, 248, 0.98);
-  box-shadow: 0 0 0 1px rgba(190, 24, 93, 0.45) inset;
+  box-shadow: 0 0 0 1px rgba(190, 24, 93, 0.55) inset;
 }
 
 .exam-qbank-empty {
