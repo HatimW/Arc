@@ -1047,6 +1047,7 @@ function ensureExamShape(exam) {
 
   if (!next.id) { next.id = uid(); changed = true; }
   if (!next.examTitle) { next.examTitle = 'Untitled Exam'; changed = true; }
+  if (typeof next.includeInQbank !== 'boolean') { next.includeInQbank = true; changed = true; }
   if (next.timerMode !== 'timed') {
     if (next.timerMode !== 'untimed') changed = true;
     next.timerMode = 'untimed';
@@ -1227,9 +1228,10 @@ async function loadExamOverview() {
   }
   exams.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-  const qbankSignature = qbankSignatureFor(exams);
+  const qbankSources = exams.filter(exam => exam.includeInQbank !== false);
+  const qbankSignature = qbankSignatureFor(qbankSources);
   if (!qbankExam || qbankExam.qbankSignature !== qbankSignature) {
-    qbankExam = buildQBankExam(exams, qbankExam);
+    qbankExam = buildQBankExam(qbankSources, qbankExam);
     qbankExam.qbankSignature = qbankSignature;
     qbankExam.updatedAt = Date.now();
     await upsertExam(qbankExam);
@@ -2412,6 +2414,21 @@ function buildExamCard(exam, render, savedSession, statusEl, layout) {
 
   addMenuAction('Edit Exam', () => {
     openExamEditor(exam, render);
+  });
+
+  const isIncludedInQbank = exam.includeInQbank !== false;
+  addMenuAction(isIncludedInQbank ? 'Exclude from QBank' : 'Include in QBank', async () => {
+    await upsertExam({
+      ...exam,
+      includeInQbank: !isIncludedInQbank,
+      updatedAt: Date.now()
+    });
+    if (statusEl) {
+      statusEl.textContent = isIncludedInQbank
+        ? 'Exam excluded from QBank.'
+        : 'Exam included in QBank.';
+    }
+    render();
   });
 
   addMenuAction('Export JSON', () => {
