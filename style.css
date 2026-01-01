@@ -7100,7 +7100,7 @@ button.exam-card-caret::before {
   flex-direction: column;
   gap: var(--pad);
   border: 1px solid rgba(148, 163, 184, 0.2);
-  background: linear-gradient(160deg, rgba(76, 29, 149, 0.35), rgba(30, 27, 75, 0.95));
+  background: linear-gradient(160deg, rgba(236, 72, 153, 0.4), rgba(249, 115, 22, 0.3), rgba(76, 29, 149, 0.85));
 }
 
 .exam-qbank-card--link {
@@ -7125,9 +7125,9 @@ button.exam-card-caret::before {
   align-self: flex-start;
   padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(167, 139, 250, 0.6);
-  background: rgba(91, 33, 182, 0.35);
-  color: rgba(237, 233, 254, 0.95);
+  border: 1px solid rgba(251, 146, 60, 0.65);
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.45), rgba(249, 115, 22, 0.45));
+  color: rgba(255, 228, 230, 0.95);
   font-weight: 600;
   font-size: 0.78rem;
   letter-spacing: 0.08em;
@@ -7161,9 +7161,9 @@ button.exam-card-caret::before {
 .exam-qbank-chip {
   padding: 4px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(167, 139, 250, 0.3);
-  background: rgba(67, 56, 202, 0.2);
-  color: rgba(224, 231, 255, 0.85);
+  border: 1px solid rgba(251, 146, 60, 0.35);
+  background: rgba(190, 24, 93, 0.25);
+  color: rgba(255, 228, 230, 0.9);
   font-size: 0.78rem;
 }
 
@@ -7219,8 +7219,8 @@ button.exam-card-caret::before {
   gap: var(--pad-sm);
   padding: var(--pad-sm);
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(167, 139, 250, 0.25);
-  background: rgba(52, 22, 86, 0.7);
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  background: rgba(74, 18, 55, 0.72);
 }
 
 .exam-qbank-selection-header {
@@ -7251,10 +7251,16 @@ button.exam-card-caret::before {
 
 .exam-qbank-select {
   min-width: 0;
+  border-color: rgba(244, 114, 182, 0.45);
+  background: linear-gradient(140deg, rgba(236, 72, 153, 0.28), rgba(249, 115, 22, 0.2));
+  color: rgba(255, 241, 242, 0.92);
 }
 
 .exam-qbank-toggle {
   white-space: nowrap;
+  border-color: rgba(244, 114, 182, 0.45);
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.28), rgba(249, 115, 22, 0.2));
+  color: rgba(255, 241, 242, 0.88);
 }
 
 .exam-qbank-lecture-list {
@@ -7272,35 +7278,39 @@ button.exam-card-caret::before {
   justify-content: center;
   padding: 6px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  background: rgba(15, 23, 42, 0.6);
-  color: rgba(226, 232, 240, 0.8);
+  border: 1px solid rgba(248, 180, 217, 0.28);
+  background: rgba(15, 23, 42, 0.35);
+  color: rgba(241, 245, 249, 0.7);
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  opacity: 0.65;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
 }
 
 .exam-qbank-lecture-button:hover,
 .exam-qbank-lecture-button:focus-visible {
-  background: rgba(147, 51, 234, 0.18);
-  border-color: rgba(196, 181, 253, 0.6);
+  background: rgba(236, 72, 153, 0.22);
+  border-color: rgba(251, 146, 60, 0.6);
   color: rgba(248, 250, 252, 0.95);
+  opacity: 0.9;
   transform: translateY(-1px);
 }
 
 .exam-qbank-lecture-button.active {
-  background: linear-gradient(135deg, rgba(244, 114, 182, 0.92), rgba(192, 132, 252, 0.92));
-  border-color: rgba(244, 114, 182, 0.95);
-  color: rgba(253, 242, 248, 0.98);
-  box-shadow: 0 0 0 1px rgba(190, 24, 93, 0.55) inset;
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.95), rgba(249, 115, 22, 0.95));
+  border-color: rgba(249, 115, 22, 0.9);
+  color: rgba(255, 241, 242, 0.98);
+  box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.6) inset, 0 10px 22px rgba(190, 24, 93, 0.35);
+  opacity: 1;
 }
 
 .exam-qbank-lecture-button[data-active="true"] {
-  background: linear-gradient(135deg, rgba(244, 114, 182, 0.92), rgba(192, 132, 252, 0.92));
-  border-color: rgba(244, 114, 182, 0.95);
-  color: rgba(253, 242, 248, 0.98);
-  box-shadow: 0 0 0 1px rgba(190, 24, 93, 0.55) inset;
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.95), rgba(249, 115, 22, 0.95));
+  border-color: rgba(249, 115, 22, 0.9);
+  color: rgba(255, 241, 242, 0.98);
+  box-shadow: 0 0 0 1px rgba(251, 146, 60, 0.6) inset, 0 10px 22px rgba(190, 24, 93, 0.35);
+  opacity: 1;
 }
 
 .exam-qbank-empty {
@@ -7310,27 +7320,40 @@ button.exam-card-caret::before {
 }
 
 .exam-qbank-toggle[data-active="true"] {
-  background: linear-gradient(135deg, rgba(244, 114, 182, 0.96), rgba(192, 132, 252, 0.92));
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.96), rgba(249, 115, 22, 0.92));
   border-color: transparent;
   color: #2b0b2e;
-  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.35);
+  box-shadow: 0 18px 34px rgba(190, 24, 93, 0.35);
   font-weight: 600;
   transform: translateY(-1px);
 }
 
 .exam-qbank-toggle[data-active="true"]:hover,
 .exam-qbank-toggle[data-active="true"]:focus-visible {
-  background: linear-gradient(135deg, rgba(244, 114, 182, 0.98), rgba(192, 132, 252, 0.96));
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.98), rgba(249, 115, 22, 0.96));
   color: #240725;
 }
 
 .exam-qbank-toggle.active {
-  background: linear-gradient(135deg, rgba(244, 114, 182, 0.96), rgba(192, 132, 252, 0.92));
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.96), rgba(249, 115, 22, 0.92));
   border-color: transparent;
   color: #2b0b2e;
-  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.35);
+  box-shadow: 0 18px 34px rgba(190, 24, 93, 0.35);
   font-weight: 600;
   transform: translateY(-1px);
+}
+
+.exam-qbank-selection-actions .btn.secondary.exam-qbank-select-all {
+  border-color: rgba(249, 115, 22, 0.55);
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.32), rgba(249, 115, 22, 0.28));
+  color: rgba(255, 228, 230, 0.95);
+}
+
+.exam-qbank-selection-actions .btn.secondary.exam-qbank-select-all:hover,
+.exam-qbank-selection-actions .btn.secondary.exam-qbank-select-all:focus-visible {
+  background: linear-gradient(135deg, rgba(244, 114, 182, 0.45), rgba(249, 115, 22, 0.38));
+  border-color: rgba(249, 115, 22, 0.75);
+  color: rgba(255, 241, 242, 0.98);
 }
 
 .exam-qbank-selection-actions {

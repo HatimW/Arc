@@ -1624,7 +1624,7 @@ export async function renderQBank(root, render) {
 
   const selectAllLectures = document.createElement('button');
   selectAllLectures.type = 'button';
-  selectAllLectures.className = 'btn secondary';
+  selectAllLectures.className = 'btn secondary exam-qbank-select-all';
   selectAllLectures.textContent = 'Select all lectures';
   selectionActions.appendChild(selectAllLectures);
 
