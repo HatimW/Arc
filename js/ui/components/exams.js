@@ -45,7 +45,7 @@ function buildCsvHeaders(maxOptions) {
     base.push(`option${i}`);
     base.push(`option${i}Correct`);
   }
-  base.push('explanation', 'tags', 'media');
+  base.push('explanation', 'tags', 'lectureTags', 'media');
   return base;
 }
 
@@ -62,6 +62,7 @@ function getCsvHeaderIndexes(headers) {
   return {
     explanationIndex: headers.indexOf('explanation'),
     tagsIndex: headers.indexOf('tags'),
+    lectureTagsIndex: headers.indexOf('lectureTags'),
     mediaIndex: headers.indexOf('media')
   };
 }
@@ -122,6 +123,45 @@ function normalizeLectureRefs(lectures) {
 function parseTagString(tags) {
   if (!tags) return [];
   return String(tags).split(/[|,]/).map(tag => tag.trim()).filter(Boolean);
+}
+
+function serializeLectureTags(lectures) {
+  const normalized = normalizeLectureRefs(lectures);
+  if (!normalized.length) return '';
+  return JSON.stringify(normalized);
+}
+
+function parseLectureTags(raw) {
+  if (!raw) return [];
+  const trimmed = String(raw).trim();
+  if (!trimmed) return [];
+  let parsed = null;
+  if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (err) {
+      parsed = null;
+    }
+  }
+  if (Array.isArray(parsed)) {
+    return normalizeLectureRefs(parsed);
+  }
+  if (parsed && typeof parsed === 'object') {
+    return normalizeLectureRefs([parsed]);
+  }
+  const entries = trimmed.split(';').map(entry => entry.trim()).filter(Boolean);
+  if (!entries.length) return [];
+  const refs = entries.map(entry => {
+    const [blockId, id, name, week] = entry.split(/[:|]/).map(part => part.trim());
+    if (!blockId || !id) return null;
+    return {
+      blockId,
+      id,
+      name: name || '',
+      week: week || null
+    };
+  }).filter(Boolean);
+  return normalizeLectureRefs(refs);
 }
 
 function resolveDefaultBlockId(catalog) {
@@ -860,7 +900,12 @@ function examToCsv(exam) {
   const rows = [];
   const maxOptions = getCsvMaxOptionsFromExam(exam);
   const headers = buildCsvHeaders(maxOptions);
-  const { explanationIndex, tagsIndex, mediaIndex } = getCsvHeaderIndexes(headers);
+  const {
+    explanationIndex,
+    tagsIndex,
+    lectureTagsIndex,
+    mediaIndex
+  } = getCsvHeaderIndexes(headers);
   rows.push(headers);
 
   const metaRow = new Array(headers.length).fill('');
@@ -883,6 +928,7 @@ function examToCsv(exam) {
     });
     if (explanationIndex >= 0) row[explanationIndex] = question.explanation || '';
     if (tagsIndex >= 0) row[tagsIndex] = Array.isArray(question.tags) ? question.tags.join(' | ') : '';
+    if (lectureTagsIndex >= 0) row[lectureTagsIndex] = serializeLectureTags(question.lectures);
     if (mediaIndex >= 0) row[mediaIndex] = question.media || '';
     rows.push(row);
   });
@@ -1014,6 +1060,7 @@ function examFromCsv(text) {
     question.stem = sanitizeRichText(getCell(row, 'stem'));
     question.explanation = sanitizeRichText(getCell(row, 'explanation'));
     question.tags = parseTagString(getCell(row, 'tags'));
+    question.lectures = parseLectureTags(getCell(row, 'lectureTags'));
     question.media = String(getCell(row, 'media') || '').trim();
     question.options = [];
     question.answer = '';
