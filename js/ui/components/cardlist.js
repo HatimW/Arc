@@ -85,6 +85,10 @@ function normalizeLectureList(value) {
     .filter(entry => entry.id != null);
 }
 
+function sortWeeksDescending(weeks) {
+  return weeks.slice().sort((a, b) => b - a);
+}
+
 function normalizeItemForDisplay(item) {
   if (!item || typeof item !== 'object') return item;
   const blocks = normalizeList(item.blocks).map(block => String(block));
@@ -357,11 +361,11 @@ export async function renderCardList(container, itemSource, kind, onChange){
     (block.lectures || []).forEach(lecture => {
       if (typeof lecture.week === 'number') weeks.add(lecture.week);
     });
-    const sortedWeeks = Array.from(weeks).sort((a, b) => a - b);
+    const sortedWeeks = sortWeeksDescending(Array.from(weeks));
     blockWeekMap.set(block.blockId, sortedWeeks);
     sortedWeeks.forEach(weekNumber => allWeeks.add(weekNumber));
   });
-  const sortedAllWeeks = Array.from(allWeeks).sort((a, b) => a - b);
+  const sortedAllWeeks = sortWeeksDescending(Array.from(allWeeks));
   const groups = new Map();
   const currentBlockFilter = typeof state.listFilters?.block === 'string' ? state.listFilters.block : '';
   const currentWeekFilter = state.listFilters?.week ?? '';
@@ -701,7 +705,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
   setToggleState(listBtn, layoutState.mode === 'list');
   listBtn.textContent = 'List';
   listBtn.addEventListener('click', () => {
-    if (layoutState.mode === 'list') return;
+    if (state.entryLayout.mode === 'list') return;
     setEntryLayout({ mode: 'list' });
     updateToolbar();
     applyLayout();
@@ -713,7 +717,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
   setToggleState(gridBtn, layoutState.mode === 'grid');
   gridBtn.textContent = 'Grid';
   gridBtn.addEventListener('click', () => {
-    if (layoutState.mode === 'grid') return;
+    if (state.entryLayout.mode === 'grid') return;
     setEntryLayout({ mode: 'grid' });
     updateToolbar();
     applyLayout();
@@ -949,7 +953,7 @@ export async function renderCardList(container, itemSource, kind, onChange){
     const sortedWeeks = Array.from(wkMap.keys()).sort((a, b) => {
       if (a === '_' && b !== '_') return 1;
       if (b === '_' && a !== '_') return -1;
-      return Number(a) - Number(b);
+      return Number(b) - Number(a);
     });
 
     sortedWeeks.forEach(w => {

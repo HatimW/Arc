@@ -118,6 +118,21 @@ export function createAppShell({
     }
   }
 
+  function scheduleTabScrollRestore(content) {
+    if (!content) return;
+    restoreTabScroll(content);
+    let attempts = 0;
+    const maxAttempts = 4;
+    const retry = () => {
+      attempts += 1;
+      if (attempts > maxAttempts) return;
+      restoreTabScroll(content);
+      const delay = 80 * attempts;
+      setTimeout(() => requestAnimationFrame(retry), delay);
+    };
+    requestAnimationFrame(retry);
+  }
+
   function ensureShell() {
     if (shell) return shell;
     const root = document.getElementById('app');
@@ -413,7 +428,7 @@ export function createAppShell({
       content.insertBefore(summary, listHost);
       const renderPromise = renderCardList(listHost, items, kind, renderApp);
       await Promise.all([entryControlPromise, renderPromise]);
-      restoreTabScroll(content);
+      scheduleTabScrollRestore(content);
     } else if (state.tab === 'Block Board') {
       const content = document.createElement('div');
       content.className = 'tab-content';
@@ -454,7 +469,7 @@ export function createAppShell({
       const itemsPromise = query.toArray();
       const cardsPromise = itemsPromise.then(items => renderCards(content, items, renderApp));
       await Promise.all([entryControlPromise, cardsPromise]);
-      restoreTabScroll(content);
+      scheduleTabScrollRestore(content);
     } else if (state.tab === 'Study') {
       const content = document.createElement('div');
       content.className = 'tab-content';
