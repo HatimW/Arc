@@ -866,19 +866,17 @@ export async function renderCardList(container, itemSource, kind, onChange){
   }
 
   if (blockKeys.length) {
+    const validFilter = isBlockValid && currentBlockFilter ? currentBlockFilter : null;
     const preferred = latestBlockId && blockKeys.includes(String(latestBlockId))
       ? String(latestBlockId)
       : null;
-    const initial = preferred
+    const initial = validFilter
+      || preferred
       || (activeBlockKey && blockKeys.includes(activeBlockKey) ? activeBlockKey : null)
       || blockKeys[0];
-    if (!currentBlockFilter && !currentWeekFilter) {
-      applyBlockActivation(null, { mode: 'all' });
-    } else {
-      applyBlockActivation(initial);
-    }
+    applyBlockActivation(initial);
   } else {
-    applyBlockActivation(null, { mode: 'all' });
+    applyBlockActivation(null);
   }
 
   const listWrap = document.createElement('div');
