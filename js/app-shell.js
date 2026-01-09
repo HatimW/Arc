@@ -284,268 +284,284 @@ export function createAppShell({
       document.body.classList.remove('is-occlusion-workspace-open');
     }
     ensureShell();
+    const previousNodes = Array.from(main.childNodes);
     const activeEl = document.activeElement;
     const shouldRestoreSearch = activeEl && activeEl.dataset && activeEl.dataset.role === 'global-search';
     const selectionStart = shouldRestoreSearch && typeof activeEl.selectionStart === 'number' ? activeEl.selectionStart : null;
     const selectionEnd = shouldRestoreSearch && typeof activeEl.selectionEnd === 'number' ? activeEl.selectionEnd : null;
 
-    tabButtons.forEach((btn, tab) => {
-      btn.classList.toggle('active', state.tab === tab);
-    });
-    if (settingsBtn) {
-      settingsBtn.classList.toggle('active', state.tab === 'Settings');
-    }
-    const activeQueryValue = state.tab === 'Lists' ? state.listQuery : state.query;
-    if (searchInput && document.activeElement !== searchInput && searchInput.value !== activeQueryValue) {
-      searchInput.value = activeQueryValue;
-    }
-
-    if (shouldRestoreSearch && searchInput) {
-      requestAnimationFrame(() => {
-        searchInput.focus();
-        if (selectionStart !== null && selectionEnd !== null && searchInput.setSelectionRange) {
-          searchInput.setSelectionRange(selectionStart, selectionEnd);
-        } else {
-          const len = searchInput.value.length;
-          if (searchInput.setSelectionRange) searchInput.setSelectionRange(len, len);
-        }
+    try {
+      tabButtons.forEach((btn, tab) => {
+        btn.classList.toggle('active', state.tab === tab);
       });
-    }
-
-    captureTabScroll();
-    main.innerHTML = '';
-
-
-    if (state.tab === 'Settings') {
-      await renderSettings(main);
-    } else if (state.tab === 'Lists') {
-      const kind = resolveListKind();
-      const listMeta = listTabConfig.find(cfg => cfg.kind === kind) || listTabConfig[0];
-      const createTarget = listMeta?.kind || 'disease';
-
-      const content = document.createElement('div');
-      content.className = 'tab-content';
-      main.appendChild(content);
-
-      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, createTarget))
-        .then(control => {
-          if (control) {
-            main.insertBefore(control, content);
-          }
-        })
-        .catch(err => {
-          console.warn('Failed to create list entry control', err);
-        });
-
-      const selector = document.createElement('div');
-      selector.className = 'list-subtabs';
-      selector.setAttribute('role', 'tablist');
-      listTabConfig.forEach(cfg => {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'list-subtab';
-        btn.textContent = cfg.label;
-        btn.dataset.listKind = cfg.kind;
-        btn.setAttribute('role', 'tab');
-        if (cfg.kind === kind) btn.classList.add('active');
-        btn.addEventListener('click', () => {
-          if (setSubtab('Lists', cfg.label)) {
-            renderApp();
-          }
-        });
-        selector.appendChild(btn);
-      });
-      const countBadge = document.createElement('span');
-      countBadge.className = 'list-count-badge';
-      countBadge.setAttribute('aria-live', 'polite');
-      selector.appendChild(countBadge);
-      content.appendChild(selector);
-
-      const listHost = document.createElement('div');
-      listHost.className = 'list-host';
-      content.appendChild(listHost);
-
-      const listFilters = state.listFilters || {};
-      const filter = { ...listFilters, types: [kind], query: state.listQuery };
-      let items = await loadListItems(filter);
-      const hasActiveFilters = Boolean(
-        state.listQuery || listFilters.block || listFilters.week || listFilters.onlyFav
-      );
-      if (!items.length && hasActiveFilters) {
-        const fallbackFilter = {
-          ...listFilters,
-          types: [kind],
-          block: '',
-          week: '',
-          onlyFav: false,
-          query: ''
-        };
-        const fallbackItems = await loadListItems(fallbackFilter);
-        if (fallbackItems.length) {
-          if (typeof setListFilters === 'function') {
-            setListFilters({ block: '', week: '', onlyFav: false });
-          }
-          if (state.listQuery && typeof setListQuery === 'function') setListQuery('');
-          items = fallbackItems;
-        }
+      if (settingsBtn) {
+        settingsBtn.classList.toggle('active', state.tab === 'Settings');
       }
-      const summary = document.createElement('div');
-      summary.className = 'list-summary';
-      const count = document.createElement('div');
-      count.className = 'list-summary-count';
-      count.textContent = `${items.length} ${listMeta.label.toLowerCase()} entr${items.length === 1 ? 'y' : 'ies'}`;
-      summary.appendChild(count);
-      const chips = document.createElement('div');
-      chips.className = 'list-summary-chips';
-      const addChip = (label) => {
-        const chip = document.createElement('span');
-        chip.className = 'list-summary-chip';
-        chip.textContent = label;
-        chips.appendChild(chip);
-      };
-      if (state.listQuery) addChip(`Search: ${state.listQuery}`);
-      if (listFilters.block) addChip(`Block: ${listFilters.block}`);
-      if (listFilters.week) addChip(`Week: ${listFilters.week}`);
-      if (listFilters.onlyFav) addChip('Favorites only');
-      if (chips.childElementCount) {
-        summary.appendChild(chips);
+      const activeQueryValue = state.tab === 'Lists' ? state.listQuery : state.query;
+      if (searchInput && document.activeElement !== searchInput && searchInput.value !== activeQueryValue) {
+        searchInput.value = activeQueryValue;
       }
-      const actions = document.createElement('div');
-      actions.className = 'list-summary-actions';
-      if (hasActiveFilters) {
-        const clearBtn = document.createElement('button');
-        clearBtn.type = 'button';
-        clearBtn.className = 'btn secondary';
-        clearBtn.textContent = 'Clear list filters';
-        clearBtn.addEventListener('click', () => {
-          setListFilters({ block: '', week: '', onlyFav: false });
-          if (state.listQuery) setListQuery('');
-          renderApp();
+
+      if (shouldRestoreSearch && searchInput) {
+        requestAnimationFrame(() => {
+          searchInput.focus();
+          if (selectionStart !== null && selectionEnd !== null && searchInput.setSelectionRange) {
+            searchInput.setSelectionRange(selectionStart, selectionEnd);
+          } else {
+            const len = searchInput.value.length;
+            if (searchInput.setSelectionRange) searchInput.setSelectionRange(len, len);
+          }
         });
-        actions.appendChild(clearBtn);
       }
-      summary.appendChild(actions);
-      content.insertBefore(summary, listHost);
-      const renderPromise = renderCardList(listHost, items, kind, renderApp);
-      await Promise.all([entryControlPromise, renderPromise]);
-      scheduleTabScrollRestore(content);
-    } else if (state.tab === 'Block Board') {
-      const content = document.createElement('div');
-      content.className = 'tab-content';
-      main.appendChild(content);
-      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
-        .then(control => {
-          if (control) {
-            main.insertBefore(control, content);
-          }
-        })
-        .catch(err => {
-          console.warn('Failed to create block board entry control', err);
-        });
-      const renderPromise = renderBlockBoard(content, renderApp);
-      await Promise.all([entryControlPromise, renderPromise]);
-      restoreTabScroll(content);
-    } else if (state.tab === 'Lectures') {
-      const content = document.createElement('div');
-      content.className = 'tab-content';
-      main.appendChild(content);
-      await renderLectures(content, renderApp);
-      restoreTabScroll(content);
-    } else if (state.tab === 'Cards') {
-      const content = document.createElement('div');
-      content.className = 'tab-content';
-      main.appendChild(content);
-      const filter = { types: state.filters?.types, sort: state.filters?.sort, query: state.query };
-      const query = findItemsByFilter(filter);
-      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
-        .then(control => {
-          if (control) {
-            main.insertBefore(control, content);
-          }
-        })
-        .catch(err => {
-          console.warn('Failed to create cards entry control', err);
-        });
-      const itemsPromise = query.toArray();
-      const cardsPromise = itemsPromise.then(items => renderCards(content, items, renderApp));
-      await Promise.all([entryControlPromise, cardsPromise]);
-      scheduleTabScrollRestore(content);
-    } else if (state.tab === 'Study') {
-      const content = document.createElement('div');
-      content.className = 'tab-content';
-      main.appendChild(content);
-      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
-        .then(control => {
-          if (control) {
-            main.insertBefore(control, content);
-          }
-        })
-        .catch(err => {
-          console.warn('Failed to create study entry control', err);
-        });
-      if (state.flashSession) {
-        await Promise.all([
-          entryControlPromise,
-          renderFlashcards(content, renderApp)
-        ]);
-      } else if (state.quizSession) {
-        await Promise.all([
-          entryControlPromise,
-          renderQuiz(content, renderApp)
-        ]);
-      } else {
-        const activeStudy = state.subtab.Study === 'Blocks' ? 'Blocks' : (state.subtab.Study || 'Builder');
-        if (activeStudy === 'Review') {
-          await Promise.all([
-            entryControlPromise,
-            renderReview(content, renderApp)
-          ]);
-        } else if (activeStudy === 'Blocks') {
-          await Promise.all([
-            entryControlPromise,
-            renderBlockMode(content, renderApp)
-          ]);
-        } else {
-          const wrap = document.createElement('div');
-          const builderPromise = renderBuilder(wrap, renderApp).then(() => {
-            content.appendChild(wrap);
+
+      captureTabScroll();
+      main.innerHTML = '';
+
+
+      if (state.tab === 'Settings') {
+        await renderSettings(main);
+      } else if (state.tab === 'Lists') {
+        const kind = resolveListKind();
+        const listMeta = listTabConfig.find(cfg => cfg.kind === kind) || listTabConfig[0];
+        const createTarget = listMeta?.kind || 'disease';
+
+        const content = document.createElement('div');
+        content.className = 'tab-content';
+        main.appendChild(content);
+
+        const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, createTarget))
+          .then(control => {
+            if (control) {
+              main.insertBefore(control, content);
+            }
+          })
+          .catch(err => {
+            console.warn('Failed to create list entry control', err);
           });
-          await Promise.all([entryControlPromise, builderPromise]);
+
+        const selector = document.createElement('div');
+        selector.className = 'list-subtabs';
+        selector.setAttribute('role', 'tablist');
+        listTabConfig.forEach(cfg => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'list-subtab';
+          btn.textContent = cfg.label;
+          btn.dataset.listKind = cfg.kind;
+          btn.setAttribute('role', 'tab');
+          if (cfg.kind === kind) btn.classList.add('active');
+          btn.addEventListener('click', () => {
+            if (setSubtab('Lists', cfg.label)) {
+              renderApp();
+            }
+          });
+          selector.appendChild(btn);
+        });
+        const countBadge = document.createElement('span');
+        countBadge.className = 'list-count-badge';
+        countBadge.setAttribute('aria-live', 'polite');
+        selector.appendChild(countBadge);
+        content.appendChild(selector);
+
+        const listHost = document.createElement('div');
+        listHost.className = 'list-host';
+        content.appendChild(listHost);
+
+        const listFilters = state.listFilters || {};
+        const filter = { ...listFilters, types: [kind], query: state.listQuery };
+        let items = await loadListItems(filter);
+        const hasActiveFilters = Boolean(
+          state.listQuery || listFilters.block || listFilters.week || listFilters.onlyFav
+        );
+        if (!items.length && hasActiveFilters) {
+          const fallbackFilter = {
+            ...listFilters,
+            types: [kind],
+            block: '',
+            week: '',
+            onlyFav: false,
+            query: ''
+          };
+          const fallbackItems = await loadListItems(fallbackFilter);
+          if (fallbackItems.length) {
+            if (typeof setListFilters === 'function') {
+              setListFilters({ block: '', week: '', onlyFav: false });
+            }
+            if (state.listQuery && typeof setListQuery === 'function') setListQuery('');
+            items = fallbackItems;
+          }
+        }
+        const summary = document.createElement('div');
+        summary.className = 'list-summary';
+        const count = document.createElement('div');
+        count.className = 'list-summary-count';
+        count.textContent = `${items.length} ${listMeta.label.toLowerCase()} entr${items.length === 1 ? 'y' : 'ies'}`;
+        summary.appendChild(count);
+        const chips = document.createElement('div');
+        chips.className = 'list-summary-chips';
+        const addChip = (label) => {
+          const chip = document.createElement('span');
+          chip.className = 'list-summary-chip';
+          chip.textContent = label;
+          chips.appendChild(chip);
+        };
+        if (state.listQuery) addChip(`Search: ${state.listQuery}`);
+        if (listFilters.block) addChip(`Block: ${listFilters.block}`);
+        if (listFilters.week) addChip(`Week: ${listFilters.week}`);
+        if (listFilters.onlyFav) addChip('Favorites only');
+        if (chips.childElementCount) {
+          summary.appendChild(chips);
+        }
+        const actions = document.createElement('div');
+        actions.className = 'list-summary-actions';
+        if (hasActiveFilters) {
+          const clearBtn = document.createElement('button');
+          clearBtn.type = 'button';
+          clearBtn.className = 'btn secondary';
+          clearBtn.textContent = 'Clear list filters';
+          clearBtn.addEventListener('click', () => {
+            setListFilters({ block: '', week: '', onlyFav: false });
+            if (state.listQuery) setListQuery('');
+            renderApp();
+          });
+          actions.appendChild(clearBtn);
+        }
+        summary.appendChild(actions);
+        content.insertBefore(summary, listHost);
+        const renderPromise = renderCardList(listHost, items, kind, renderApp);
+        await Promise.all([entryControlPromise, renderPromise]);
+        scheduleTabScrollRestore(content);
+      } else if (state.tab === 'Block Board') {
+        const content = document.createElement('div');
+        content.className = 'tab-content';
+        main.appendChild(content);
+        const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
+          .then(control => {
+            if (control) {
+              main.insertBefore(control, content);
+            }
+          })
+          .catch(err => {
+            console.warn('Failed to create block board entry control', err);
+          });
+        const renderPromise = renderBlockBoard(content, renderApp);
+        await Promise.all([entryControlPromise, renderPromise]);
+        restoreTabScroll(content);
+      } else if (state.tab === 'Lectures') {
+        const content = document.createElement('div');
+        content.className = 'tab-content';
+        main.appendChild(content);
+        await renderLectures(content, renderApp);
+        restoreTabScroll(content);
+      } else if (state.tab === 'Cards') {
+        const content = document.createElement('div');
+        content.className = 'tab-content';
+        main.appendChild(content);
+        const filter = { types: state.filters?.types, sort: state.filters?.sort, query: state.query };
+        const query = findItemsByFilter(filter);
+        const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
+          .then(control => {
+            if (control) {
+              main.insertBefore(control, content);
+            }
+          })
+          .catch(err => {
+            console.warn('Failed to create cards entry control', err);
+          });
+        const itemsPromise = query.toArray();
+        const cardsPromise = itemsPromise.then(items => renderCards(content, items, renderApp));
+        await Promise.all([entryControlPromise, cardsPromise]);
+        scheduleTabScrollRestore(content);
+      } else if (state.tab === 'Study') {
+        const content = document.createElement('div');
+        content.className = 'tab-content';
+        main.appendChild(content);
+        const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
+          .then(control => {
+            if (control) {
+              main.insertBefore(control, content);
+            }
+          })
+          .catch(err => {
+            console.warn('Failed to create study entry control', err);
+          });
+        if (state.flashSession) {
+          await Promise.all([
+            entryControlPromise,
+            renderFlashcards(content, renderApp)
+          ]);
+        } else if (state.quizSession) {
+          await Promise.all([
+            entryControlPromise,
+            renderQuiz(content, renderApp)
+          ]);
+        } else {
+          const activeStudy = state.subtab.Study === 'Blocks' ? 'Blocks' : (state.subtab.Study || 'Builder');
+          if (activeStudy === 'Review') {
+            await Promise.all([
+              entryControlPromise,
+              renderReview(content, renderApp)
+            ]);
+          } else if (activeStudy === 'Blocks') {
+            await Promise.all([
+              entryControlPromise,
+              renderBlockMode(content, renderApp)
+            ]);
+          } else {
+            const wrap = document.createElement('div');
+            const builderPromise = renderBuilder(wrap, renderApp).then(() => {
+              content.appendChild(wrap);
+            });
+            await Promise.all([entryControlPromise, builderPromise]);
+          }
+        }
+        restoreTabScroll(content);
+      } else if (state.tab === 'Exams') {
+        const content = document.createElement('div');
+        content.className = 'tab-content';
+        main.appendChild(content);
+        const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
+          .then(control => {
+            if (control) {
+              main.insertBefore(control, content);
+            }
+          })
+          .catch(err => {
+            console.warn('Failed to create exams entry control', err);
+          });
+        if (state.examSession) {
+          await Promise.all([
+            entryControlPromise,
+            renderExamRunner(content, renderApp)
+          ]);
+        } else if (state.subtab?.Exams === 'QBank') {
+          await Promise.all([
+            entryControlPromise,
+            renderQBank(content, renderApp)
+          ]);
+        } else {
+          await Promise.all([
+            entryControlPromise,
+            renderExams(content, renderApp)
+          ]);
+        }
+        restoreTabScroll(content);
+      } else {
+        main.textContent = `Currently viewing: ${state.tab}`;
+      }
+    } catch (err) {
+      console.error('Failed to render app', err);
+      if (main) {
+        main.innerHTML = '';
+        if (previousNodes.length) {
+          previousNodes.forEach(node => main.appendChild(node));
+        } else {
+          const fallback = document.createElement('div');
+          fallback.className = 'tab-content';
+          fallback.textContent = 'Something went wrong while rendering this view.';
+          main.appendChild(fallback);
         }
       }
-      restoreTabScroll(content);
-    } else if (state.tab === 'Exams') {
-      const content = document.createElement('div');
-      content.className = 'tab-content';
-      main.appendChild(content);
-      const entryControlPromise = Promise.resolve(createEntryAddControl(renderApp, 'disease'))
-        .then(control => {
-          if (control) {
-            main.insertBefore(control, content);
-          }
-        })
-        .catch(err => {
-          console.warn('Failed to create exams entry control', err);
-        });
-      if (state.examSession) {
-        await Promise.all([
-          entryControlPromise,
-          renderExamRunner(content, renderApp)
-        ]);
-      } else if (state.subtab?.Exams === 'QBank') {
-        await Promise.all([
-          entryControlPromise,
-          renderQBank(content, renderApp)
-        ]);
-      } else {
-        await Promise.all([
-          entryControlPromise,
-          renderExams(content, renderApp)
-        ]);
-      }
-      restoreTabScroll(content);
-    } else {
-      main.textContent = `Currently viewing: ${state.tab}`;
     }
   }
 
