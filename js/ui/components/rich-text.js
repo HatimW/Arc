@@ -4199,7 +4199,14 @@ function detachClozeHandlers(container){
   delete container.__clozeHandlers;
 }
 
-function enhanceClozeContent(target, { clozeMode = 'static' } = {}){
+function resetClozeStates(target){
+  if (!target) return;
+  const nodes = target.querySelectorAll(CLOZE_SELECTOR);
+  if (!nodes.length) return;
+  nodes.forEach(node => setClozeState(node, CLOZE_STATE_HIDDEN));
+}
+
+function enhanceClozeContent(target, { clozeMode = 'static', resetClozeState = false } = {}){
   const nodes = target.querySelectorAll(CLOZE_SELECTOR);
   if (!nodes.length) {
     target.classList.remove('rich-content-with-cloze');
@@ -4215,7 +4222,9 @@ function enhanceClozeContent(target, { clozeMode = 'static' } = {}){
       if (!node.hasAttribute('tabindex')) node.setAttribute('tabindex', '0');
       node.setAttribute('role', 'button');
       const current = node.getAttribute('data-cloze-state');
-      if (current !== CLOZE_STATE_REVEALED && current !== CLOZE_STATE_HIDDEN) {
+      if (resetClozeState) {
+        setClozeState(node, CLOZE_STATE_HIDDEN);
+      } else if (current !== CLOZE_STATE_REVEALED && current !== CLOZE_STATE_HIDDEN) {
         setClozeState(node, CLOZE_STATE_HIDDEN);
       } else {
         setClozeState(node, current);
@@ -4281,7 +4290,8 @@ export function renderRichText(target, value, options = {}){
   enhanceRichContentImages(target, options);
 }
 
+export { resetClozeStates };
+
 export function hasRichTextContent(value){
   return !isEmptyHtml(normalizeInput(value));
 }
-

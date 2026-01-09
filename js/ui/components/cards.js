@@ -1,5 +1,5 @@
 import { state, setCardsState } from '../../state.js';
-import { renderRichText } from './rich-text.js';
+import { renderRichText, resetClozeStates } from './rich-text.js';
 import { openEditor } from './editor.js';
 import { loadBlockCatalog } from '../../storage/block-catalog.js';
 import { reportListComplexity, getPerformanceMode } from '../performance.js';
@@ -780,6 +780,7 @@ export async function renderCards(container, items, onChange) {
 
     const baseContext = { block, week, lecture };
     const slideCache = new WeakMap();
+    let activeItem = null;
 
     const handleCardEdited = item => {
       deckDirty = true;
@@ -801,12 +802,12 @@ export async function renderCards(container, items, onChange) {
 
     function acquireSlide(item) {
       if (!slideCache.has(item)) {
-        slideCache.set(item, () => createDeckSlide(item, baseContext, { allowEdit: true }));
+        const slide = createDeckSlide(item, baseContext, { allowEdit: true });
+        prepareSlideActions(slide, item);
+        slideCache.set(item, slide);
       }
-      const factory = slideCache.get(item);
-      const slide = factory();
+      const slide = slideCache.get(item);
       slide.classList.add('deck-slide-full');
-      prepareSlideActions(slide, item);
       return slide;
     }
 
@@ -961,13 +962,22 @@ export async function renderCards(container, items, onChange) {
       }
     }
 
-    function renderCard() {
+    function resetActiveCloze() {
+      if (!activeItem) return;
+      const slide = slideCache.get(activeItem);
+      if (slide) {
+        resetClozeStates(slide);
+      }
+    }
 
+    function renderCard() {
       const current = lecture.cards[idx];
+      activeItem = current;
       const slide = acquireSlide(current);
       const accent = getItemAccent(current);
       const multiple = lecture.cards.length > 1;
       runMutation(() => {
+        resetClozeStates(slide);
         slideHolder.innerHTML = '';
         slideHolder.appendChild(slide);
         viewer.style.setProperty('--deck-current-accent', accent);
@@ -980,11 +990,13 @@ export async function renderCards(container, items, onChange) {
     }
 
     prev.addEventListener('click', () => {
+      resetActiveCloze();
       idx = (idx - 1 + lecture.cards.length) % lecture.cards.length;
       renderCard();
     });
 
     next.addEventListener('click', () => {
+      resetActiveCloze();
       idx = (idx + 1) % lecture.cards.length;
       renderCard();
     });
@@ -996,7 +1008,6 @@ export async function renderCards(container, items, onChange) {
 
       updateToggle(lecture.cards[idx], { schedule: false });
       renderRelated(lecture.cards[idx], { schedule: false });
-
     });
 
     const keyHandler = event => {
@@ -1213,7 +1224,7 @@ export async function renderCards(container, items, onChange) {
       bodyWrap.className = 'deck-section-body';
       const content = document.createElement('div');
       content.className = 'deck-section-content';
-      renderRichText(content, bodyHtml, { clozeMode: 'interactive' });
+      renderRichText(content, bodyHtml, { clozeMode: 'interactive', resetClozeState: true });
       bodyWrap.appendChild(content);
 
       section.appendChild(headerBtn);

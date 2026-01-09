@@ -422,15 +422,26 @@ function renderBlockPanel(context, rerender) {
   const weekList = document.createElement('div');
   weekList.className = 'builder-week-list';
   weekList.hidden = blockCollapsed;
-  if (!weeks.length) {
-    const empty = document.createElement('div');
-    empty.className = 'builder-empty';
-    empty.textContent = 'No lectures added yet.';
-    weekList.appendChild(empty);
-  } else {
+
+  const populateWeeks = () => {
+    if (weekList.dataset.populated === 'true') return;
+    weekList.dataset.populated = 'true';
+    if (!weeks.length) {
+      const empty = document.createElement('div');
+      empty.className = 'builder-empty';
+      empty.textContent = 'No lectures added yet.';
+      weekList.appendChild(empty);
+      return;
+    }
+    const frag = document.createDocumentFragment();
     weeks.forEach(({ week, items }) => {
-      weekList.appendChild(renderWeek(block, week, items, rerender));
+      frag.appendChild(renderWeek(block, week, items, rerender));
     });
+    weekList.appendChild(frag);
+  };
+
+  if (!blockCollapsed) {
+    populateWeeks();
   }
   card.appendChild(weekList);
   return card;
@@ -494,9 +505,13 @@ function renderWeek(block, week, lectures, rerender) {
   const lectureList = document.createElement('div');
   lectureList.className = 'builder-lecture-list';
   lectureList.hidden = weekCollapsed;
-  lectures.forEach(lecture => {
-    lectureList.appendChild(renderLecture(block, lecture, rerender));
-  });
+  if (!weekCollapsed) {
+    const frag = document.createDocumentFragment();
+    lectures.forEach(lecture => {
+      frag.appendChild(renderLecture(block, lecture, rerender));
+    });
+    lectureList.appendChild(frag);
+  }
   row.appendChild(lectureList);
 
   return row;
