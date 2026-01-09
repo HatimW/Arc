@@ -246,7 +246,7 @@ export function renderQuiz(root, redraw) {
 
       const body = document.createElement('div');
       body.className = 'quiz-section-body';
-      renderRichText(body, content || '', { clozeMode: 'interactive' });
+      renderRichText(body, content || '', { clozeMode: 'interactive', resetClozeState: true });
       block.appendChild(body);
 
       details.appendChild(block);

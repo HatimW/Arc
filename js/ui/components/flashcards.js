@@ -521,7 +521,7 @@ export function renderFlashcards(root, redraw) {
 
     const body = document.createElement('div');
     body.className = 'flash-body';
-    renderRichText(body, content || '', { clozeMode: 'interactive' });
+    renderRichText(body, content || '', { clozeMode: 'interactive', resetClozeState: true });
 
     const ratingRow = document.createElement('div');
     ratingRow.className = 'flash-rating';
