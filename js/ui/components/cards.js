@@ -972,6 +972,22 @@ export async function renderCards(container, items, onChange) {
 
     function renderCard() {
       const current = lecture.cards[idx];
+      if (!current) {
+        runMutation(() => {
+          slideHolder.innerHTML = '';
+          const empty = document.createElement('div');
+          empty.className = 'deck-empty';
+          empty.textContent = 'This card is no longer available in this deck.';
+          slideHolder.appendChild(empty);
+          counter.textContent = 'Card unavailable';
+          prev.disabled = true;
+          next.disabled = true;
+          toggle.disabled = true;
+          toggle.dataset.active = 'false';
+          toggle.setAttribute('aria-expanded', 'false');
+        });
+        return;
+      }
       activeItem = current;
       const slide = acquireSlide(current);
       const accent = getItemAccent(current);

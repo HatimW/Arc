@@ -1,6 +1,7 @@
 
 import { setFlashSession, setSubtab, setCohort } from '../../state.js';
 import {
+  collectAllSections,
   collectDueSections,
   getReviewDurations,
   rateSection,
@@ -81,6 +82,18 @@ function formatIntervalMinutes(minutes) {
   if (months < 12) return `${months} mo`;
   const years = Math.round(months / 12);
   return `${years} yr`;
+}
+
+function formatDueRelative(due, now) {
+  if (!Number.isFinite(due) || due <= 0) return 'Not reviewed yet';
+  if (due <= now) return formatOverdue(due, now);
+  const minutes = Math.max(1, Math.round((due - now) / (60 * 1000)));
+  return `in ${formatIntervalMinutes(minutes)}`;
+}
+
+function formatDueTimestamp(due) {
+  if (!Number.isFinite(due) || due <= 0 || due === Number.MAX_SAFE_INTEGER) return 'Not scheduled';
+  return new Date(due).toLocaleString();
 }
 
 const COUNT_ORDER = ['new', 'learning', 'review'];
@@ -559,6 +572,100 @@ function createCollapsibleNode({
   details.appendChild(content);
 
   return { element: details, content, actions };
+}
+
+function createSectionEntryList(entries, {
+  now = Date.now(),
+  blockTitles,
+  blockAccents,
+  startSession
+} = {}) {
+  const list = document.createElement('ul');
+  list.className = 'review-entry-list';
+  if (!Array.isArray(entries) || !entries.length) {
+    return list;
+  }
+
+  const fragment = document.createDocumentFragment();
+  entries.forEach(entry => {
+    if (!entry?.item) return;
+    const refs = resolveEntryRefs(entry, blockTitles, blockAccents);
+    const context = refs[0];
+    const due = entry.due;
+    const hasLast = Boolean(entry?.state?.last);
+    const isUpcoming = !hasLast || (Number.isFinite(due) && due > now);
+
+    const itemEl = document.createElement('li');
+    itemEl.className = 'review-entry';
+    if (isUpcoming) itemEl.classList.add('is-upcoming');
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'review-entry-trigger';
+    trigger.addEventListener('click', () => {
+      startSession(buildSessionPayload([entry]), {
+        scope: 'section',
+        label: `${titleOf(entry.item)} — ${entry.sectionLabel || 'Section'}`
+      });
+    });
+
+    const title = document.createElement('div');
+    title.className = 'review-entry-title';
+    title.textContent = `${titleOf(entry.item)} — ${entry.sectionLabel || 'Section'}`;
+    trigger.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'review-entry-meta';
+    if (context) {
+      meta.textContent = `${context.blockTitle} • ${context.weekLabel} • ${context.lectureLabel}`;
+    } else {
+      meta.textContent = 'Unassigned';
+    }
+    trigger.appendChild(meta);
+
+    const extra = document.createElement('div');
+    extra.className = 'review-entry-extra';
+
+    const phaseChip = document.createElement('span');
+    phaseChip.className = 'review-entry-chip';
+    phaseChip.dataset.chip = 'phase';
+    phaseChip.dataset.phase = entry.phase || 'new';
+    phaseChip.textContent = describePhase(entry.phase);
+    extra.appendChild(phaseChip);
+
+    const dueChip = document.createElement('span');
+    dueChip.className = 'review-entry-chip';
+    dueChip.dataset.chip = 'interval';
+    dueChip.textContent = isUpcoming ? 'Next review' : 'Due';
+    const dueSubtext = document.createElement('span');
+    dueSubtext.className = 'review-entry-subtext';
+    dueSubtext.textContent = `${formatDueRelative(due, now)} • ${formatDueTimestamp(due)}`;
+    dueChip.appendChild(dueSubtext);
+    extra.appendChild(dueChip);
+
+    trigger.appendChild(extra);
+    itemEl.appendChild(trigger);
+
+    const actionWrap = document.createElement('div');
+    actionWrap.className = 'review-entry-actions';
+    const reviewBtn = document.createElement('button');
+    reviewBtn.type = 'button';
+    reviewBtn.className = 'btn tertiary';
+    reviewBtn.textContent = isUpcoming ? 'Review early' : 'Review now';
+    reviewBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      startSession(buildSessionPayload([entry]), {
+        scope: 'section',
+        label: `${titleOf(entry.item)} — ${entry.sectionLabel || 'Section'}`
+      });
+    });
+    actionWrap.appendChild(reviewBtn);
+    itemEl.appendChild(actionWrap);
+
+    fragment.appendChild(itemEl);
+  });
+  list.appendChild(fragment);
+  return list;
 }
 
 export function openEntryManager(hierarchy, {
@@ -1697,6 +1804,7 @@ export async function renderReview(root, redraw) {
   setCohort(cohort);
 
   const now = Date.now();
+  const allEntries = collectAllSections(cohort, { now });
   const dueEntries = collectDueSections(cohort, { now });
   const totals = summarizeEntryCounts(dueEntries);
   const totalDue = totalCount(totals);
@@ -1810,6 +1918,45 @@ export async function renderReview(root, redraw) {
     resumeRow.appendChild(resumeBtn);
     wrapper.appendChild(resumeRow);
   }
+
+  const sectionQueue = document.createElement('section');
+  sectionQueue.className = 'review-upcoming-section';
+  const sectionHeading = document.createElement('h3');
+  sectionHeading.className = 'review-upcoming-title';
+  sectionHeading.textContent = 'Section queue';
+  sectionQueue.appendChild(sectionHeading);
+  const sectionNote = document.createElement('div');
+  sectionNote.className = 'review-upcoming-note';
+  sectionNote.textContent = 'Each card section is reviewed independently. Upcoming sections stay visible with their next review timing.';
+  sectionQueue.appendChild(sectionNote);
+  if (allEntries.length) {
+    const sortedEntries = allEntries.slice().sort((a, b) => {
+      const aDue = Number.isFinite(a?.due) ? a.due : Number.MAX_SAFE_INTEGER;
+      const bDue = Number.isFinite(b?.due) ? b.due : Number.MAX_SAFE_INTEGER;
+      const aHasLast = Boolean(a?.state?.last);
+      const bHasLast = Boolean(b?.state?.last);
+      const aIsDue = aHasLast && aDue <= now;
+      const bIsDue = bHasLast && bDue <= now;
+      if (aIsDue !== bIsDue) return aIsDue ? -1 : 1;
+      const aScheduled = aHasLast && aDue > now;
+      const bScheduled = bHasLast && bDue > now;
+      if (aScheduled !== bScheduled) return aScheduled ? -1 : 1;
+      if (aHasLast !== bHasLast) return aHasLast ? -1 : 1;
+      return aDue - bDue;
+    });
+    sectionQueue.appendChild(createSectionEntryList(sortedEntries, {
+      now,
+      blockTitles,
+      blockAccents,
+      startSession
+    }));
+  } else {
+    const emptyNote = document.createElement('div');
+    emptyNote.className = 'review-empty';
+    emptyNote.textContent = 'No sections available yet.';
+    sectionQueue.appendChild(emptyNote);
+  }
+  wrapper.appendChild(sectionQueue);
 
   const body = document.createElement('div');
   body.className = 'review-body';
