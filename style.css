@@ -5729,6 +5729,16 @@ body[data-performance-mode='conservative'] .deck-viewer {
   gap: clamp(18px, 2.5vw, 28px);
 }
 
+.deck-empty {
+  padding: clamp(24px, 4vw, 40px);
+  border-radius: var(--radius);
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  color: rgba(226, 232, 240, 0.8);
+  text-align: center;
+  font-size: 0.95rem;
+}
+
 .deck-card-summary {
   display: flex;
   flex-direction: column;
@@ -9974,6 +9984,9 @@ button.question-map__item[data-change-direction="returned"] {
   padding: var(--pad-sm);
   border: 1px solid rgba(148, 163, 184, 0.22);
   box-shadow: 0 12px 28px rgba(2, 6, 23, 0.28);
+  display: flex;
+  align-items: center;
+  gap: var(--pad-sm);
   transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 

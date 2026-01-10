@@ -410,6 +410,10 @@ export function collectDueSections(items, { now = Date.now() } = {}) {
   });
 }
 
+export function collectAllSections(items, { now = Date.now() } = {}) {
+  return collectReviewEntries(items, { now });
+}
+
 export function collectUpcomingSections(items, { now = Date.now(), limit = 50 } = {}) {
   const entries = collectReviewEntries(items, {
     now,
