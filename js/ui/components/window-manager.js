@@ -64,13 +64,13 @@ function setupDragging(win, header){
 
 export function createFloatingWindow({ title, width = 520, onClose, onBeforeClose } = {}){
   ensureDock();
-  const releaseWindow = registerWindowPresence();
+  const windowPresence = registerWindowPresence();
   let releasedWindow = false;
 
   function finalizeRelease(){
     if (releasedWindow) return;
     releasedWindow = true;
-    releaseWindow();
+    windowPresence.release();
   }
   const win = document.createElement('div');
   win.className = 'floating-window';
@@ -221,6 +221,7 @@ export function createFloatingWindow({ title, width = 520, onClose, onBeforeClos
     minimized = true;
     win.classList.add('minimized');
     win.style.display = 'none';
+    windowPresence.setActive(false);
     dock.classList.add('open');
     dockButton = document.createElement('button');
     dockButton.type = 'button';
@@ -246,6 +247,7 @@ export function createFloatingWindow({ title, width = 520, onClose, onBeforeClos
     win.classList.remove('minimized');
     win.style.display = '';
     bringToFront(win);
+    windowPresence.setActive(true);
     destroyDockButton();
   }
 

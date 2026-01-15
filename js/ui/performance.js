@@ -189,11 +189,24 @@ export function registerWindowPresence() {
   windowCount += 1;
   scheduleRecompute();
   let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    windowCount = Math.max(0, windowCount - 1);
-    scheduleRecompute();
+  let active = true;
+  return {
+    setActive(nextActive) {
+      if (released) return;
+      const normalized = Boolean(nextActive);
+      if (normalized === active) return;
+      active = normalized;
+      windowCount = Math.max(0, windowCount + (active ? 1 : -1));
+      scheduleRecompute();
+    },
+    release() {
+      if (released) return;
+      released = true;
+      if (active) {
+        windowCount = Math.max(0, windowCount - 1);
+      }
+      scheduleRecompute();
+    }
   };
 }
 
@@ -225,4 +238,3 @@ export function forcePerformanceMode(nextMode) {
   if (!['standard', 'balanced', 'conservative'].includes(nextMode)) return;
   applyMode(nextMode);
 }
-

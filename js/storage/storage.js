@@ -43,6 +43,11 @@ const DEFAULT_APP_SETTINGS = {
 };
 
 let backupTimer = null;
+let backupIdleHandle = null;
+const runBackupWhenIdle = typeof requestIdleCallback === 'function' ? requestIdleCallback : null;
+const cancelBackupIdle = typeof cancelIdleCallback === 'function' ? cancelIdleCallback : null;
+const BACKUP_DEBOUNCE_MS = 4000;
+const BACKUP_IDLE_TIMEOUT = 20000;
 
 const KIND_VARIANTS = {
   disease: ['disease', 'diseases', 'Disease', 'Diseases', 'DISEASE', 'DISEASES'],
@@ -156,10 +161,24 @@ async function writeDataBackup() {
 function scheduleBackup() {
   if (!canUseStorage()) return;
   if (backupTimer) clearTimeout(backupTimer);
+  if (backupIdleHandle != null && cancelBackupIdle) {
+    cancelBackupIdle(backupIdleHandle);
+    backupIdleHandle = null;
+  }
   backupTimer = setTimeout(() => {
     backupTimer = null;
-    writeDataBackup().catch(err => console.warn('Backup write failed', err));
-  }, 1000);
+    const runBackup = () => {
+      writeDataBackup().catch(err => console.warn('Backup write failed', err));
+    };
+    if (runBackupWhenIdle) {
+      backupIdleHandle = runBackupWhenIdle(() => {
+        backupIdleHandle = null;
+        runBackup();
+      }, { timeout: BACKUP_IDLE_TIMEOUT });
+      return;
+    }
+    runBackup();
+  }, BACKUP_DEBOUNCE_MS);
 }
 
 async function maybeRestoreFromBackup() {
