@@ -49,6 +49,9 @@ export function createAppShell({
   let queryUpdateTimer = 0;
   const tabScrollState = new Map();
   let listRepairAttempted = false;
+  let renderInProgress = false;
+  let renderPending = false;
+  let renderPromise = null;
 
   async function loadListItems(filter) {
     let items = [];
@@ -278,7 +281,7 @@ export function createAppShell({
     return shell;
   }
 
-  async function renderApp() {
+  async function performRender() {
     if (typeof document !== 'undefined') {
       document.body.classList.remove('is-deck-open');
       document.body.classList.remove('is-occlusion-workspace-open');
@@ -563,6 +566,27 @@ export function createAppShell({
         }
       }
     }
+  }
+
+  function renderApp() {
+    if (renderInProgress) {
+      renderPending = true;
+      return renderPromise || Promise.resolve();
+    }
+    renderInProgress = true;
+    renderPromise = (async () => {
+      while (true) {
+        renderPending = false;
+        try {
+          await performRender();
+        } catch (err) {
+          console.error('Render cycle failed', err);
+        }
+        if (!renderPending) break;
+      }
+      renderInProgress = false;
+    })();
+    return renderPromise;
   }
 
   return { renderApp, tabs, resolveListKind };

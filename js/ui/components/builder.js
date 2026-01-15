@@ -65,7 +65,7 @@ function ensureCohortSync({ force = false } = {}) {
     })
     .catch(err => {
       console.warn('Failed to assemble study cohort', err);
-      throw err;
+      return Array.isArray(state.cohort) ? state.cohort : [];
     })
     .finally(() => {
       if (pendingCohortUpdate && pendingCohortUpdate.signature === signature) {
